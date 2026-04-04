@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flowstate Audio — Professional DAW</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0f0f1a;--panel:#1a1a2e;--card:#16213e;--accent:#a855f7;--green:#10b981;--cyan:#06b6d4;--pink:#ec4899;--warn:#f59e0b;--text:#f0f0f0;--muted:#9ca3af;--dim:#6b7280}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif;min-height:100vh;overflow-x:hidden}
+
+/* Nav */
+nav{display:flex;align-items:center;justify-content:space-between;padding:16px 40px;border-bottom:1px solid rgba(255,255,255,.07);position:sticky;top:0;background:rgba(15,15,26,.95);backdrop-filter:blur(12px);z-index:100}
+.nav-brand{display:flex;align-items:center;gap:10px;font-size:17px;font-weight:900;background:linear-gradient(135deg,#10b981,#06b6d4,#a855f7);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.nav-links{display:flex;align-items:center;gap:20px}
+.nav-links a{color:var(--muted);text-decoration:none;font-size:13px;transition:.15s}
+.nav-links a:hover{color:var(--text)}
+.nav-dl{padding:8px 18px;border-radius:8px;background:linear-gradient(135deg,#10b981,#06b6d4);color:#fff;font-size:13px;font-weight:700;text-decoration:none;transition:.15s}
+.nav-dl:hover{opacity:.88}
+
+/* Hero */
+.hero{text-align:center;padding:100px 24px 80px;max-width:900px;margin:0 auto}
+.hero-icon{font-size:72px;margin-bottom:20px;display:block}
+.hero h1{font-size:clamp(40px,7vw,72px);font-weight:900;line-height:1.05;margin-bottom:16px;background:linear-gradient(135deg,#10b981,#06b6d4 40%,#a855f7);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.hero-sub{font-size:clamp(15px,2.5vw,20px);color:var(--muted);margin-bottom:12px;line-height:1.6}
+.hero-tagline{font-size:14px;color:var(--dim);margin-bottom:40px}
+.dl-buttons{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:20px}
+.dl-btn{display:inline-flex;align-items:center;gap:9px;padding:14px 26px;border-radius:12px;font-size:14px;font-weight:800;text-decoration:none;transition:.2s;border:1px solid transparent}
+.dl-btn:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(0,0,0,.3)}
+.dl-mac{background:linear-gradient(135deg,#10b981,#06b6d4);color:#fff}
+.dl-win{background:rgba(6,182,212,.1);color:#06b6d4;border-color:rgba(6,182,212,.3)}
+.dl-win:hover{background:rgba(6,182,212,.2)}
+.dl-linux{background:rgba(168,85,247,.1);color:#a855f7;border-color:rgba(168,85,247,.3)}
+.dl-linux:hover{background:rgba(168,85,247,.2)}
+.hero-note{font-size:12px;color:var(--dim)}
+.hero-note a{color:var(--accent);text-decoration:none}
+.hero-note a:hover{text-decoration:underline}
+
+/* Screenshot mockup */
+.mockup{max-width:1000px;margin:0 auto 80px;padding:0 24px}
+.mockup-frame{background:var(--panel);border:1px solid rgba(255,255,255,.08);border-radius:16px;overflow:hidden;box-shadow:0 40px 100px rgba(0,0,0,.5)}
+.mockup-titlebar{display:flex;align-items:center;gap:6px;padding:10px 16px;background:rgba(0,0,0,.3);border-bottom:1px solid rgba(255,255,255,.06)}
+.dot{width:12px;height:12px;border-radius:50%}
+.dot-red{background:#ef4444}.dot-yellow{background:#f59e0b}.dot-green{background:#10b981}
+.mockup-titlebar-label{margin-left:auto;margin-right:auto;font-size:11px;color:var(--dim);font-weight:600}
+.mockup-body{padding:0}
+.mockup-toolbar{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--panel);border-bottom:1px solid rgba(255,255,255,.07)}
+.mock-brand{font-size:13px;font-weight:900;background:linear-gradient(135deg,#10b981,#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.mock-tbt{width:28px;height:28px;border-radius:6px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--muted)}
+.mock-tbt.play{background:linear-gradient(135deg,#10b981,#06b6d4);border-color:transparent;color:#fff;font-size:13px}
+.mock-lcd{background:#0a0a14;border:1px solid rgba(16,185,129,.2);border-radius:6px;padding:3px 10px;font-family:monospace;color:#10b981;font-size:13px;font-weight:900;min-width:120px;text-align:center}
+.mock-bpm{font-size:13px;font-weight:700;color:var(--dim);font-size:11px}
+.mock-bpm-val{font-size:16px;font-weight:900;color:var(--text)}
+.mock-main{display:flex;height:340px}
+.mock-tracks{width:180px;background:var(--panel);border-right:1px solid rgba(255,255,255,.07);flex-shrink:0}
+.mock-track{height:68px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;gap:6px;padding:6px 10px;border-left:3px solid}
+.mock-track-name{font-size:11px;font-weight:700;color:var(--text)}
+.mock-track-btns{display:flex;gap:2px;margin-top:4px}
+.mock-btn{width:16px;height:16px;border-radius:3px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);font-size:8px;color:var(--muted);display:flex;align-items:center;justify-content:center}
+.mock-timeline{flex:1;background:var(--bg);overflow:hidden;position:relative}
+.mock-ruler{height:24px;background:rgba(26,26,46,.95);border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:flex-end;padding-bottom:3px;gap:0}
+.mock-bar{font-size:9px;color:var(--dim);padding:0 0 2px 4px;min-width:60px;border-left:1px solid rgba(255,255,255,.06)}
+.mock-lanes{position:relative}
+.mock-lane{height:68px;border-bottom:1px solid rgba(255,255,255,.05);position:relative}
+.mock-clip{position:absolute;top:6px;height:56px;border-radius:5px;overflow:hidden;border:1px solid rgba(255,255,255,.15)}
+.mock-clip-name{font-size:9px;font-weight:700;color:#fff;padding:2px 5px;text-shadow:0 1px 2px rgba(0,0,0,.6)}
+.mock-wave{position:absolute;inset:0;top:16px;opacity:.4}
+.mock-playhead{position:absolute;top:0;bottom:0;width:2px;background:linear-gradient(180deg,#10b981,#06b6d4);box-shadow:0 0 6px rgba(16,185,129,.5)}
+.mock-mixer{height:120px;border-top:1px solid rgba(255,255,255,.07);display:flex;gap:0;padding:8px;overflow:hidden}
+.mock-ch{width:64px;flex-shrink:0;background:var(--card);border:1px solid rgba(255,255,255,.07);border-radius:8px;padding:6px;display:flex;flex-direction:column;align-items:center;gap:3px;margin-right:4px}
+.mock-ch-name{font-size:9px;font-weight:700;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:100%}
+.mock-fader{height:50px;width:4px;background:linear-gradient(180deg,var(--accent),rgba(168,85,247,.2));border-radius:2px;margin:0 auto}
+.mock-vu{display:flex;flex-direction:column;gap:1px;height:50px;width:6px}
+.mock-vu-seg{border-radius:1px;flex:1}
+
+/* Features */
+.section{padding:60px 24px;max-width:1080px;margin:0 auto}
+.section-title{font-size:clamp(24px,4vw,36px);font-weight:900;text-align:center;margin-bottom:10px}
+.section-sub{font-size:14px;color:var(--muted);text-align:center;margin-bottom:48px;line-height:1.6;max-width:600px;margin-left:auto;margin-right:auto}
+.features-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px}
+.feat-card{background:var(--card);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:20px;transition:.2s}
+.feat-card:hover{border-color:rgba(255,255,255,.15);transform:translateY(-2px)}
+.feat-icon{font-size:28px;margin-bottom:10px}
+.feat-title{font-size:14px;font-weight:800;margin-bottom:6px}
+.feat-desc{font-size:12px;color:var(--muted);line-height:1.7}
+
+/* Logic Pro comparison */
+.comparison{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:860px;margin:0 auto}
+.comp-card{background:var(--card);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:24px}
+.comp-title{font-size:13px;font-weight:800;margin-bottom:14px;display:flex;align-items:center;gap:7px}
+.comp-list{display:flex;flex-direction:column;gap:6px}
+.comp-item{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:7px}
+.comp-item::before{content:"✓";color:var(--green);font-weight:900;font-size:11px}
+
+/* ClawFlow */
+.clawflow-section{background:linear-gradient(135deg,rgba(168,85,247,.08),rgba(6,182,212,.05));border:1px solid rgba(168,85,247,.2);border-radius:20px;padding:40px;text-align:center;max-width:700px;margin:0 auto 60px}
+.cf-icon{font-size:48px;margin-bottom:12px}
+.cf-title{font-size:26px;font-weight:900;margin-bottom:8px}
+.cf-sub{font-size:14px;color:var(--muted);margin-bottom:24px;line-height:1.7}
+.price-row{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:8px}
+.orig-price{font-size:20px;font-weight:700;color:var(--dim);text-decoration:line-through}
+.new-price{font-size:32px;font-weight:900;background:linear-gradient(135deg,#a855f7,#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.discount-badge{font-size:12px;font-weight:700;padding:3px 9px;border-radius:6px;background:rgba(16,185,129,.15);color:var(--green)}
+.cf-features{list-style:none;display:flex;flex-direction:column;gap:7px;text-align:left;max-width:360px;margin:16px auto 24px}
+.cf-features li{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px}
+.cf-features li::before{content:"✦";color:var(--accent);font-size:10px;flex-shrink:0}
+.cf-cta{padding:14px 32px;border-radius:12px;background:linear-gradient(135deg,#a855f7,#06b6d4);border:none;color:#fff;font-size:15px;font-weight:800;cursor:pointer;transition:.2s;text-decoration:none;display:inline-block}
+.cf-cta:hover{opacity:.88;transform:scale(1.01)}
+
+/* System requirements */
+.sysreq{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;max-width:720px;margin:0 auto}
+.sysreq-card{background:var(--card);border:1px solid rgba(255,255,255,.07);border-radius:11px;padding:16px}
+.sysreq-os{font-size:13px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:7px}
+.sysreq-list{font-size:11px;color:var(--muted);line-height:1.9}
+
+/* Footer */
+footer{border-top:1px solid rgba(255,255,255,.07);padding:32px 40px;display:flex;align-items:center;justify-content:space-between;flex-wrap:gap;font-size:12px;color:var(--dim)}
+footer a{color:var(--accent);text-decoration:none}
+footer a:hover{text-decoration:underline}
+.footer-brand{font-size:13px;font-weight:900;background:linear-gradient(135deg,#10b981,#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+
+@media(max-width:680px){
+  .comparison{grid-template-columns:1fr}
+  nav{padding:12px 20px}
+  .hero{padding:60px 20px 60px}
+}
+</style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav>
+  <div class="nav-brand">🎵 Flowstate Audio</div>
+  <div class="nav-links">
+    <a href="#features">Features</a>
+    <a href="#clawbot">Clawbot</a>
+    <a href="https://github.com/mkbrown261/FS-AUDIO">GitHub</a>
+    <a href="https://github.com/mkbrown261/FS-AUDIO/releases/latest/download/FlowstateAudio-mac.dmg" class="nav-dl">⬇ Download</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<div class="hero">
+  <span class="hero-icon">🎵</span>
+  <h1>Flowstate Audio</h1>
+  <p class="hero-sub">Professional DAW. AI-Powered. Yours.</p>
+  <p class="hero-tagline">Multi-track recording · VST plugins · AI music generation · Logic Pro-level workflow</p>
+  <div class="dl-buttons">
+    <a href="https://github.com/mkbrown261/FS-AUDIO/releases/latest/download/FlowstateAudio-mac.dmg" class="dl-btn dl-mac">🍎 Download for macOS</a>
+    <a href="https://github.com/mkbrown261/FS-AUDIO/releases/latest/download/FlowstateAudio-win.exe" class="dl-btn dl-win">🪟 Download for Windows</a>
+    <a href="https://github.com/mkbrown261/FS-AUDIO/releases/latest/download/FlowstateAudio-linux.AppImage" class="dl-btn dl-linux">🐧 Download for Linux</a>
+  </div>
+  <p class="hero-note">Free to download · <a href="#clawbot">ClawFlow</a> unlocks AI features · <a href="https://github.com/mkbrown261/FS-AUDIO">Open source on GitHub</a></p>
+</div>
+
+<!-- App mockup -->
+<div class="mockup">
+  <div class="mockup-frame">
+    <div class="mockup-titlebar">
+      <div class="dot dot-red"></div>
+      <div class="dot dot-yellow"></div>
+      <div class="dot dot-green"></div>
+      <div class="mockup-titlebar-label">Flowstate Audio — Beat Session</div>
+    </div>
+    <div class="mockup-body">
+      <!-- Toolbar mockup -->
+      <div class="mockup-toolbar">
+        <span class="mock-brand">🎵 Flowstate Audio</span>
+        <div class="mock-tbt">⏮</div>
+        <div class="mock-tbt play">▶</div>
+        <div class="mock-tbt">⏹</div>
+        <div class="mock-tbt" style="border-color:rgba(239,68,68,.3);color:#ef4444">⏺</div>
+        <div class="mock-lcd">0:08.320<br><span style="font-size:9px;opacity:.5">  3 : 2 : 080</span></div>
+        <div class="mock-bpm"><span class="mock-bpm">BPM</span> <span class="mock-bpm-val">140</span></div>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:10px;color:#6b7280">
+          Manual <input type="range" value="60" style="width:70px;accent-color:#10b981" disabled> AI
+          <span style="background:rgba(16,185,129,.1);color:#10b981;padding:2px 7px;border-radius:4px;font-weight:700;font-size:9px">AI 60%</span>
+        </div>
+      </div>
+      <!-- Main mockup -->
+      <div class="mock-main">
+        <div class="mock-tracks">
+          <div class="mock-track" style="border-left-color:#a855f7"><div><div class="mock-track-name">Drums (AI)</div><div class="mock-track-btns"><span class="mock-btn">M</span><span class="mock-btn">S</span><span class="mock-btn">⏺</span></div></div></div>
+          <div class="mock-track" style="border-left-color:#10b981"><div><div class="mock-track-name">808 Bass</div><div class="mock-track-btns"><span class="mock-btn">M</span><span class="mock-btn">S</span><span class="mock-btn">⏺</span></div></div></div>
+          <div class="mock-track" style="border-left-color:#06b6d4"><div><div class="mock-track-name">Melody (MIDI)</div><div class="mock-track-btns"><span class="mock-btn">M</span><span class="mock-btn">S</span><span class="mock-btn">⏺</span></div></div></div>
+          <div class="mock-track" style="border-left-color:#ec4899"><div><div class="mock-track-name">Vocal Chop</div><div class="mock-track-btns"><span class="mock-btn">M</span><span class="mock-btn">S</span><span class="mock-btn">⏺</span></div></div></div>
+          <div class="mock-track" style="border-left-color:#f59e0b"><div><div class="mock-track-name">Master</div><div class="mock-track-btns"><span class="mock-btn">M</span><span class="mock-btn">S</span></div></div></div>
+        </div>
+        <div class="mock-timeline">
+          <div class="mock-ruler">
+            <div class="mock-bar">1</div><div class="mock-bar">2</div><div class="mock-bar">3</div><div class="mock-bar">4</div><div class="mock-bar">5</div><div class="mock-bar">6</div><div class="mock-bar">7</div><div class="mock-bar">8</div><div class="mock-bar">9</div><div class="mock-bar">10</div><div class="mock-bar">11</div><div class="mock-bar">12</div>
+          </div>
+          <div class="mock-lanes" style="position:relative">
+            <div class="mock-lane"><div class="mock-clip" style="left:0;width:480px;background:#a855f788;border-color:#a855f7"><div class="mock-clip-name">🤖 AI Drums</div></div></div>
+            <div class="mock-lane"><div class="mock-clip" style="left:0;width:240px;background:#10b98188;border-color:#10b981"><div class="mock-clip-name">808 Loop</div></div><div class="mock-clip" style="left:240px;width:240px;background:#10b98188;border-color:#10b981"><div class="mock-clip-name">808 Loop</div></div></div>
+            <div class="mock-lane"><div class="mock-clip" style="left:60px;width:360px;background:#06b6d488;border-color:#06b6d4"><div class="mock-clip-name">Melody 1 ♪</div></div></div>
+            <div class="mock-lane"><div class="mock-clip" style="left:0;width:120px;background:#ec489988;border-color:#ec4899"><div class="mock-clip-name">Chop A</div></div><div class="mock-clip" style="left:180px;width:120px;background:#ec489988;border-color:#ec4899"><div class="mock-clip-name">Chop B</div></div></div>
+            <div class="mock-lane"></div>
+            <div class="mock-playhead" style="left:128px"></div>
+          </div>
+        </div>
+      </div>
+      <!-- Mixer mockup -->
+      <div class="mock-mixer">
+        <div class="mock-ch" style="border-color:rgba(168,85,247,.25)"><div class="mock-ch-name" style="color:#a855f7">Drums</div><div class="mock-vu" style="height:45px">
+          <div class="mock-vu-seg" style="background:#ef4444;flex:0.3 0 auto;height:5px;border-radius:1px"></div>
+          <div class="mock-vu-seg" style="background:#f59e0b;flex:0.5 0 auto;height:5px;border-radius:1px"></div>
+          <div class="mock-vu-seg" style="background:#10b981;flex:1 0 auto;height:5px;border-radius:1px"></div>
+          <div class="mock-vu-seg" style="background:#10b981;flex:1 0 auto;height:5px;border-radius:1px"></div>
+          <div class="mock-vu-seg" style="background:#10b981;flex:1 0 auto;height:5px;border-radius:1px"></div>
+        </div><div class="mock-fader"></div></div>
+        <div class="mock-ch" style="border-color:rgba(16,185,129,.25)"><div class="mock-ch-name" style="color:#10b981">808</div><div class="mock-fader"></div></div>
+        <div class="mock-ch" style="border-color:rgba(6,182,212,.25)"><div class="mock-ch-name" style="color:#06b6d4">Melody</div><div class="mock-fader" style="height:40px"></div></div>
+        <div class="mock-ch" style="border-color:rgba(236,72,153,.25)"><div class="mock-ch-name" style="color:#ec4899">Vocal</div><div class="mock-fader" style="height:60px"></div></div>
+        <div class="mock-ch" style="min-width:78px;border-color:rgba(168,85,247,.35)"><div class="mock-ch-name" style="color:#fff;font-size:10px">MASTER</div><div class="mock-fader" style="background:linear-gradient(180deg,#10b981,#06b6d4)"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Features -->
+<div class="section" id="features">
+  <h2 class="section-title">Everything a Pro Needs</h2>
+  <p class="section-sub">Flowstate Audio delivers the full Logic Pro experience — modeled on its workflow, feature-for-feature, in a modern standalone app.</p>
+  <div class="features-grid">
+    <div class="feat-card"><div class="feat-icon" style="color:#10b981">🎙</div><div class="feat-title">Multi-Track Recording</div><div class="feat-desc">Unlimited audio and MIDI tracks. Punch recording, take folders, comping — the full Logic Pro recording workflow.</div></div>
+    <div class="feat-card"><div class="feat-icon" style="color:#a855f7">🔌</div><div class="feat-title">VST3 / AU Plugins</div><div class="feat-desc">Load your own plugins. Built-in: 8-band EQ, compressor, reverb, delay, limiter, chorus, distortion, channel EQ.</div></div>
+    <div class="feat-card"><div class="feat-icon" style="color:#06b6d4">🎹</div><div class="feat-title">Piano Roll</div><div class="feat-desc">Full MIDI editor with velocity editing, quantize (1/4 to 1/32 + triplets), chord detection, Hyper Draw automation.</div></div>
+    <div class="feat-card"><div class="feat-icon" style="color:#ec4899">🎚</div><div class="feat-title">Pro Mixer</div><div class="feat-desc">Per-channel inserts (4 slots), sends, pan, VU meters, groups — a full mixing console like Logic's.</div></div>
+    <div class="feat-card"><div class="feat-icon" style="color:#f59e0b">🤖</div><div class="feat-title">Clawbot AI</div><div class="feat-desc">Generate beats, melodies, full tracks via Suno & MusicGen. AI mastering, stem separation, arrangement suggestions.</div></div>
+    <div class="feat-card"><div class="feat-icon" style="color:#10b981">⏱</div><div class="feat-title">Flex Time & Pitch</div><div class="feat-desc">Non-destructive time stretching and pitch shifting. Quantize audio to grid without artifacts.</div></div>
+    <div class="feat-card"><div class="feat-icon" style="color:#a855f7">🎼</div><div class="feat-title">Score Editor</div><div class="feat-desc">Real-time MIDI-to-notation. Print or export sheet music. Part box, lyrics, chord grids, tablature.</div></div>
+    <div class="feat-card"><div class="feat-icon" style="color:#06b6d4">🔄</div><div class="feat-title">Automation</div><div class="feat-desc">Per-track automation lanes for volume, pan, EQ, and plugin parameters. Draw or record automation in real time.</div></div>
+    <div class="feat-card"><div class="feat-icon" style="color:#ec4899">📦</div><div class="feat-title">Stem Export</div><div class="feat-desc">Bounce entire project or individual stems. WAV (16/24/32-bit float), MP3, AIFF, LUFS normalisation.</div></div>
+    <div class="feat-card"><div class="feat-icon" style="color:#f59e0b">🥁</div><div class="feat-title">Step Sequencer</div><div class="feat-desc">Pattern-based beat programming. Per-step velocity, pitch, probability. Up to 32 steps per pattern.</div></div>
+    <div class="feat-card"><div class="feat-icon" style="color:#10b981">🔁</div><div class="feat-title">Loop Recording</div><div class="feat-desc">Record in loop mode — each pass creates a new take. Comp your best moments just like Logic Pro's take folders.</div></div>
+    <div class="feat-card"><div class="feat-icon" style="color:#a855f7">🌐</div><div class="feat-title">Flowstate Connected</div><div class="feat-desc">Clawbot connects directly to your Flowstate Hub account. Coin system, subscription, and AI usage all unified.</div></div>
+  </div>
+</div>
+
+<!-- Logic Pro comparison -->
+<div class="section">
+  <h2 class="section-title">Inspired by Logic Pro</h2>
+  <p class="section-sub">We studied Logic Pro's manual front to back. Flowstate Audio mirrors its workflow — your muscle memory transfers instantly.</p>
+  <div class="comparison">
+    <div class="comp-card">
+      <div class="comp-title" style="color:#a855f7">🎵 Flowstate Audio</div>
+      <div class="comp-list">
+        <div class="comp-item">Multi-track audio & MIDI recording</div>
+        <div class="comp-item">Piano Roll with velocity editing</div>
+        <div class="comp-item">Flex Time (time stretching)</div>
+        <div class="comp-item">Mixer with inserts & sends</div>
+        <div class="comp-item">Track automation</div>
+        <div class="comp-item">Take folders & comping</div>
+        <div class="comp-item">Tempo & key global tracks</div>
+        <div class="comp-item">VST3 / AU plugin support</div>
+        <div class="comp-item"><strong style="color:#10b981">+ AI music generation (Suno, MusicGen)</strong></div>
+        <div class="comp-item"><strong style="color:#10b981">+ Clawbot AI assistant</strong></div>
+        <div class="comp-item"><strong style="color:#10b981">+ Stem separation (Moises AI)</strong></div>
+        <div class="comp-item"><strong style="color:#10b981">+ Free / open source</strong></div>
+      </div>
+    </div>
+    <div class="comp-card">
+      <div class="comp-title" style="color:#6b7280">🍎 Logic Pro</div>
+      <div class="comp-list">
+        <div class="comp-item">Multi-track audio & MIDI recording</div>
+        <div class="comp-item">Piano Roll with velocity editing</div>
+        <div class="comp-item">Flex Time (time stretching)</div>
+        <div class="comp-item">Mixer with inserts & sends</div>
+        <div class="comp-item">Track automation</div>
+        <div class="comp-item">Take folders & comping</div>
+        <div class="comp-item">Tempo & key global tracks</div>
+        <div class="comp-item">AU plugin support (Mac only)</div>
+        <div class="comp-item">Drummer (preset-based)</div>
+        <div class="comp-item">Alchemy synthesizer</div>
+        <div class="comp-item">Score editor</div>
+        <div class="comp-item">$199.99 (Mac only)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Clawbot -->
+<div class="section" id="clawbot" style="padding-bottom:0">
+  <h2 class="section-title">Supercharged by Clawbot</h2>
+  <p class="section-sub">ClawFlow subscribers get real-time AI assistance — generate beats, master tracks, separate stems, and get arrangement help without leaving the app.</p>
+  <div class="clawflow-section">
+    <div class="cf-icon">🦾</div>
+    <div class="cf-title">Unlock ClawFlow</div>
+    <div class="cf-sub">Clawbot connects Flowstate Audio to Suno AI, MusicGen, Moises stem separation, Dolby mastering, and your Flowstate Hub account for unified AI assistance across all your tools.</div>
+    <div class="price-row">
+      <span class="orig-price">$40/month</span>
+      <span class="new-price">$20/month</span>
+      <span class="discount-badge">50% off first month</span>
+    </div>
+    <ul class="cf-features">
+      <li>Clawbot AI chat inside Flowstate Audio</li>
+      <li>Full Track generation via Suno AI (40⚡)</li>
+      <li>Beat & Melody generation via MusicGen (15–20⚡)</li>
+      <li>AI stem separation via Moises (25⚡)</li>
+      <li>AI mastering via Loudme (20⚡)</li>
+      <li>Arrangement suggestions & key/BPM detection</li>
+      <li>500 coins/month included</li>
+    </ul>
+    <a href="https://flowstate-67g.pages.dev" class="cf-cta" target="_blank">Activate ClawFlow in Flowstate Hub →</a>
+  </div>
+</div>
+
+<!-- System requirements -->
+<div class="section">
+  <h2 class="section-title">System Requirements</h2>
+  <div class="sysreq">
+    <div class="sysreq-card">
+      <div class="sysreq-os">🍎 macOS</div>
+      <div class="sysreq-list">
+        macOS 12 Monterey or later<br>
+        Apple Silicon (M1+) or Intel<br>
+        8 GB RAM minimum<br>
+        2 GB disk space<br>
+        Core Audio (built-in)
+      </div>
+    </div>
+    <div class="sysreq-card">
+      <div class="sysreq-os">🪟 Windows</div>
+      <div class="sysreq-list">
+        Windows 10 / 11 (64-bit)<br>
+        Intel Core i5 or AMD Ryzen 5+<br>
+        8 GB RAM minimum<br>
+        2 GB disk space<br>
+        ASIO-compatible audio interface recommended
+      </div>
+    </div>
+    <div class="sysreq-card">
+      <div class="sysreq-os">🐧 Linux</div>
+      <div class="sysreq-list">
+        Ubuntu 20.04+ / Arch / Fedora<br>
+        Intel/AMD x86_64<br>
+        8 GB RAM minimum<br>
+        2 GB disk space<br>
+        JACK or PulseAudio
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer>
+  <span class="footer-brand">🎵 Flowstate Audio</span>
+  <span>Open source · <a href="https://github.com/mkbrown261/FS-AUDIO">github.com/mkbrown261/FS-AUDIO</a></span>
+  <span>Part of the <a href="https://flowstate-67g.pages.dev">Flowstate</a> ecosystem</span>
+</footer>
+
+</body>
+</html>
