@@ -6,33 +6,30 @@ export function useTransport(
   onStopAll: () => void,
   onStartMetronome: (bpm: number, vol: number) => void,
   onStopMetronome: () => void,
+  onStartRecording: () => Promise<void>,
+  onStopRecording: () => Promise<AudioBuffer | null>,
 ) {
   const rafRef = useRef<number | null>(null)
-  const startedAtRef = useRef<number | null>(null)   // performance.now() timestamp
-  const anchorBeatRef = useRef<number>(0)             // beat at which we started
-  const lastTimestampRef = useRef<number | null>(null) // for stall detection
+  const startedAtRef = useRef<number | null>(null)
+  const anchorBeatRef = useRef<number>(0)
+  const lastTimestampRef = useRef<number | null>(null)
+  const countInRef = useRef<number>(0)
+  const countInIntervalRef = useRef<number | null>(null)
 
   const store = useProjectStore
 
-  const play = useCallback(async () => {
-    const st = store.getState()
-    const fromBeat = (st.currentTime / 60) * st.bpm
+  // ── Internal RAF clock ─────────────────────────────────────────────────────
+  const startRaf = useCallback((fromBeat: number) => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current)
     anchorBeatRef.current = fromBeat
     startedAtRef.current = performance.now()
     lastTimestampRef.current = null
-    store.getState().setPlaying(true)
-
-    await onStartPlayback(fromBeat)
-
-    if (st.metronomeEnabled) {
-      onStartMetronome(st.bpm, st.metronomeVolume)
-    }
 
     const step = (ts: number) => {
-      const st2 = store.getState()
-      if (!st2.isPlaying) return
+      const st = store.getState()
+      if (!st.isPlaying) return
 
-      // Stall detection — compensate for fullscreen/tab-switch gaps
+      // Stall detection
       const prev = lastTimestampRef.current
       if (prev !== null && ts - prev > 200 && startedAtRef.current !== null) {
         const stall = (ts - prev) - (1000 / 60)
@@ -41,16 +38,16 @@ export function useTransport(
       lastTimestampRef.current = ts
 
       const elapsed = (ts - (startedAtRef.current ?? ts)) / 1000
-      const beat = anchorBeatRef.current + elapsed * (st2.bpm / 60)
-      const timeSec = beat * (60 / st2.bpm)
+      const beat = anchorBeatRef.current + elapsed * (st.bpm / 60)
+      const timeSec = beat * (60 / st.bpm)
 
-      // Loop
-      if (st2.isLooping && beat >= st2.loopEnd) {
-        anchorBeatRef.current = st2.loopStart
+      // Loop mode
+      if (st.isLooping && beat >= st.loopEnd) {
+        anchorBeatRef.current = st.loopStart
         startedAtRef.current = ts
         lastTimestampRef.current = null
         onStopAll()
-        onStartPlayback(st2.loopStart)
+        onStartPlayback(st.loopStart)
         rafRef.current = requestAnimationFrame(step)
         return
       }
@@ -58,9 +55,18 @@ export function useTransport(
       store.getState().setCurrentTime(timeSec)
       rafRef.current = requestAnimationFrame(step)
     }
-
     rafRef.current = requestAnimationFrame(step)
-  }, [onStartPlayback, onStopAll, onStartMetronome, onStopMetronome, store])
+  }, [onStopAll, onStartPlayback, store])
+
+  const play = useCallback(async () => {
+    const st = store.getState()
+    if (st.isPlaying) return
+    const fromBeat = st.currentTime * (st.bpm / 60)
+    store.getState().setPlaying(true)
+    await onStartPlayback(fromBeat)
+    if (st.metronomeEnabled) onStartMetronome(st.bpm, st.metronomeVolume)
+    startRaf(fromBeat)
+  }, [onStartPlayback, onStartMetronome, startRaf, store])
 
   const pause = useCallback(() => {
     if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
@@ -71,12 +77,60 @@ export function useTransport(
     onStopMetronome()
   }, [onStopAll, onStopMetronome, store])
 
-  const stop = useCallback(() => {
+  const stop = useCallback(async () => {
+    // If recording, stop it and save the clip
+    const st = store.getState()
+    if (st.isRecording) {
+      store.getState().setRecording(false)
+      store.getState().setCountIn(0)
+      if (countInIntervalRef.current) {
+        clearInterval(countInIntervalRef.current)
+        countInIntervalRef.current = null
+      }
+      const audioBuffer = await onStopRecording()
+      if (audioBuffer) {
+        // Find first armed track
+        const armedTrack = st.tracks.find(t => t.armed)
+        if (armedTrack) {
+          const bpm = st.bpm
+          const durationBeats = (audioBuffer.duration / 60) * bpm
+          const startBeat = 0 // placed at start or current position
+          const id = `clip-rec-${Date.now()}`
+
+          // Convert AudioBuffer to ObjectURL for storage
+          // Store waveform peaks inline
+          const peaks: number[] = []
+          const ch = audioBuffer.getChannelData(0)
+          const blockSize = Math.floor(ch.length / 200)
+          for (let i = 0; i < 200; i++) {
+            let max = 0
+            for (let j = 0; j < blockSize; j++) {
+              const v = Math.abs(ch[i * blockSize + j] ?? 0)
+              if (v > max) max = v
+            }
+            peaks.push(max)
+          }
+
+          const clip: import('../store/projectStore').Clip = {
+            id,
+            trackId: armedTrack.id,
+            startBeat,
+            durationBeats: Math.max(1, durationBeats),
+            name: `Recording ${new Date().toLocaleTimeString()}`,
+            type: 'audio',
+            gain: 1, fadeIn: 0, fadeOut: 0,
+            looped: false, muted: false, aiGenerated: false,
+            waveformPeaks: peaks,
+          }
+          store.getState().addClip(clip)
+        }
+      }
+    }
+
     pause()
     store.getState().setCurrentTime(0)
-    store.getState().setRecording(false)
     anchorBeatRef.current = 0
-  }, [pause, store])
+  }, [pause, onStopRecording, store])
 
   const togglePlay = useCallback(() => {
     const st = store.getState()
@@ -84,11 +138,63 @@ export function useTransport(
     else play()
   }, [play, pause, store])
 
-  const record = useCallback(() => {
+  // ── Record — with count-in ────────────────────────────────────────────────
+  const record = useCallback(async () => {
     const st = store.getState()
-    if (!st.isPlaying) play()
-    store.getState().setRecording(!st.isRecording)
-  }, [play, store])
+
+    // Check for armed track
+    const armedTrack = st.tracks.find(t => t.armed && t.type !== 'master')
+    if (!armedTrack) {
+      alert('Arm at least one track to record.\n\nClick the ⏺ button on a track header.')
+      return
+    }
+
+    if (st.isRecording) {
+      // Stop recording
+      await stop()
+      return
+    }
+
+    // Count-in: 4 beats before recording starts
+    const bpm = st.bpm
+    const beatMs = (60 / bpm) * 1000
+    let countdown = 4
+    store.getState().setCountIn(countdown)
+
+    // Start metronome for count-in
+    onStartMetronome(bpm, st.metronomeVolume || 0.5)
+
+    countInIntervalRef.current = window.setInterval(async () => {
+      countdown--
+      store.getState().setCountIn(countdown)
+
+      if (countdown <= 0) {
+        if (countInIntervalRef.current) {
+          clearInterval(countInIntervalRef.current)
+          countInIntervalRef.current = null
+        }
+        store.getState().setCountIn(0)
+
+        // NOW start recording and playing
+        store.getState().setRecording(true)
+        store.getState().setPlaying(true)
+
+        try {
+          await onStartRecording()
+        } catch (err: any) {
+          alert(err.message)
+          store.getState().setRecording(false)
+          store.getState().setPlaying(false)
+          onStopMetronome()
+          return
+        }
+
+        const fromBeat = store.getState().currentTime * (store.getState().bpm / 60)
+        await onStartPlayback(fromBeat)
+        startRaf(fromBeat)
+      }
+    }, beatMs)
+  }, [stop, onStartRecording, onStartPlayback, onStartMetronome, onStopMetronome, startRaf, store])
 
   const seekToTime = useCallback((timeSec: number) => {
     const wasPlaying = store.getState().isPlaying
@@ -103,10 +209,10 @@ export function useTransport(
     seekToTime(beat * (60 / bpm))
   }, [seekToTime, store])
 
-  // Cleanup
   useEffect(() => {
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      if (countInIntervalRef.current) clearInterval(countInIntervalRef.current)
     }
   }, [])
 

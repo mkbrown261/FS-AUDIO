@@ -121,6 +121,16 @@ export interface ProjectState {
   aiLevel: number  // 0-100
   clawflowActive: boolean
 
+  // Recording
+  countIn: number
+
+  // Snap
+  snapEnabled: boolean
+  snapValue: string
+
+  // Inspector
+  inspectorOpen: boolean
+
   // Undo/redo
   undoStack: Track[][]
   redoStack: Track[][]
@@ -206,6 +216,10 @@ interface Actions {
 
   setAiLevel: (v: number) => void
   setClawflowActive: (v: boolean) => void
+  setCountIn: (v: number) => void
+  setSnapEnabled: (v: boolean) => void
+  setSnapValue: (v: string) => void
+  setInspectorOpen: (v: boolean) => void
 
   newProject: () => void
   saveSnapshot: () => void
@@ -255,6 +269,10 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
   clawbotEnabled: true,
   aiLevel: 50,
   clawflowActive: false,
+  countIn: 0,
+  snapEnabled: true,
+  snapValue: '1/4',
+  inspectorOpen: true,
 
   undoStack: [],
   redoStack: [],
@@ -418,6 +436,10 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
   // ── AI ─────────────────────────────────────────────────────────────────────
   setAiLevel: (v) => set({ aiLevel: v }),
   setClawflowActive: (v) => set({ clawflowActive: v }),
+  setCountIn: (v) => set({ countIn: v }),
+  setSnapEnabled: (v) => set({ snapEnabled: v }),
+  setSnapValue: (v) => set({ snapValue: v }),
+  setInspectorOpen: (v) => set({ inspectorOpen: v }),
 
   // ── Project ────────────────────────────────────────────────────────────────
   newProject: () => set({

@@ -1,74 +1,71 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useProjectStore } from '../store/projectStore'
 
 export function StatusBar() {
-  const { sampleRate, setSampleRate, bitDepth, setBitDepth, bufferSize, name, isDirty, bpm } = useProjectStore()
+  const { bpm, sampleRate, bitDepth, bufferSize, isPlaying, isRecording, name, isDirty, setSampleRate, setBitDepth } = useProjectStore()
   const [cpu, setCpu] = useState(0)
+  const rafRef = useRef<number | null>(null)
 
-  // Simulate CPU meter
   useEffect(() => {
-    const id = setInterval(() => {
-      setCpu(c => Math.max(5, Math.min(95, c + (Math.random() - 0.5) * 8)))
-    }, 1000)
-    return () => clearInterval(id)
-  }, [])
+    let last = performance.now()
+    const tick = (now: number) => {
+      const dt = now - last
+      last = now
+      // Rough CPU estimate: how far from ideal 16.67ms frame
+      const load = Math.min(100, Math.max(0, ((dt - 16.67) / 16.67) * 100 + (isPlaying ? 12 : 2)))
+      setCpu(prev => prev * 0.85 + load * 0.15)
+      rafRef.current = requestAnimationFrame(tick)
+    }
+    rafRef.current = requestAnimationFrame(tick)
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
+  }, [isPlaying])
 
-  const cpuColor = cpu > 80 ? '#ef4444' : cpu > 60 ? '#f59e0b' : '#10b981'
+  const cpuColor = cpu > 70 ? '#ef4444' : cpu > 45 ? '#f59e0b' : '#10b981'
 
   return (
     <div className="status-bar">
-      {/* Project name */}
-      <span className="status-project">{name}{isDirty ? ' •' : ''}</span>
-
+      <span className="status-project" title={name}>{isDirty ? '● ' : ''}{name}</span>
       <div className="status-divider" />
-
-      {/* Sample rate */}
       <span className="status-label">SR</span>
-      <select
-        className="status-select"
-        value={sampleRate}
-        onChange={e => setSampleRate(parseInt(e.target.value) as any)}
-      >
-        <option value={44100}>44.1 kHz</option>
-        <option value={48000}>48 kHz</option>
-        <option value={88200}>88.2 kHz</option>
-        <option value={96000}>96 kHz</option>
+      <select className="status-select" value={sampleRate} onChange={e => setSampleRate(parseInt(e.target.value) as any)} title="Sample Rate">
+        <option value={44100}>44.1kHz</option>
+        <option value={48000}>48kHz</option>
+        <option value={88200}>88.2kHz</option>
+        <option value={96000}>96kHz</option>
       </select>
-
-      {/* Bit depth */}
+      <div className="status-divider" />
       <span className="status-label">Bit</span>
-      <select
-        className="status-select"
-        value={bitDepth}
-        onChange={e => setBitDepth(parseInt(e.target.value) as any)}
-      >
+      <select className="status-select" value={bitDepth} onChange={e => setBitDepth(parseInt(e.target.value) as any)} title="Bit Depth">
         <option value={16}>16-bit</option>
         <option value={24}>24-bit</option>
         <option value={32}>32-bit float</option>
       </select>
-
-      {/* Buffer */}
+      <div className="status-divider" />
       <span className="status-label">Buffer</span>
-      <span className="status-val">{bufferSize} samples</span>
-
+      <span className="status-val">{bufferSize}</span>
       <div className="status-divider" />
-
-      {/* BPM */}
       <span className="status-label">BPM</span>
-      <span className="status-val">{bpm}</span>
-
+      <span className="status-val">{bpm.toFixed(1)}</span>
       <div className="status-divider" />
-
-      {/* CPU */}
-      <span className="status-label">CPU</span>
-      <div className="cpu-bar-wrap">
-        <div className="cpu-bar" style={{ width: `${cpu}%`, background: cpuColor }} />
+      {isRecording && (
+        <>
+          <span style={{ color: '#ef4444', fontWeight: 800, animation: 'pulse 1s infinite' }}>● REC</span>
+          <div className="status-divider" />
+        </>
+      )}
+      {isPlaying && !isRecording && (
+        <>
+          <span style={{ color: '#10b981', fontWeight: 700 }}>▶ Playing</span>
+          <div className="status-divider" />
+        </>
+      )}
+      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span className="status-label">CPU</span>
+        <div className="cpu-bar-wrap">
+          <div className="cpu-bar" style={{ width: `${Math.min(100, cpu)}%`, background: cpuColor }} />
+        </div>
+        <span className="status-val" style={{ color: cpuColor, minWidth: 32 }}>{cpu.toFixed(0)}%</span>
       </div>
-      <span className="status-val" style={{ color: cpuColor }}>{Math.round(cpu)}%</span>
-
-      {/* Audio engine status */}
-      <div className="status-divider" />
-      <span className="status-engine">🔊 Web Audio API</span>
     </div>
   )
 }

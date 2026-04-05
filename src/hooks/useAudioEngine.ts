@@ -1,8 +1,5 @@
 import { useRef, useCallback, useEffect } from 'react'
-import { useProjectStore } from '../store/projectStore'
-
-// ─── Audio Engine Hook ─────────────────────────────────────────────────────────
-// Wraps the Web Audio API for multi-track playback, recording, metering
+import { useProjectStore, Clip } from '../store/projectStore'
 
 interface TrackNodes {
   gain: GainNode
@@ -23,13 +20,14 @@ export function useAudioEngine() {
   const masterAnalyserRef = useRef<AnalyserNode | null>(null)
   const trackNodesRef = useRef<Map<string, TrackNodes>>(new Map())
   const scheduledSourcesRef = useRef<ScheduledSource[]>([])
-  const metronomeRef = useRef<OscillatorNode | null>(null)
   const metronomeIntervalRef = useRef<number | null>(null)
   const audioBuffersRef = useRef<Map<string, AudioBuffer>>(new Map())
 
-  const store = useProjectStore.getState
+  // Recording state
+  const mediaStreamRef = useRef<MediaStream | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const recordedChunksRef = useRef<BlobPart[]>([])
 
-  // ── Initialize AudioContext lazily ─────────────────────────────────────────
   const getCtx = useCallback((): AudioContext => {
     if (!ctxRef.current) {
       ctxRef.current = new AudioContext({ sampleRate: 44100, latencyHint: 'interactive' })
@@ -43,7 +41,6 @@ export function useAudioEngine() {
     return ctxRef.current
   }, [])
 
-  // ── Build track node chain ─────────────────────────────────────────────────
   const getTrackNodes = useCallback((trackId: string, volume: number, pan: number): TrackNodes => {
     const existing = trackNodesRef.current.get(trackId)
     if (existing) return existing
@@ -65,7 +62,6 @@ export function useAudioEngine() {
     compressor.attack.value = 0.003
     compressor.release.value = 0.25
 
-    // 3-band EQ
     const lowShelf = ctx.createBiquadFilter()
     lowShelf.type = 'lowshelf'
     lowShelf.frequency.value = 320
@@ -82,7 +78,6 @@ export function useAudioEngine() {
     highShelf.frequency.value = 3200
     highShelf.gain.value = 0
 
-    // Chain: gain → eq → compressor → panner → analyser → master
     gain.connect(lowShelf)
     lowShelf.connect(midPeak)
     midPeak.connect(highShelf)
@@ -96,21 +91,13 @@ export function useAudioEngine() {
     return nodes
   }, [getCtx])
 
-  // ── Load audio buffer from URL or file path ────────────────────────────────
   const loadAudioBuffer = useCallback(async (url: string): Promise<AudioBuffer | null> => {
     const cached = audioBuffersRef.current.get(url)
     if (cached) return cached
     try {
       const ctx = getCtx()
-      let arrayBuffer: ArrayBuffer
-      if (url.startsWith('file://') || url.startsWith('/') || /^[A-Z]:\\/i.test(url)) {
-        // Local file — use fetch with file:// scheme
-        const res = await fetch('file://' + (url.startsWith('/') ? url : '/' + url))
-        arrayBuffer = await res.arrayBuffer()
-      } else {
-        const res = await fetch(url)
-        arrayBuffer = await res.arrayBuffer()
-      }
+      const res = await fetch(url)
+      const arrayBuffer = await res.arrayBuffer()
       const buffer = await ctx.decodeAudioData(arrayBuffer)
       audioBuffersRef.current.set(url, buffer)
       return buffer
@@ -120,7 +107,6 @@ export function useAudioEngine() {
     }
   }, [getCtx])
 
-  // ── Play a single clip ─────────────────────────────────────────────────────
   const playClip = useCallback(async (
     audioUrl: string,
     trackId: string,
@@ -134,7 +120,6 @@ export function useAudioEngine() {
   ) => {
     const ctx = getCtx()
     const nodes = getTrackNodes(trackId, volume, pan)
-
     const buffer = await loadAudioBuffer(audioUrl)
     if (!buffer) return null
 
@@ -142,83 +127,71 @@ export function useAudioEngine() {
     const clipStartSec = clipStartBeat * beatDuration
     const clipDurSec = clipDurationBeats * beatDuration
     const playheadSec = playheadBeat * beatDuration
-
-    // How far into the clip are we?
     const clipOffset = Math.max(0, playheadSec - clipStartSec)
-    if (clipOffset >= clipDurSec) return null  // Already past this clip
+    if (clipOffset >= clipDurSec) return null
 
     const source = ctx.createBufferSource()
     source.buffer = buffer
     source.playbackRate.value = 1
 
-    // Clip gain
     const clipGain = ctx.createGain()
     clipGain.gain.value = gain
     source.connect(clipGain)
     clipGain.connect(nodes.gain)
 
-    const startAt = ctx.currentTime
     const when = Math.max(0, clipStartSec - playheadSec)
     source.start(ctx.currentTime + when, clipOffset, clipDurSec - clipOffset)
-
     scheduledSourcesRef.current.push({ source, clipId: '' })
     source.onended = () => {
       scheduledSourcesRef.current = scheduledSourcesRef.current.filter(s => s.source !== source)
     }
-
     return source
   }, [getCtx, getTrackNodes, loadAudioBuffer])
 
-  // ── Start full playback from a given beat ──────────────────────────────────
   const startPlayback = useCallback(async (fromBeat: number) => {
     const ctx = getCtx()
     if (ctx.state === 'suspended') await ctx.resume()
-
     const { tracks, bpm } = useProjectStore.getState()
 
     for (const track of tracks) {
       if (track.muted || track.type === 'master') continue
       const nodes = getTrackNodes(track.id, track.volume, track.pan)
-      nodes.gain.gain.value = track.volume
+      nodes.gain.gain.value = track.muted ? 0 : track.volume
 
       for (const clip of track.clips) {
         if (!clip.audioUrl || clip.muted) continue
         const clipEndBeat = clip.startBeat + clip.durationBeats
-        if (clipEndBeat <= fromBeat) continue  // Clip is in the past
-        await playClip(
-          clip.audioUrl, track.id,
-          clip.startBeat, clip.durationBeats,
-          bpm, fromBeat,
-          track.volume, track.pan, clip.gain
-        )
+        if (clipEndBeat <= fromBeat) continue
+        await playClip(clip.audioUrl, track.id, clip.startBeat, clip.durationBeats, bpm, fromBeat, track.volume, track.pan, clip.gain)
       }
     }
   }, [getCtx, getTrackNodes, playClip])
 
-  // ── Stop all playback ──────────────────────────────────────────────────────
   const stopAll = useCallback(() => {
     for (const { source } of scheduledSourcesRef.current) {
       try { source.stop() } catch {}
     }
     scheduledSourcesRef.current = []
-    stopMetronome()
   }, [])
 
-  // ── Metronome ──────────────────────────────────────────────────────────────
+  // ── Metronome ────────────────────────────────────────────────────────────
   const startMetronome = useCallback((bpm: number, volume: number) => {
-    stopMetronome()
+    if (metronomeIntervalRef.current !== null) {
+      clearInterval(metronomeIntervalRef.current)
+      metronomeIntervalRef.current = null
+    }
     const ctx = getCtx()
     const beatMs = (60 / bpm) * 1000
     let beat = 0
 
     const tick = () => {
       const osc = ctx.createOscillator()
-      const gain = ctx.createGain()
-      osc.connect(gain)
-      gain.connect(ctx.destination)
+      const g = ctx.createGain()
+      osc.connect(g)
+      g.connect(ctx.destination)
       osc.frequency.value = beat % 4 === 0 ? 1200 : 800
-      gain.gain.setValueAtTime(volume, ctx.currentTime)
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05)
+      g.gain.setValueAtTime(volume, ctx.currentTime)
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05)
       osc.start(ctx.currentTime)
       osc.stop(ctx.currentTime + 0.06)
       beat++
@@ -228,14 +201,89 @@ export function useAudioEngine() {
     metronomeIntervalRef.current = window.setInterval(tick, beatMs)
   }, [getCtx])
 
-  function stopMetronome() {
+  const stopMetronome = useCallback(() => {
     if (metronomeIntervalRef.current !== null) {
       clearInterval(metronomeIntervalRef.current)
       metronomeIntervalRef.current = null
     }
-  }
+  }, [])
 
-  // ── Get track peak level for VU meter (0-1) ────────────────────────────────
+  // ── Microphone Recording ─────────────────────────────────────────────────
+  const startRecording = useCallback(async (): Promise<void> => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      mediaStreamRef.current = stream
+      recordedChunksRef.current = []
+
+      // Also pipe mic into AudioContext for monitoring (optional)
+      const ctx = getCtx()
+      if (ctx.state === 'suspended') await ctx.resume()
+
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : 'audio/ogg'
+
+      const recorder = new MediaRecorder(stream, { mimeType })
+      mediaRecorderRef.current = recorder
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          recordedChunksRef.current.push(e.data)
+        }
+      }
+
+      recorder.start(100) // collect in 100ms chunks
+    } catch (err: any) {
+      const msg = err?.name === 'NotAllowedError'
+        ? 'Microphone access denied. Please allow microphone access in your browser settings.'
+        : `Could not access microphone: ${err?.message ?? err}`
+      throw new Error(msg)
+    }
+  }, [getCtx])
+
+  const stopRecording = useCallback(async (): Promise<AudioBuffer | null> => {
+    return new Promise((resolve) => {
+      const recorder = mediaRecorderRef.current
+      if (!recorder || recorder.state === 'inactive') {
+        resolve(null)
+        return
+      }
+
+      recorder.onstop = async () => {
+        // Stop all mic tracks
+        mediaStreamRef.current?.getTracks().forEach(t => t.stop())
+        mediaStreamRef.current = null
+
+        if (!recordedChunksRef.current.length) {
+          resolve(null)
+          return
+        }
+
+        const blob = new Blob(recordedChunksRef.current, { type: recorder.mimeType })
+        try {
+          const arrayBuffer = await blob.arrayBuffer()
+          const ctx = getCtx()
+          const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
+          resolve(audioBuffer)
+        } catch (e) {
+          console.error('Failed to decode recorded audio:', e)
+          resolve(null)
+        }
+        recordedChunksRef.current = []
+        mediaRecorderRef.current = null
+      }
+
+      recorder.stop()
+    })
+  }, [getCtx])
+
+  const isRecordingActive = useCallback((): boolean => {
+    return mediaRecorderRef.current?.state === 'recording'
+  }, [])
+
+  // ── Level meters ─────────────────────────────────────────────────────────
   const getTrackLevel = useCallback((trackId: string): number => {
     const nodes = trackNodesRef.current.get(trackId)
     if (!nodes) return 0
@@ -251,17 +299,27 @@ export function useAudioEngine() {
     const data = new Float32Array(masterAnalyserRef.current.fftSize)
     masterAnalyserRef.current.getFloatTimeDomainData(data)
     const half = data.length / 2
-    let leftMax = 0, rightMax = 0
-    for (let i = 0; i < half; i++) {
-      const v = Math.abs(data[i]); if (v > leftMax) leftMax = v
-    }
-    for (let i = half; i < data.length; i++) {
-      const v = Math.abs(data[i]); if (v > rightMax) rightMax = v
-    }
-    return [Math.min(1, leftMax), Math.min(1, rightMax)]
+    let lMax = 0, rMax = 0
+    for (let i = 0; i < half; i++) { const v = Math.abs(data[i]); if (v > lMax) lMax = v }
+    for (let i = half; i < data.length; i++) { const v = Math.abs(data[i]); if (v > rMax) rMax = v }
+    return [Math.min(1, lMax), Math.min(1, rMax)]
   }, [])
 
-  // ── Apply EQ params to a track ─────────────────────────────────────────────
+  // ── Track parameter control ───────────────────────────────────────────────
+  const setTrackVolume = useCallback((trackId: string, volume: number) => {
+    const nodes = trackNodesRef.current.get(trackId)
+    if (nodes) nodes.gain.gain.value = Math.max(0, volume)
+  }, [])
+
+  const setTrackPan = useCallback((trackId: string, pan: number) => {
+    const nodes = trackNodesRef.current.get(trackId)
+    if (nodes) nodes.panner.pan.value = Math.max(-1, Math.min(1, pan))
+  }, [])
+
+  const setMasterVolume = useCallback((volume: number) => {
+    if (masterGainRef.current) masterGainRef.current.gain.value = Math.max(0, volume)
+  }, [])
+
   const setTrackEQ = useCallback((trackId: string, low: number, mid: number, high: number) => {
     const nodes = trackNodesRef.current.get(trackId)
     if (!nodes || nodes.eq.length < 3) return
@@ -279,23 +337,6 @@ export function useAudioEngine() {
     nodes.compressor.release.value = release
   }, [])
 
-  const setTrackVolume = useCallback((trackId: string, volume: number) => {
-    const nodes = trackNodesRef.current.get(trackId)
-    if (!nodes) return
-    nodes.gain.gain.value = volume
-  }, [])
-
-  const setTrackPan = useCallback((trackId: string, pan: number) => {
-    const nodes = trackNodesRef.current.get(trackId)
-    if (!nodes) return
-    nodes.panner.pan.value = pan
-  }, [])
-
-  const setMasterVolume = useCallback((volume: number) => {
-    if (masterGainRef.current) masterGainRef.current.gain.value = volume
-  }, [])
-
-  // ── Generate waveform peaks from AudioBuffer ───────────────────────────────
   const generateWaveformPeaks = useCallback((buffer: AudioBuffer, numPeaks = 200): number[] => {
     const channel = buffer.getChannelData(0)
     const blockSize = Math.floor(channel.length / numPeaks)
@@ -303,7 +344,7 @@ export function useAudioEngine() {
     for (let i = 0; i < numPeaks; i++) {
       let max = 0
       for (let j = 0; j < blockSize; j++) {
-        const v = Math.abs(channel[i * blockSize + j])
+        const v = Math.abs(channel[i * blockSize + j] ?? 0)
         if (v > max) max = v
       }
       peaks.push(max)
@@ -311,13 +352,31 @@ export function useAudioEngine() {
     return peaks
   }, [])
 
-  // ── Cleanup ────────────────────────────────────────────────────────────────
+  // ── Play a preview note (piano roll key click) ────────────────────────────
+  const playPreviewNote = useCallback((pitch: number, durationSec = 0.4) => {
+    const ctx = getCtx()
+    const freq = 440 * Math.pow(2, (pitch - 69) / 12)
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.type = 'triangle'
+    osc.frequency.value = freq
+    osc.connect(gain)
+    gain.connect(masterGainRef.current ?? ctx.destination)
+    gain.gain.setValueAtTime(0.3, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + durationSec)
+    osc.start(ctx.currentTime)
+    osc.stop(ctx.currentTime + durationSec + 0.05)
+  }, [getCtx])
+
   useEffect(() => {
     return () => {
       stopAll()
+      stopMetronome()
+      mediaRecorderRef.current?.stop()
+      mediaStreamRef.current?.getTracks().forEach(t => t.stop())
       ctxRef.current?.close()
     }
-  }, [stopAll])
+  }, [stopAll, stopMetronome])
 
   return {
     getCtx,
@@ -326,6 +385,9 @@ export function useAudioEngine() {
     playClip,
     startMetronome,
     stopMetronome,
+    startRecording,
+    stopRecording,
+    isRecordingActive,
     getTrackLevel,
     getMasterLevel,
     setTrackEQ,
@@ -335,5 +397,6 @@ export function useAudioEngine() {
     setMasterVolume,
     loadAudioBuffer,
     generateWaveformPeaks,
+    playPreviewNote,
   }
 }
