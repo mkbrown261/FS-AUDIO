@@ -525,6 +525,36 @@ html, body, #root {
   30% { transform: translateY(-4px); }
 }
 
+/* ─── Inspector Panel ───────────────────────────────────────────────────────── */
+.inspector-panel { display: flex; flex-direction: column; width: 240px; min-width: 200px; background: var(--bg-panel); border-left: 1px solid var(--border); overflow-y: auto; flex-shrink: 0; }
+.inspector-panel h3 { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-m); padding: 10px 12px 4px; margin: 0; }
+.inspector-section { border-bottom: 1px solid var(--border); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.inspector-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; color: var(--text-s); }
+.inspector-knobs { display: flex; gap: 12px; justify-content: center; padding: 4px 0; }
+.knob-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 10px; color: var(--text-m); }
+.knob-svg { cursor: ns-resize; user-select: none; }
+
+/* ─── EQ ────────────────────────────────────────────────────────────────────── */
+.eq-band { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; }
+.eq-band-label { font-size: 10px; color: var(--text-m); text-align: center; }
+.eq-slider-v { -webkit-appearance: slider-vertical; appearance: slider-vertical; writing-mode: vertical-lr; direction: rtl; width: 24px; height: 80px; cursor: pointer; accent-color: var(--accent); }
+.eq-bands-row { display: flex; gap: 6px; padding: 4px 0; }
+
+/* ─── Snap / toolbar extras ─────────────────────────────────────────────────── */
+.snap-wrap { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-s); }
+.snap-wrap select { background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 11px; padding: 2px 6px; cursor: pointer; }
+.snap-wrap label { display: flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; }
+
+/* ─── Plugin slot ───────────────────────────────────────────────────────────── */
+.plugin-slot { display: flex; align-items: center; gap: 6px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 12px; }
+.plugin-slot-name { flex: 1; color: var(--text); font-size: 12px; }
+.plugin-slot-bypass { background: none; border: 1px solid var(--border); border-radius: 3px; color: var(--text-m); font-size: 10px; cursor: pointer; padding: 1px 5px; }
+.plugin-slot-bypass.active { border-color: var(--green); color: var(--green); }
+.plugin-slot-remove { background: none; border: none; color: var(--text-m); font-size: 14px; cursor: pointer; line-height: 1; padding: 0 2px; }
+.plugin-slot-remove:hover { color: #f87171; }
+.plugin-slots { display: flex; flex-direction: column; gap: 4px; }
+.plugin-add-row { display: flex; gap: 6px; align-items: center; }
+
 /* ─── Scrollbars ────────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
