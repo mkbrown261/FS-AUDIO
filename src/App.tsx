@@ -26,6 +26,7 @@ export default function App() {
     engine.stopMetronome,
     engine.startRecording,
     engine.stopRecording,
+    engine.registerAudioBuffer,
   )
 
   // ── VU meter RAF ──────────────────────────────────────────────────────────

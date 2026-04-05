@@ -8,6 +8,7 @@ export function useTransport(
   onStopMetronome: () => void,
   onStartRecording: () => Promise<void>,
   onStopRecording: () => Promise<AudioBuffer | null>,
+  onRegisterAudioBuffer?: (key: string, buffer: AudioBuffer) => void,
 ) {
   const rafRef = useRef<number | null>(null)
   const startedAtRef = useRef<number | null>(null)
@@ -15,6 +16,7 @@ export function useTransport(
   const lastTimestampRef = useRef<number | null>(null)
   const countInRef = useRef<number>(0)
   const countInIntervalRef = useRef<number | null>(null)
+  const recordStartBeatRef = useRef<number>(0)
 
   const store = useProjectStore
 
@@ -94,11 +96,50 @@ export function useTransport(
         if (armedTrack) {
           const bpm = st.bpm
           const durationBeats = (audioBuffer.duration / 60) * bpm
-          const startBeat = 0 // placed at start or current position
+          const startBeat = recordStartBeatRef.current
           const id = `clip-rec-${Date.now()}`
 
-          // Convert AudioBuffer to ObjectURL for storage
-          // Store waveform peaks inline
+          // Convert AudioBuffer → Blob → Object URL so playback can fetch it
+          let audioUrl: string | undefined
+          try {
+            const numChannels = audioBuffer.numberOfChannels
+            const sampleRate = audioBuffer.sampleRate
+            const length = audioBuffer.length
+            const offlineCtx = new OfflineAudioContext(numChannels, length, sampleRate)
+            const src = offlineCtx.createBufferSource()
+            src.buffer = audioBuffer
+            src.connect(offlineCtx.destination)
+            src.start(0)
+            const rendered = await offlineCtx.startRendering()
+            // WAV encode
+            const numSamples = rendered.length * numChannels
+            const wavBuffer = new ArrayBuffer(44 + numSamples * 2)
+            const view = new DataView(wavBuffer)
+            const writeStr = (off: number, s: string) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)) }
+            writeStr(0, 'RIFF'); view.setUint32(4, 36 + numSamples * 2, true)
+            writeStr(8, 'WAVE'); writeStr(12, 'fmt ')
+            view.setUint32(16, 16, true); view.setUint16(20, 1, true)
+            view.setUint16(22, numChannels, true); view.setUint32(24, sampleRate, true)
+            view.setUint32(28, sampleRate * numChannels * 2, true)
+            view.setUint16(32, numChannels * 2, true); view.setUint16(34, 16, true)
+            writeStr(36, 'data'); view.setUint32(40, numSamples * 2, true)
+            let offset = 44
+            for (let i = 0; i < rendered.length; i++) {
+              for (let ch = 0; ch < numChannels; ch++) {
+                const s = Math.max(-1, Math.min(1, rendered.getChannelData(ch)[i]))
+                view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true)
+                offset += 2
+              }
+            }
+            const blob = new Blob([wavBuffer], { type: 'audio/wav' })
+            audioUrl = URL.createObjectURL(blob)
+            // Also pre-register in audio engine cache so first playback is instant
+            onRegisterAudioBuffer?.(audioUrl, rendered)
+          } catch (encErr) {
+            console.error('WAV encode failed:', encErr)
+          }
+
+          // Waveform peaks
           const peaks: number[] = []
           const ch = audioBuffer.getChannelData(0)
           const blockSize = Math.floor(ch.length / 200)
@@ -118,6 +159,7 @@ export function useTransport(
             durationBeats: Math.max(1, durationBeats),
             name: `Recording ${new Date().toLocaleTimeString()}`,
             type: 'audio',
+            audioUrl,
             gain: 1, fadeIn: 0, fadeOut: 0,
             looped: false, muted: false, aiGenerated: false,
             waveformPeaks: peaks,
@@ -190,6 +232,8 @@ export function useTransport(
         }
 
         const fromBeat = store.getState().currentTime * (store.getState().bpm / 60)
+        // Capture where in the timeline recording actually starts
+        recordStartBeatRef.current = fromBeat
         await onStartPlayback(fromBeat)
         startRaf(fromBeat)
       }

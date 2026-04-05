@@ -110,13 +110,38 @@ function ClipView({
 
   function handleContextMenu(e: React.MouseEvent) {
     e.preventDefault()
-    // Minimal context menu via custom overlay — use window.confirm chain
-    const opts = ['split at midpoint', 'duplicate', 'mute/unmute', 'delete']
-    const choice = opts.findIndex((o, i) => window.confirm(`Action ${i+1}/${opts.length}: "${o}"?\n(Cancel to try next)`))
-    if (choice === 0) splitClipAtBeat(clip.id, clip.startBeat + clip.durationBeats / 2)
-    else if (choice === 1) duplicateClip(clip.id)
-    else if (choice === 2) updateClip(clip.id, { muted: !clip.muted })
-    else if (choice === 3) removeClip(clip.id)
+    e.stopPropagation()
+    // Remove any existing menus
+    document.querySelectorAll('.clip-ctx-menu').forEach(m => m.remove())
+    const menu = document.createElement('div')
+    menu.className = 'clip-ctx-menu'
+    Object.assign(menu.style, {
+      position:'fixed', left: e.clientX+'px', top: e.clientY+'px',
+      background:'#1a1a2e', border:'1px solid rgba(255,255,255,0.12)',
+      borderRadius:'8px', padding:'4px 0', zIndex:'9999',
+      boxShadow:'0 8px 24px rgba(0,0,0,0.5)', minWidth:'140px', fontSize:'12px',
+    })
+    const items = [
+      { label: 'Split at midpoint', action: () => splitClipAtBeat(clip.id, clip.startBeat + clip.durationBeats / 2) },
+      { label: 'Duplicate', action: () => duplicateClip(clip.id) },
+      { label: clip.muted ? 'Unmute' : 'Mute', action: () => updateClip(clip.id, { muted: !clip.muted }) },
+      { label: 'Delete', action: () => removeClip(clip.id), danger: true },
+    ]
+    items.forEach(item => {
+      const el = document.createElement('div')
+      el.textContent = item.label
+      Object.assign(el.style, {
+        padding:'6px 14px', cursor:'pointer',
+        color: (item as any).danger ? '#ef4444' : '#d1d5db',
+      })
+      el.onmouseenter = () => { el.style.background = 'rgba(255,255,255,0.06)' }
+      el.onmouseleave = () => { el.style.background = '' }
+      el.onclick = () => { item.action(); menu.remove() }
+      menu.appendChild(el)
+    })
+    document.body.appendChild(menu)
+    const dismiss = (ev: MouseEvent) => { if (!menu.contains(ev.target as Node)) { menu.remove(); document.removeEventListener('mousedown', dismiss) } }
+    setTimeout(() => document.addEventListener('mousedown', dismiss), 0)
   }
 
   return (
@@ -305,10 +330,48 @@ export function Timeline({ playheadX, onScrub }: { playheadX: number; onScrub: (
       >
         {ticks}
         {isLooping && (
-          <div className="loop-region" style={{
-            left: loopStart * pixelsPerBeat,
-            width: (loopEnd - loopStart) * pixelsPerBeat,
-          }} />
+          <>
+            <div className="loop-region" style={{
+              left: loopStart * pixelsPerBeat,
+              width: (loopEnd - loopStart) * pixelsPerBeat,
+            }} />
+            {/* Left locator — drag to move loop start */}
+            <div
+              className="loop-locator loop-locator-start"
+              style={{ left: loopStart * pixelsPerBeat }}
+              onMouseDown={e => {
+                e.stopPropagation()
+                const startX = e.clientX
+                const orig = loopStart
+                const mv = (me: MouseEvent) => {
+                  const dx = me.clientX - startX
+                  const newBeat = Math.max(0, Math.min(loopEnd - 1, orig + dx / pixelsPerBeat))
+                  useProjectStore.getState().setLoopRange(newBeat, loopEnd)
+                }
+                const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up) }
+                window.addEventListener('mousemove', mv)
+                window.addEventListener('mouseup', up)
+              }}
+            />
+            {/* Right locator — drag to move loop end */}
+            <div
+              className="loop-locator loop-locator-end"
+              style={{ left: loopEnd * pixelsPerBeat }}
+              onMouseDown={e => {
+                e.stopPropagation()
+                const startX = e.clientX
+                const orig = loopEnd
+                const mv = (me: MouseEvent) => {
+                  const dx = me.clientX - startX
+                  const newBeat = Math.max(loopStart + 1, orig + dx / pixelsPerBeat)
+                  useProjectStore.getState().setLoopRange(loopStart, newBeat)
+                }
+                const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up) }
+                window.addEventListener('mousemove', mv)
+                window.addEventListener('mouseup', up)
+              }}
+            />
+          </>
         )}
       </div>
 
@@ -319,10 +382,10 @@ export function Timeline({ playheadX, onScrub }: { playheadX: number; onScrub: (
           <TrackLane key={track.id} track={track} pixelsPerBeat={pixelsPerBeat} scrollLeft={scrollLeft} />
         ))}
 
-        {/* Playhead */}
+        {/* Playhead — left is absolute beat position in the scrollable canvas */}
         <div
           className="playhead"
-          style={{ left: playheadX + scrollLeft, top: 0, bottom: 0 }}
+          style={{ left: (playheadX + scrollLeft), top: 0, bottom: 0 }}
         >
           <div className="playhead-head" />
         </div>

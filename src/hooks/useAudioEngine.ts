@@ -91,9 +91,16 @@ export function useAudioEngine() {
     return nodes
   }, [getCtx])
 
+  // Register a pre-decoded AudioBuffer under a synthetic key (e.g. blob: URL or recording id)
+  const registerAudioBuffer = useCallback((key: string, buffer: AudioBuffer) => {
+    audioBuffersRef.current.set(key, buffer)
+  }, [])
+
   const loadAudioBuffer = useCallback(async (url: string): Promise<AudioBuffer | null> => {
     const cached = audioBuffersRef.current.get(url)
     if (cached) return cached
+    // blob: URLs that were revoked or synthetic keys won't fetch — skip
+    if (!url.startsWith('http') && !url.startsWith('blob:')) return null
     try {
       const ctx = getCtx()
       const res = await fetch(url)
@@ -396,6 +403,7 @@ export function useAudioEngine() {
     setTrackPan,
     setMasterVolume,
     loadAudioBuffer,
+    registerAudioBuffer,
     generateWaveformPeaks,
     playPreviewNote,
   }
