@@ -62,10 +62,11 @@ function TrackTypeIcon({ type }: { type: string }) {
   }
 }
 
-function TrackHeader({ track, onVolumeChange, onPanChange }: {
+function TrackHeader({ track, onVolumeChange, onPanChange, onArmClick }: {
   track: Track
   onVolumeChange: (id: string, v: number) => void
   onPanChange: (id: string, v: number) => void
+  onArmClick: (trackId: string) => void
 }) {
   const { updateTrack, removeTrack, selectTrack, selectedTrackId } = useProjectStore()
   const nameRef = useRef<HTMLInputElement>(null)
@@ -124,7 +125,7 @@ function TrackHeader({ track, onVolumeChange, onPanChange }: {
         {!isMaster && (
           <button
             className={`track-btn arm-btn ${track.armed ? 'armed' : ''}`}
-            onClick={e => { e.stopPropagation(); updateTrack(track.id, { armed: !track.armed }) }}
+            onClick={e => { e.stopPropagation(); onArmClick(track.id) }}
             title="Record arm"
           >
             <svg width="7" height="7" viewBox="0 0 7 7"><circle cx="3.5" cy="3.5" r="3" fill="currentColor"/></svg>
@@ -178,9 +179,10 @@ function TrackHeader({ track, onVolumeChange, onPanChange }: {
   )
 }
 
-export function TrackList({ onVolumeChange, onPanChange }: {
+export function TrackList({ onVolumeChange, onPanChange, onArmClick }: {
   onVolumeChange: (id: string, v: number) => void
   onPanChange: (id: string, v: number) => void
+  onArmClick: (trackId: string) => void
 }) {
   const { tracks, addTrack } = useProjectStore()
 
@@ -193,7 +195,7 @@ export function TrackList({ onVolumeChange, onPanChange }: {
       </div>
       <div className="track-list-body">
         {tracks.map(track => (
-          <TrackHeader key={track.id} track={track} onVolumeChange={onVolumeChange} onPanChange={onPanChange} />
+          <TrackHeader key={track.id} track={track} onVolumeChange={onVolumeChange} onPanChange={onPanChange} onArmClick={onArmClick} />
         ))}
       </div>
     </div>

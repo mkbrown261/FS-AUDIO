@@ -93,6 +93,28 @@ export default function App() {
     engine.setTrackCompressor(id, threshold, ratio, attack, release)
   }, [engine])
 
+  // ARM button: if currently recording on this track, stop and save. Otherwise toggle arm.
+  const handleArmClick = useCallback(async (trackId: string) => {
+    const st = useProjectStore.getState()
+    if (st.isRecording) {
+      // Stop recording — clip will be saved by stopRecord
+      await transport.record()
+    } else if (st.countIn > 0) {
+      // Cancel count-in
+      await transport.record()
+    } else {
+      // Just toggle arm state
+      const track = st.tracks.find(t => t.id === trackId)
+      if (!track) return
+      const willArm = !track.armed
+      // Disarm all others first (exclusive arm like Logic Pro)
+      st.tracks.forEach((t: import('./store/projectStore').Track) => {
+        if (t.id !== trackId && t.armed) useProjectStore.getState().updateTrack(t.id, { armed: false })
+      })
+      useProjectStore.getState().updateTrack(trackId, { armed: willArm })
+    }
+  }, [transport, store])
+
   const handleSetTrackEQ = useCallback((id: string, l: number, m: number, h: number) => {
     engine.setTrackEQ(id, l, m, h)
   }, [engine])
@@ -301,7 +323,7 @@ export default function App() {
         )}
 
         {/* Track list */}
-        <TrackList onVolumeChange={handleVolumeChange} onPanChange={handlePanChange} />
+        <TrackList onVolumeChange={handleVolumeChange} onPanChange={handlePanChange} onArmClick={handleArmClick} />
 
         {/* Center */}
         <div className="center-area">
