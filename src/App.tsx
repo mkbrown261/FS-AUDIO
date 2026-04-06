@@ -10,6 +10,7 @@ import { PianoRoll } from './components/PianoRoll'
 import { ClawbotPanel } from './components/ClawbotPanel'
 import { StatusBar } from './components/StatusBar'
 import { InspectorPanel } from './components/InspectorPanel'
+import { MusicalTyping } from './components/MusicalTyping'
 
 const FLOWSTATE_HUB = 'https://flowstate-67g.pages.dev'
 
@@ -18,6 +19,7 @@ export default function App() {
   const engine = useAudioEngine()
   const [trackLevels, setTrackLevels] = useState<Map<string, number>>(new Map())
   const [micLevel, setMicLevel] = useState(0)
+  const [showMusicalTyping, setShowMusicalTyping] = useState(false)
 
   // ── Transport — wired to audio engine ─────────────────────────────────────
   const transport = useTransport(
@@ -197,6 +199,13 @@ export default function App() {
 
       const meta = e.metaKey || e.ctrlKey
 
+      // Shift+P — toggle Musical Typing window
+      if (e.shiftKey && e.key === 'P') {
+        e.preventDefault()
+        setShowMusicalTyping(prev => !prev)
+        return
+      }
+
       switch (e.code) {
         case 'Space':
           e.preventDefault()
@@ -303,6 +312,12 @@ export default function App() {
       </div>
 
       <StatusBar />
+
+      <MusicalTyping
+        isOpen={showMusicalTyping}
+        onClose={() => setShowMusicalTyping(false)}
+        onPlayNote={engine.playPreviewNote}
+      />
     </div>
   )
 }

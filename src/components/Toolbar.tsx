@@ -197,16 +197,19 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
       {/* BPM */}
       <div className="bpm-wrap">
         <label className="param-label">BPM</label>
-        <input
-          ref={bpmRef}
-          className="bpm-input"
-          type="number"
-          min={20} max={300} step={0.1}
-          value={bpm.toFixed(1)}
-          onChange={handleBpmChange}
-          onWheel={handleBpmWheel}
-          title="BPM (scroll to fine-tune)"
-        />
+        <div className="bpm-lcd">
+          <input
+            ref={bpmRef}
+            className="bpm-input"
+            type="number"
+            min={20} max={300} step={0.1}
+            value={bpm.toFixed(1)}
+            onChange={handleBpmChange}
+            onWheel={handleBpmWheel}
+            title="BPM (scroll to fine-tune)"
+          />
+          <span className="bpm-lcd-label">bpm</span>
+        </div>
       </div>
 
       {/* Key */}

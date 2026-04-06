@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useProjectStore, MidiNote, Clip } from '../store/projectStore'
 
 const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B']
@@ -25,7 +25,7 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
   const [selectedNotes, setSelectedNotes] = useState<Set<string>>(new Set())
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Resolve clip
+  // Resolve clip (must come before useEffect that uses clip/notes)
   let clip: Clip | null = null
   let trackColor = '#a855f7'
   for (const t of tracks) {
@@ -37,6 +37,21 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
   const totalBeats = Math.max(clip?.durationBeats ?? 16, 16)
   const totalWidth = totalBeats * ppb
   const totalHeight = 128 * CELL_H
+
+  // ── Delete / Backspace removes selected notes ──────────────────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const el = document.activeElement
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNotes.size > 0 && clip) {
+        e.preventDefault()
+        updateClip(clip.id, { midiNotes: notes.filter(n => !selectedNotes.has(n.id)) })
+        setSelectedNotes(new Set())
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [selectedNotes, clip, notes, updateClip])
 
   // ── Note actions ────────────────────────────────────────────────────────────
   function handleGridClick(e: React.MouseEvent<HTMLDivElement>) {
@@ -139,16 +154,39 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
       {/* Toolbar */}
       <div className="pr-toolbar">
         <div className="pr-tools">
-          {(['draw','select','erase'] as const).map(t => (
-            <button
-              key={t}
-              className={`pr-tool ${tool === t ? 'active' : ''}`}
-              onClick={() => setTool(t)}
-              title={{ draw:'Draw (N)', select:'Select (S)', erase:'Erase (E)' }[t]}
-            >
-              {{ draw:'✏', select:'↖', erase:'✕' }[t]}
-            </button>
-          ))}
+          {/* Draw tool — pencil */}
+          <button
+            className={`pr-tool ${tool === 'draw' ? 'active' : ''}`}
+            onClick={() => setTool('draw')}
+            title="Draw (N)"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <line x1="2" y1="10" x2="9" y2="3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              <polygon points="9,1 11,3 10,4 8,2" fill="currentColor"/>
+              <line x1="1" y1="11" x2="3" y2="11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </button>
+          {/* Select tool — arrow cursor */}
+          <button
+            className={`pr-tool ${tool === 'select' ? 'active' : ''}`}
+            onClick={() => setTool('select')}
+            title="Select (S)"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <polygon points="1,1 1,9 4,7 5.5,11 7,10.5 5.5,6.5 9,6.5" fill="currentColor"/>
+            </svg>
+          </button>
+          {/* Erase tool — X */}
+          <button
+            className={`pr-tool ${tool === 'erase' ? 'active' : ''}`}
+            onClick={() => setTool('erase')}
+            title="Erase (E)"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              <line x1="10" y1="2" x2="2" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </button>
         </div>
 
         <div className="pr-quantize">
