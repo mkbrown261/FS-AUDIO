@@ -74,7 +74,7 @@ html, body, #root {
 .toolbar > * { -webkit-app-region: no-drag; }
 
 .toolbar-brand { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
-.brand-icon { font-size: 20px; }
+.brand-icon { display: flex; align-items: center; flex-shrink: 0; }
 .brand-name {
   font-size: 14px; font-weight: 900;
   background: linear-gradient(135deg, #10b981, #06b6d4);
@@ -178,14 +178,29 @@ html, body, #root {
 
 .track-header {
   display: flex; flex-direction: column; justify-content: center;
-  padding: 6px 10px; gap: 5px;
+  padding: 8px 10px 12px; gap: 6px;
   border-bottom: 1px solid var(--border);
   border-left: 3px solid transparent;
   cursor: pointer; transition: background .1s;
   position: relative;
+  user-select: none;
 }
 .track-header:hover { background: var(--bg-hover); }
 .track-header.selected { background: rgba(168,85,247,.08); border-left-color: var(--accent) !important; }
+
+/* Track height resize handle */
+.track-resize-handle {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  cursor: ns-resize;
+  background: transparent;
+  transition: background .15s;
+  z-index: 2;
+}
+.track-resize-handle:hover { background: rgba(168,85,247,.35); }
 
 .track-header-top { display: flex; align-items: center; gap: 6px; }
 .track-color-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; cursor: pointer; }
@@ -229,7 +244,7 @@ html, body, #root {
 .timeline-ruler {
   height: 28px; position: sticky; top: 0; z-index: 10;
   background: rgba(26,26,46,.98); border-bottom: 1px solid var(--border);
-  cursor: col-resize; flex-shrink: 0; position: relative;
+  cursor: col-resize; flex-shrink: 0;
 }
 .ruler-tick { position: absolute; bottom: 0; display: flex; flex-direction: column; align-items: center; }
 .ruler-label { font-size: 9px; color: var(--text-m); font-variant-numeric: tabular-nums; margin-bottom: 2px; white-space: nowrap; }
@@ -267,6 +282,24 @@ html, body, #root {
   transition: background .1s;
 }
 .track-lane:hover { background: rgba(168,85,247,.02); }
+.track-lane-dragover {
+  background: rgba(16,185,129,.06) !important;
+  outline: 2px dashed rgba(16,185,129,.5);
+  outline-offset: -2px;
+}
+.lane-drop-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--green);
+  letter-spacing: .05em;
+  pointer-events: none;
+  text-transform: uppercase;
+}
 
 .lane-muted-overlay {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
@@ -292,6 +325,16 @@ html, body, #root {
   cursor: ew-resize; background: rgba(255,255,255,.1);
 }
 .clip-resize-handle:hover { background: rgba(255,255,255,.3); }
+
+.clip-badge {
+  display: inline-block;
+  font-size: 8px; font-weight: 800;
+  padding: 1px 4px; border-radius: 3px;
+  margin-left: 4px; vertical-align: middle;
+  letter-spacing: .04em;
+}
+.clip-badge-ai { background: rgba(168,85,247,.35); color: #e0b4ff; }
+.clip-badge-loop { background: rgba(16,185,129,.25); color: #6ee7b7; }
 .fade-handle { position: absolute; top: 0; left: 0; bottom: 0; background: rgba(255,255,255,.07); }
 
 .playhead {
@@ -551,6 +594,33 @@ html, body, #root {
 .inspector-knobs { display: flex; gap: 12px; justify-content: center; padding: 4px 0; }
 .knob-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 10px; color: var(--text-m); }
 .knob-svg { cursor: ns-resize; user-select: none; }
+
+/* ─── Inspector extras ──────────────────────────────────────────────────────── */
+.inspector-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; gap: 10px; padding: 24px 12px; }
+.inspector-empty-icon { display: flex; align-items: center; justify-content: center; opacity: .5; }
+.inspector-empty-text { font-size: 12px; color: var(--text-m); text-align: center; }
+.inspector-track-header { display: flex; align-items: center; gap: 10px; }
+.inspector-color-bar { width: 4px; height: 36px; border-radius: 2px; flex-shrink: 0; }
+.inspector-track-name { font-size: 14px; font-weight: 800; color: var(--text-p); }
+.inspector-track-type { font-size: 10px; font-weight: 700; color: var(--text-m); letter-spacing: .06em; margin-top: 2px; }
+.inspector-section-title { font-size: 10px; font-weight: 700; color: var(--text-m); text-transform: uppercase; letter-spacing: .07em; }
+.inspector-vol-row { display: flex; align-items: center; gap: 8px; }
+.inspector-label { font-size: 11px; color: var(--text-m); min-width: 40px; }
+.inspector-slider { flex: 1; accent-color: var(--accent); cursor: pointer; }
+.inspector-val { font-size: 11px; color: var(--text-s); min-width: 56px; text-align: right; font-variant-numeric: tabular-nums; }
+.inspector-msarm { display: flex; gap: 6px; }
+.inspector-btn { padding: 4px 10px; border-radius: 5px; border: 1px solid var(--border); background: transparent; color: var(--text-m); font-size: 11px; font-weight: 700; cursor: pointer; transition: .1s; }
+.inspector-btn:hover { border-color: var(--border-h); color: var(--text-p); }
+.btn-muted { background: rgba(245,158,11,.15); border-color: var(--warn); color: var(--warn); }
+.btn-soloed { background: rgba(16,185,129,.15); border-color: var(--green); color: var(--green); }
+.btn-armed { background: rgba(239,68,68,.2); border-color: var(--danger); color: var(--danger); animation: pulse 1s infinite; }
+.eq-gain-val { font-size: 10px; color: var(--text-m); font-variant-numeric: tabular-nums; text-align: center; }
+.sends-stub { display: flex; flex-direction: column; gap: 6px; }
+.plugin-slot-num { font-size: 10px; color: var(--text-m); min-width: 14px; }
+.plugin-bypass-btn { background: transparent; border: 1px solid var(--border); border-radius: 3px; color: var(--text-m); font-size: 12px; cursor: pointer; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.plugin-bypass-btn:hover { border-color: var(--border-h); color: var(--text-p); }
+.plugin-remove-btn { background: transparent; border: none; color: var(--text-m); cursor: pointer; font-size: 11px; padding: 0 2px; }
+.plugin-remove-btn:hover { color: var(--danger); }
 
 /* ─── EQ ────────────────────────────────────────────────────────────────────── */
 .eq-band { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; }

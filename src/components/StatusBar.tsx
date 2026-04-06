@@ -55,7 +55,7 @@ export function StatusBar() {
       )}
       {isPlaying && !isRecording && (
         <>
-          <span style={{ color: '#10b981', fontWeight: 700 }}>▶ Playing</span>
+          <span style={{ color: '#10b981', fontWeight: 700, letterSpacing: '.04em' }}>PLAYING</span>
           <div className="status-divider" />
         </>
       )}

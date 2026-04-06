@@ -187,7 +187,7 @@ export function useTransport(
     // Check for armed track
     const armedTrack = st.tracks.find(t => t.armed && t.type !== 'master')
     if (!armedTrack) {
-      alert('Arm at least one track to record.\n\nClick the ⏺ button on a track header.')
+      alert('Arm at least one track to record.\n\nClick the ARM button on a track header.')
       return
     }
 
@@ -260,5 +260,12 @@ export function useTransport(
     }
   }, [])
 
-  return { play, pause, stop, togglePlay, record, seekToTime, seekToBeat }
+  // ── toStart — stop playback and return playhead to beat 0 ───────────────
+  const toStart = useCallback(() => {
+    pause()
+    store.getState().setCurrentTime(0)
+    anchorBeatRef.current = 0
+  }, [pause, store])
+
+  return { play, pause, stop, toStart, togglePlay, record, seekToTime, seekToBeat }
 }

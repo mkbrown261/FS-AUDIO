@@ -165,7 +165,9 @@ function ChannelStrip({
             className={`mxbtn ${track.armed ? 'armed' : ''}`}
             onClick={e => { e.stopPropagation(); updateTrack(track.id, { armed: !track.armed }) }}
             title="Arm"
-          >⏺</button>
+          >
+            <svg width="7" height="7" viewBox="0 0 7 7"><circle cx="3.5" cy="3.5" r="3" fill="currentColor"/></svg>
+          </button>
         )}
       </div>
     </div>

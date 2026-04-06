@@ -1,6 +1,21 @@
 import React, { useRef, useCallback, useEffect, useState } from 'react'
 import { useProjectStore, Clip, Track } from '../store/projectStore'
 
+// ── Flat centerline for audio clips with no waveform data ─────────────────────
+function FlatLine({ width, height, color }: { width: number; height: number; color: string }) {
+  const mid = height / 2
+  return (
+    <svg
+      width={width}
+      height={height}
+      style={{ position: 'absolute', top: 18, left: 0, width, height }}
+      preserveAspectRatio="none"
+    >
+      <line x1={0} y1={mid} x2={width} y2={mid} stroke={color + '66'} strokeWidth={1} />
+    </svg>
+  )
+}
+
 // ── Waveform canvas ────────────────────────────────────────────────────────────
 function WaveformCanvas({ peaks, width, height, color }: { peaks: number[]; width: number; height: number; color: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -54,16 +69,6 @@ function snapBeat(beat: number, snapValue: string, enabled: boolean): number {
   return Math.round(beat / g) * g
 }
 
-// ── Fake waveform seeded from clip id ────────────────────────────────────────
-function fakeWave(seed: string, n: number): number[] {
-  let h = 0
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) & 0xffff
-  return Array.from({ length: n }, () => {
-    h = (h * 1103515245 + 12345) & 0x7fffffff
-    return 0.15 + (h % 100) / 100 * 0.8
-  })
-}
-
 // ── Clip View ──────────────────────────────────────────────────────────────────
 function ClipView({
   clip, track, pixelsPerBeat, laneHeight, selected, onSelect
@@ -76,7 +81,6 @@ function ClipView({
 
   const x = clip.startBeat * pixelsPerBeat
   const w = Math.max(8, clip.durationBeats * pixelsPerBeat)
-  const peaks = clip.waveformPeaks ?? fakeWave(clip.id, 80)
 
   function handleMouseDown(e: React.MouseEvent) {
     if (e.button !== 0 || (e.target as HTMLElement).classList.contains('clip-resize-handle')) return
@@ -157,10 +161,17 @@ function ClipView({
       onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
     >
-      <div className="clip-name">{clip.name}{clip.aiGenerated ? ' 🤖' : ''}{clip.looped ? ' ↺' : ''}</div>
+      <div className="clip-name">
+        {clip.name}
+        {clip.aiGenerated && <span className="clip-badge clip-badge-ai">AI</span>}
+        {clip.looped && <span className="clip-badge clip-badge-loop">LOOP</span>}
+      </div>
 
-      {clip.type === 'audio' && (
-        <WaveformCanvas peaks={peaks} width={w} height={laneHeight - 6} color="#fff" />
+      {clip.type === 'audio' && clip.waveformPeaks && clip.waveformPeaks.length > 0 && (
+        <WaveformCanvas peaks={clip.waveformPeaks} width={w} height={laneHeight - 6} color="#fff" />
+      )}
+      {clip.type === 'audio' && (!clip.waveformPeaks || clip.waveformPeaks.length === 0) && (
+        <FlatLine width={w} height={laneHeight - 6} color="#fff" />
       )}
       {clip.type === 'midi' && clip.midiNotes && (
         <MidiPreview notes={clip.midiNotes} width={w} height={laneHeight - 6} />
@@ -197,8 +208,16 @@ function ClipView({
 }
 
 // ── Track Lane ────────────────────────────────────────────────────────────────
-function TrackLane({ track, pixelsPerBeat, scrollLeft }: { track: Track; pixelsPerBeat: number; scrollLeft: number }) {
+function TrackLane({
+  track, pixelsPerBeat, scrollLeft, onImportAudio,
+}: {
+  track: Track
+  pixelsPerBeat: number
+  scrollLeft: number
+  onImportAudio?: (trackId: string, file: File, startBeat: number) => Promise<void>
+}) {
   const { addClip, selectedClipIds, selectClip, snapEnabled, snapValue } = useProjectStore()
+  const [dragOver, setDragOver] = useState(false)
 
   function handleDblClick(e: React.MouseEvent<HTMLDivElement>) {
     if ((e.target as HTMLElement).classList.contains('clip')) return
@@ -219,11 +238,45 @@ function TrackLane({ track, pixelsPerBeat, scrollLeft }: { track: Track; pixelsP
     })
   }
 
-  return (
-    <div className="track-lane" style={{ height: track.height }} onDoubleClick={handleDblClick}>
-      {/* Beat grid lines */}
-      {track === track && null /* grid is drawn by the scroll container */}
+  function handleDragOver(e: React.DragEvent<HTMLDivElement>) {
+    const hasAudio = Array.from(e.dataTransfer.items).some(item => item.kind === 'file' && item.type.startsWith('audio/'))
+    if (!hasAudio) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+    setDragOver(true)
+  }
 
+  function handleDragLeave(e: React.DragEvent<HTMLDivElement>) {
+    // Only clear if leaving the lane entirely (not entering a child)
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setDragOver(false)
+    }
+  }
+
+  async function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    setDragOver(false)
+    if (!onImportAudio) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    const dropX = e.clientX - rect.left + scrollLeft
+    const rawBeat = dropX / pixelsPerBeat
+    const startBeat = snapBeat(Math.max(0, rawBeat), snapValue, snapEnabled)
+
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('audio/'))
+    for (const file of files) {
+      await onImportAudio(track.id, file, startBeat)
+    }
+  }
+
+  return (
+    <div
+      className={`track-lane${dragOver ? ' track-lane-dragover' : ''}`}
+      style={{ height: track.height }}
+      onDoubleClick={handleDblClick}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       {track.clips.map(clip => (
         <ClipView
           key={clip.id}
@@ -235,12 +288,21 @@ function TrackLane({ track, pixelsPerBeat, scrollLeft }: { track: Track; pixelsP
         />
       ))}
       {track.muted && <div className="lane-muted-overlay">MUTED</div>}
+      {dragOver && <div className="lane-drop-hint">Drop audio file here</div>}
     </div>
   )
 }
 
 // ── Main Timeline ─────────────────────────────────────────────────────────────
-export function Timeline({ playheadX, onScrub }: { playheadX: number; onScrub: (beat: number) => void }) {
+export function Timeline({
+  playheadX,
+  onScrub,
+  onImportAudio,
+}: {
+  playheadX: number
+  onScrub: (beat: number) => void
+  onImportAudio?: (trackId: string, file: File, startBeat: number) => Promise<void>
+}) {
   const { tracks, pixelsPerBeat, scrollLeft, setScrollLeft, bpm, loopStart, loopEnd, isLooping, timeSignature } = useProjectStore()
   const scrollRef = useRef<HTMLDivElement>(null)
   const TOTAL_BARS = 96
@@ -379,7 +441,7 @@ export function Timeline({ playheadX, onScrub }: { playheadX: number; onScrub: (
       <div style={{ position: 'relative', width: totalWidth, minWidth: '100%' }}>
         {gridLines}
         {tracks.map(track => (
-          <TrackLane key={track.id} track={track} pixelsPerBeat={pixelsPerBeat} scrollLeft={scrollLeft} />
+          <TrackLane key={track.id} track={track} pixelsPerBeat={pixelsPerBeat} scrollLeft={scrollLeft} onImportAudio={onImportAudio} />
         ))}
 
         {/* Playhead — left is absolute beat position in the scrollable canvas */}

@@ -119,7 +119,13 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
     return (
       <div className="piano-roll-empty">
         <div style={{ textAlign:'center' }}>
-          <div style={{ fontSize:32, marginBottom:12 }}>🎹</div>
+          <svg width="36" height="36" viewBox="0 0 36 36" fill="none" style={{ marginBottom:12, opacity:.35 }}>
+            <rect x="4" y="10" width="4" height="16" rx="2" fill="#a855f7"/>
+            <rect x="10" y="14" width="4" height="12" rx="2" fill="#a855f7"/>
+            <rect x="16" y="8" width="4" height="18" rx="2" fill="#a855f7"/>
+            <rect x="22" y="12" width="4" height="14" rx="2" fill="#a855f7"/>
+            <rect x="28" y="16" width="4" height="10" rx="2" fill="#a855f7"/>
+          </svg>
           <div style={{ fontSize:14, color:'#9ca3af' }}>Double-click a MIDI clip to open Piano Roll</div>
         </div>
       </div>

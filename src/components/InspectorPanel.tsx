@@ -154,7 +154,17 @@ export function InspectorPanel({ onSetTrackEQ }: { onSetTrackEQ: (id: string, l:
     return (
       <div className="inspector-panel">
         <div className="inspector-empty">
-          <div className="inspector-empty-icon">🎛</div>
+          <div className="inspector-empty-icon">
+            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+              <rect x="2" y="8" width="24" height="14" rx="3" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5"/>
+              <circle cx="8" cy="15" r="3" stroke="rgba(255,255,255,0.3)" strokeWidth="1.2"/>
+              <circle cx="14" cy="15" r="3" stroke="rgba(255,255,255,0.3)" strokeWidth="1.2"/>
+              <circle cx="20" cy="15" r="3" stroke="rgba(255,255,255,0.3)" strokeWidth="1.2"/>
+              <line x1="8" y1="8" x2="8" y2="5" stroke="rgba(255,255,255,0.2)" strokeWidth="1.2"/>
+              <line x1="14" y1="8" x2="14" y2="3" stroke="rgba(255,255,255,0.2)" strokeWidth="1.2"/>
+              <line x1="20" y1="8" x2="20" y2="6" stroke="rgba(255,255,255,0.2)" strokeWidth="1.2"/>
+            </svg>
+          </div>
           <div className="inspector-empty-text">Select a track to inspect</div>
         </div>
       </div>
@@ -225,7 +235,7 @@ export function InspectorPanel({ onSetTrackEQ }: { onSetTrackEQ: (id: string, l:
             <button
               className={`inspector-btn ${track!.armed ? 'btn-armed' : ''}`}
               onClick={() => updateTrack(track!.id, { armed: !track!.armed })}
-            >⏺ ARM</button>
+            >ARM</button>
           )}
         </div>
       </div>

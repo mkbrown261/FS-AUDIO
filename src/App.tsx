@@ -68,6 +68,51 @@ export default function App() {
     engine.setTrackEQ(id, l, m, h)
   }, [engine])
 
+  // ── Audio file import (drag-and-drop onto track lanes) ───────────────────
+  const handleImportAudio = useCallback(async (trackId: string, file: File, startBeat: number) => {
+    try {
+      const arrayBuffer = await file.arrayBuffer()
+      const ctx = engine.getCtx()
+      const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
+
+      // Generate 200-point waveform peaks
+      const channel = audioBuffer.getChannelData(0)
+      const blockSize = Math.floor(channel.length / 200)
+      const peaks: number[] = []
+      for (let i = 0; i < 200; i++) {
+        let max = 0
+        for (let j = 0; j < blockSize; j++) {
+          const v = Math.abs(channel[i * blockSize + j] ?? 0)
+          if (v > max) max = v
+        }
+        peaks.push(max)
+      }
+
+      // Create blob URL for playback
+      const blob = new Blob([arrayBuffer], { type: file.type })
+      const audioUrl = URL.createObjectURL(blob)
+
+      // Register in engine cache so first playback is instant
+      engine.registerAudioBuffer(audioUrl, audioBuffer)
+
+      const durationBeats = (audioBuffer.duration / 60) * store.bpm
+      store.addClip({
+        id: `clip-import-${Date.now()}`,
+        trackId,
+        startBeat,
+        durationBeats: Math.max(1, durationBeats),
+        name: file.name.replace(/\.[^.]+$/, ''),
+        type: 'audio',
+        audioUrl,
+        gain: 1, fadeIn: 0, fadeOut: 0,
+        looped: false, muted: false, aiGenerated: false,
+        waveformPeaks: peaks,
+      })
+    } catch (err) {
+      console.error('Audio import failed:', err)
+    }
+  }, [engine, store])
+
   // ── Check ClawFlow status ─────────────────────────────────────────────────
   useEffect(() => {
     fetch(`${FLOWSTATE_HUB}/api/clawbot/status`)
@@ -91,7 +136,7 @@ export default function App() {
           break
         case 'Enter':
           e.preventDefault()
-          transport.stop()
+          transport.toStart()
           break
         case 'KeyL':
           if (!meta) store.toggleLoop()
@@ -150,7 +195,8 @@ export default function App() {
       <Toolbar
         onPlay={transport.play}
         onPause={transport.pause}
-        onStop={transport.stop}
+        onStop={transport.pause}
+        onToStart={transport.toStart}
         onRecord={transport.record}
       />
 
@@ -171,6 +217,7 @@ export default function App() {
             <Timeline
               playheadX={Math.max(0, playheadX)}
               onScrub={beat => transport.seekToBeat(beat)}
+              onImportAudio={handleImportAudio}
             />
           )}
 

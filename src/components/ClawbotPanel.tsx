@@ -10,20 +10,43 @@ interface Message {
 }
 
 const QUICK_ACTIONS = [
-  { label: '🎵 Generate Beat', tool: 'generate_beat', cost: 15 },
-  { label: '🎼 Generate Melody', tool: 'generate_melody', cost: 20 },
-  { label: '🎤 Full Track', tool: 'generate_track', cost: 40 },
-  { label: '📋 Suggest Arrangement', tool: 'suggest_arrangement', cost: 10 },
-  { label: '🔍 Analyze Key & BPM', tool: 'detect_key_bpm', cost: 2 },
-  { label: '✨ AI Master', tool: 'master_track', cost: 20 },
+  { label: 'Generate Beat', tool: 'generate_beat', cost: 15 },
+  { label: 'Generate Melody', tool: 'generate_melody', cost: 20 },
+  { label: 'Full Track', tool: 'generate_track', cost: 40 },
+  { label: 'Suggest Arrangement', tool: 'suggest_arrangement', cost: 10 },
+  { label: 'Analyze Key & BPM', tool: 'detect_key_bpm', cost: 2 },
+  { label: 'AI Master', tool: 'master_track', cost: 20 },
 ]
 
+function BotIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <rect x="3" y="5" width="8" height="7" rx="2" stroke="currentColor" strokeWidth="1.2"/>
+      <rect x="5" y="2" width="4" height="3" rx="1" stroke="currentColor" strokeWidth="1.2"/>
+      <line x1="7" y1="5" x2="7" y2="4.5" stroke="currentColor" strokeWidth="1.2"/>
+      <circle cx="5.5" cy="8.5" r="0.9" fill="currentColor"/>
+      <circle cx="8.5" cy="8.5" r="0.9" fill="currentColor"/>
+      <line x1="1" y1="8" x2="3" y2="8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+      <line x1="11" y1="8" x2="13" y2="8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+    </svg>
+  )
+}
+
+function UserIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <circle cx="7" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.2"/>
+      <path d="M2 12 C2 9.5 4 8 7 8 C10 8 12 9.5 12 12" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round"/>
+    </svg>
+  )
+}
+
 export function ClawbotPanel() {
-  const { clawflowActive, aiLevel, bpm, key, addClip, tracks, selectedTrackId } = useProjectStore()
+  const { aiLevel, bpm, key, addClip, tracks, selectedTrackId } = useProjectStore()
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'clawbot',
-      content: `Hey! I'm Clawbot — your AI music assistant integrated with Flowstate Audio.\n\nI can generate beats, melodies, full tracks, suggest arrangements, and help with your workflow. All AI music generation requires an active ClawFlow subscription.\n\n${clawflowActive ? '✅ ClawFlow is active — all features enabled.' : '⚠️ ClawFlow not detected. Connect to Flowstate Hub to activate.'}`,
+      content: `Clawbot — AI music assistant for Flowstate Audio.\n\nI can generate beats, melodies, and full tracks, suggest arrangements, analyze key and BPM, and help with your workflow.`,
     }
   ])
   const [input, setInput] = useState('')
@@ -64,7 +87,7 @@ export function ClawbotPanel() {
       setMessages(prev => [...prev, reply])
       if (data.coinCost) setCoinsUsed(c => c + data.coinCost)
     } catch {
-      setMessages(prev => [...prev, { role: 'clawbot', content: 'Connection error. Make sure you have internet access and Flowstate Hub is reachable.' }])
+      setMessages(prev => [...prev, { role: 'clawbot', content: 'AI features require API configuration.' }])
     } finally {
       setLoading(false)
       scrollToBottom()
@@ -72,15 +95,6 @@ export function ClawbotPanel() {
   }
 
   async function generateAudio(tool: string, cost: number) {
-    if (!clawflowActive && ['generate_track','generate_melody','generate_beat','master_track','suggest_arrangement'].includes(tool)) {
-      setMessages(prev => [...prev, {
-        role: 'clawbot',
-        content: `🔒 ClawFlow subscription required to use ${tool.replace('_',' ')}. Visit Flowstate Hub to subscribe — first month $20.\n\n👉 ${FLOWSTATE_HUB}`
-      }])
-      scrollToBottom()
-      return
-    }
-
     setGeneratingTool(tool)
     const promptEl = document.getElementById('clawbot-prompt') as HTMLTextAreaElement
     const prompt = promptEl?.value || `Create a ${key} ${tool.replace(/_/g,' ')} at ${bpm} BPM`
@@ -101,7 +115,6 @@ export function ClawbotPanel() {
       const data = await res.json()
 
       if (data.audioUrl) {
-        // Add to timeline
         const targetTrack = tracks.find(t => t.id === selectedTrackId) ?? tracks[0]
         if (targetTrack) {
           addClip({
@@ -109,19 +122,19 @@ export function ClawbotPanel() {
             trackId: targetTrack.id,
             startBeat: 0,
             durationBeats: 16,
-            name: `🤖 ${prompt.slice(0, 24)}`,
+            name: prompt.slice(0, 24),
             type: 'audio',
             audioUrl: data.audioUrl,
             gain: 1, fadeIn: 0, fadeOut: 0,
             looped: false, muted: false, aiGenerated: true,
           })
         }
-        setMessages(prev => [...prev, { role: 'clawbot', content: `✅ Generated! Added to timeline.\n\n🎵 Audio: ${data.audioUrl}`, coinCost: cost }])
+        setMessages(prev => [...prev, { role: 'clawbot', content: `Generated and added to timeline.\n\nAudio: ${data.audioUrl}`, coinCost: cost }])
       } else if (data.suggestion) {
         const s = data.suggestion
         setMessages(prev => [...prev, {
           role: 'clawbot',
-          content: `🎼 Arrangement Suggestion\n\nChord Progression: ${s.chordProgression}\n\nStructure:\n${s.arrangement.join(' → ')}\n\nTracks: ${s.suggestedTracks.join(', ')}\n\nTips:\n${s.productionTips.map((t: string) => `• ${t}`).join('\n')}`,
+          content: `Arrangement Suggestion\n\nChord Progression: ${s.chordProgression}\n\nStructure:\n${s.arrangement.join(' > ')}\n\nTracks: ${s.suggestedTracks.join(', ')}\n\nTips:\n${s.productionTips.map((t: string) => `- ${t}`).join('\n')}`,
           coinCost: cost,
         }])
       } else {
@@ -130,7 +143,7 @@ export function ClawbotPanel() {
 
       if (data.coinCost ?? cost) setCoinsUsed(c => c + (data.coinCost ?? cost))
     } catch {
-      setMessages(prev => [...prev, { role: 'clawbot', content: 'Generation failed — check your network connection.' }])
+      setMessages(prev => [...prev, { role: 'clawbot', content: 'AI features require API configuration.' }])
     } finally {
       setLoading(false)
       setGeneratingTool(null)
@@ -142,31 +155,31 @@ export function ClawbotPanel() {
     <div className="clawbot-panel">
       {/* Header */}
       <div className="clawbot-panel-header">
-        <span>🦾 Clawbot</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span className={`cf-badge ${clawflowActive ? 'active' : 'inactive'}`}>
-            {clawflowActive ? '✅ ClawFlow' : '🔒 ClawFlow'}
-          </span>
-          {coinsUsed > 0 && <span className="coins-badge">⚡ {coinsUsed} used</span>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <BotIcon />
+          <span>Clawbot</span>
         </div>
+        {coinsUsed > 0 && <span className="coins-badge">{coinsUsed} credits used</span>}
       </div>
 
       {/* Messages */}
       <div className="clawbot-messages">
         {messages.map((m, i) => (
           <div key={i} className={`cb-msg ${m.role}`}>
-            <div className="cb-av">{m.role === 'clawbot' ? '🦾' : '👤'}</div>
+            <div className="cb-av">
+              {m.role === 'clawbot' ? <BotIcon /> : <UserIcon />}
+            </div>
             <div className="cb-bubble">
               <pre className="cb-text">{m.content}</pre>
               {m.coinCost != null && m.coinCost > 0 && (
-                <span className="coin-cost">⚡ {m.coinCost} coins</span>
+                <span className="coin-cost">{m.coinCost} credits</span>
               )}
             </div>
           </div>
         ))}
         {loading && (
           <div className="cb-msg clawbot">
-            <div className="cb-av">🦾</div>
+            <div className="cb-av"><BotIcon /></div>
             <div className="cb-bubble"><div className="typing-dots"><span/><span/><span/></div></div>
           </div>
         )}
@@ -186,12 +199,12 @@ export function ClawbotPanel() {
         {QUICK_ACTIONS.map(({ label, tool, cost }) => (
           <button
             key={tool}
-            className={`quick-btn ${!clawflowActive && tool !== 'detect_key_bpm' ? 'locked' : ''}`}
+            className="quick-btn"
             onClick={() => generateAudio(tool, cost)}
             disabled={loading || generatingTool !== null}
           >
-            {generatingTool === tool ? '⏳' : label}
-            <span className="qa-cost">{cost}⚡</span>
+            {generatingTool === tool ? 'Working...' : label}
+            <span className="qa-cost">{cost} cr</span>
           </button>
         ))}
       </div>
@@ -206,15 +219,9 @@ export function ClawbotPanel() {
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
         />
         <button className="cb-send-btn" onClick={() => sendMessage()} disabled={loading || !input.trim()}>
-          {loading ? '⏳' : '↑'}
+          {loading ? '...' : 'Send'}
         </button>
       </div>
-
-      {!clawflowActive && (
-        <a href={FLOWSTATE_HUB} target="_blank" rel="noreferrer" className="clawflow-cta">
-          🦾 Activate ClawFlow — First Month $20 →
-        </a>
-      )}
     </div>
   )
 }
