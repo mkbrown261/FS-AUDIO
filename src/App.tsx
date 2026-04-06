@@ -81,6 +81,18 @@ export default function App() {
   }, [engine])
 
   // ── Inspector EQ callback ─────────────────────────────────────────────────
+  const handleSetTrackVolume = useCallback((id: string, volume: number) => {
+    engine.setTrackVolume(id, volume)
+  }, [engine])
+
+  const handleSetTrackPan = useCallback((id: string, pan: number) => {
+    engine.setTrackPan(id, pan)
+  }, [engine])
+
+  const handleSetTrackCompressor = useCallback((id: string, threshold: number, ratio: number, attack: number, release: number) => {
+    engine.setTrackCompressor(id, threshold, ratio, attack, release)
+  }, [engine])
+
   const handleSetTrackEQ = useCallback((id: string, l: number, m: number, h: number) => {
     engine.setTrackEQ(id, l, m, h)
   }, [engine])
@@ -200,7 +212,7 @@ export default function App() {
       const meta = e.metaKey || e.ctrlKey
 
       // Shift+P — toggle Musical Typing window
-      if (e.shiftKey && e.key === 'P') {
+      if (e.shiftKey && (e.key === 'P' || e.key === 'p')) {
         e.preventDefault()
         setShowMusicalTyping(prev => !prev)
         return
@@ -280,7 +292,12 @@ export default function App() {
       <div className="main-area">
         {/* Inspector */}
         {store.inspectorOpen && (
-          <InspectorPanel onSetTrackEQ={handleSetTrackEQ} />
+          <InspectorPanel
+            onSetTrackEQ={handleSetTrackEQ}
+            onSetTrackVolume={handleSetTrackVolume}
+            onSetTrackPan={handleSetTrackPan}
+            onSetTrackCompressor={handleSetTrackCompressor}
+          />
         )}
 
         {/* Track list */}

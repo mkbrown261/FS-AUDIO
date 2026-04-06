@@ -99,8 +99,17 @@ function EqBand({
   )
 }
 
-function PluginSlot({ plugin, trackId, index }: { plugin: Plugin | undefined; trackId: string; index: number }) {
-  const { addPlugin, removePlugin, togglePlugin } = useProjectStore()
+interface PluginSlotProps {
+  plugin: Plugin | undefined
+  trackId: string
+  index: number
+  onSetEQ: (l: number, m: number, h: number) => void
+  onSetCompressor: (threshold: number, ratio: number, attack: number, release: number) => void
+}
+
+function PluginSlot({ plugin, trackId, index, onSetEQ, onSetCompressor }: PluginSlotProps) {
+  const { addPlugin, removePlugin, togglePlugin, updatePlugin } = useProjectStore()
+  const [expanded, setExpanded] = useState(false)
 
   const PLUGIN_TYPES: Plugin['type'][] = ['eq', 'compressor', 'reverb', 'delay', 'limiter', 'chorus', 'distortion']
 
@@ -111,7 +120,9 @@ function PluginSlot({ plugin, trackId, index }: { plugin: Plugin | undefined; tr
       name: type.charAt(0).toUpperCase() + type.slice(1),
       type,
       enabled: true,
-      params: {},
+      params: type === 'eq' ? { low: 0, mid: 0, high: 0 }
+             : type === 'compressor' ? { threshold: -24, ratio: 4, attack: 0.003, release: 0.25 }
+             : {},
     })
   }
 
@@ -124,27 +135,109 @@ function PluginSlot({ plugin, trackId, index }: { plugin: Plugin | undefined; tr
     )
   }
 
+  function handleParamChange(key: string, val: number) {
+    if (!plugin) return
+    const next = { ...plugin.params, [key]: val }
+    updatePlugin(trackId, plugin.id, next)
+    if (plugin.type === 'eq' && plugin.enabled) {
+      onSetEQ(next.low ?? 0, next.mid ?? 0, next.high ?? 0)
+    } else if (plugin.type === 'compressor' && plugin.enabled) {
+      onSetCompressor(next.threshold ?? -24, next.ratio ?? 4, next.attack ?? 0.003, next.release ?? 0.25)
+    }
+  }
+
+  function handleBypass() {
+    togglePlugin(trackId, plugin!.id)
+    // When re-enabling, reapply params
+    if (!plugin!.enabled) {
+      if (plugin!.type === 'eq') onSetEQ(plugin!.params.low ?? 0, plugin!.params.mid ?? 0, plugin!.params.high ?? 0)
+      if (plugin!.type === 'compressor') onSetCompressor(plugin!.params.threshold ?? -24, plugin!.params.ratio ?? 4, plugin!.params.attack ?? 0.003, plugin!.params.release ?? 0.25)
+    } else {
+      // Bypassing — reset to neutral
+      if (plugin!.type === 'eq') onSetEQ(0, 0, 0)
+      if (plugin!.type === 'compressor') onSetCompressor(-60, 1, 0.003, 0.25)
+    }
+  }
+
   return (
     <div className={`plugin-slot ${plugin.enabled ? 'active' : 'bypassed'}`}>
-      <button
-        className="plugin-bypass-btn"
-        onClick={() => togglePlugin(trackId, plugin.id)}
-        title={plugin.enabled ? 'Bypass' : 'Enable'}
-      >
-        {plugin.enabled ? '●' : '○'}
-      </button>
-      <span className="plugin-slot-num">{index + 1}</span>
-      <span className="plugin-slot-name">{plugin.name}</span>
-      <button
-        className="plugin-remove-btn"
-        onClick={() => removePlugin(trackId, plugin.id)}
-        title="Remove"
-      >✕</button>
+      <div className="plugin-slot-header">
+        <button className="plugin-bypass-btn" onClick={handleBypass} title={plugin.enabled ? 'Bypass' : 'Enable'}>
+          <div className={`plugin-power-dot ${plugin.enabled ? 'on' : 'off'}`} />
+        </button>
+        <span className="plugin-slot-num">{index + 1}</span>
+        <span className="plugin-slot-name">{plugin.name}</span>
+        <button className="plugin-expand-btn" onClick={() => setExpanded(e => !e)} title="Edit">
+          {expanded ? '▲' : '▼'}
+        </button>
+        <button className="plugin-remove-btn" onClick={() => removePlugin(trackId, plugin.id)} title="Remove">✕</button>
+      </div>
+
+      {expanded && plugin.enabled && (
+        <div className="plugin-params">
+          {plugin.type === 'eq' && (
+            <>
+              {(['low', 'mid', 'high'] as const).map((key, idx) => {
+                const labels = ['Low', 'Mid', 'High']
+                const val = (plugin.params[key] as number) ?? 0
+                return (
+                  <div key={key} className="plugin-param-row">
+                    <span className="inspector-label">{labels[idx]}</span>
+                    <input type="range" min={-12} max={12} step={0.5} value={val} className="inspector-slider"
+                      onChange={e => handleParamChange(key, parseFloat(e.target.value))} />
+                    <span className="inspector-val">{val > 0 ? '+' : ''}{val.toFixed(1)} dB</span>
+                  </div>
+                )
+              })}
+            </>
+          )}
+          {plugin.type === 'compressor' && (
+            <>
+              <div className="plugin-param-row">
+                <span className="inspector-label">Threshold</span>
+                <input type="range" min={-60} max={0} step={1} value={plugin.params.threshold ?? -24} className="inspector-slider"
+                  onChange={e => handleParamChange('threshold', parseFloat(e.target.value))} />
+                <span className="inspector-val">{plugin.params.threshold ?? -24} dB</span>
+              </div>
+              <div className="plugin-param-row">
+                <span className="inspector-label">Ratio</span>
+                <input type="range" min={1} max={20} step={0.5} value={plugin.params.ratio ?? 4} className="inspector-slider"
+                  onChange={e => handleParamChange('ratio', parseFloat(e.target.value))} />
+                <span className="inspector-val">{plugin.params.ratio ?? 4}:1</span>
+              </div>
+              <div className="plugin-param-row">
+                <span className="inspector-label">Attack</span>
+                <input type="range" min={0.001} max={0.1} step={0.001} value={plugin.params.attack ?? 0.003} className="inspector-slider"
+                  onChange={e => handleParamChange('attack', parseFloat(e.target.value))} />
+                <span className="inspector-val">{((plugin.params.attack ?? 0.003) * 1000).toFixed(1)} ms</span>
+              </div>
+              <div className="plugin-param-row">
+                <span className="inspector-label">Release</span>
+                <input type="range" min={0.01} max={2} step={0.01} value={plugin.params.release ?? 0.25} className="inspector-slider"
+                  onChange={e => handleParamChange('release', parseFloat(e.target.value))} />
+                <span className="inspector-val">{((plugin.params.release ?? 0.25) * 1000).toFixed(0)} ms</span>
+              </div>
+            </>
+          )}
+          {!['eq','compressor'].includes(plugin.type) && (
+            <div className="plugin-param-row" style={{ color: 'var(--text-m)', fontSize: 11 }}>
+              {plugin.name} — no parameters
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
 
-export function InspectorPanel({ onSetTrackEQ }: { onSetTrackEQ: (id: string, l: number, m: number, h: number) => void }) {
+interface InspectorPanelProps {
+  onSetTrackEQ: (id: string, l: number, m: number, h: number) => void
+  onSetTrackVolume: (id: string, volume: number) => void
+  onSetTrackPan: (id: string, pan: number) => void
+  onSetTrackCompressor: (id: string, threshold: number, ratio: number, attack: number, release: number) => void
+}
+
+export function InspectorPanel({ onSetTrackEQ, onSetTrackVolume, onSetTrackPan, onSetTrackCompressor }: InspectorPanelProps) {
   const { tracks, selectedTrackId, updateTrack } = useProjectStore()
   const [eqGains, setEqGains] = useState<Record<string, [number, number, number]>>({})
 
@@ -206,7 +299,11 @@ export function InspectorPanel({ onSetTrackEQ }: { onSetTrackEQ: (id: string, l:
             type="range" min={0} max={125} step={1}
             value={Math.round(track!.volume * 100)}
             className="inspector-slider"
-            onChange={e => updateTrack(track!.id, { volume: parseInt(e.target.value) / 100 })}
+            onChange={e => {
+              const v = parseInt(e.target.value) / 100
+              updateTrack(track!.id, { volume: v })
+              onSetTrackVolume(track!.id, v)
+            }}
           />
           <span className="inspector-val">{volDb}</span>
         </div>
@@ -216,7 +313,11 @@ export function InspectorPanel({ onSetTrackEQ }: { onSetTrackEQ: (id: string, l:
             type="range" min={-100} max={100} step={1}
             value={Math.round(track!.pan * 100)}
             className="inspector-slider"
-            onChange={e => updateTrack(track!.id, { pan: parseInt(e.target.value) / 100 })}
+            onChange={e => {
+              const v = parseInt(e.target.value) / 100
+              updateTrack(track!.id, { pan: v })
+              onSetTrackPan(track!.id, v)
+            }}
           />
           <span className="inspector-val">{panStr}</span>
         </div>
@@ -255,7 +356,14 @@ export function InspectorPanel({ onSetTrackEQ }: { onSetTrackEQ: (id: string, l:
         <div className="inspector-section-title">Inserts</div>
         <div className="plugin-slots">
           {[0,1,2,3].map(i => (
-            <PluginSlot key={i} plugin={track!.plugins[i]} trackId={track!.id} index={i} />
+            <PluginSlot
+              key={i}
+              plugin={track!.plugins[i]}
+              trackId={track!.id}
+              index={i}
+              onSetEQ={(l, m, h) => onSetTrackEQ(track!.id, l, m, h)}
+              onSetCompressor={(th, ra, at, re) => onSetTrackCompressor(track!.id, th, ra, at, re)}
+            />
           ))}
         </div>
       </div>
