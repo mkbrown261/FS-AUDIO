@@ -18,18 +18,9 @@ const QUICK_ACTIONS = [
   { label: 'AI Master', tool: 'master_track', cost: 20 },
 ]
 
-function BotIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <rect x="3" y="5" width="8" height="7" rx="2" stroke="currentColor" strokeWidth="1.2"/>
-      <rect x="5" y="2" width="4" height="3" rx="1" stroke="currentColor" strokeWidth="1.2"/>
-      <line x1="7" y1="5" x2="7" y2="4.5" stroke="currentColor" strokeWidth="1.2"/>
-      <circle cx="5.5" cy="8.5" r="0.9" fill="currentColor"/>
-      <circle cx="8.5" cy="8.5" r="0.9" fill="currentColor"/>
-      <line x1="1" y1="8" x2="3" y2="8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-      <line x1="11" y1="8" x2="13" y2="8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-    </svg>
-  )
+function BotIcon({ size = 'sm' }: { size?: 'sm' | 'md' | 'lg' }) {
+  const cls = size === 'lg' ? 'mascot-lg' : size === 'md' ? 'mascot-md' : 'mascot-sm'
+  return <img src="/assets/clawbot-mascot.png" alt="Clawbot" className={cls} />
 }
 
 function UserIcon() {
@@ -156,7 +147,7 @@ export function ClawbotPanel() {
       {/* Header */}
       <div className="clawbot-panel-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-          <BotIcon />
+          <BotIcon size="md" />
           <span>Clawbot</span>
         </div>
         {coinsUsed > 0 && <span className="coins-badge">{coinsUsed} credits used</span>}
@@ -170,6 +161,11 @@ export function ClawbotPanel() {
               {m.role === 'clawbot' ? <BotIcon /> : <UserIcon />}
             </div>
             <div className="cb-bubble">
+              {i === 0 && m.role === 'clawbot' && (
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8 }}>
+                  <BotIcon size="lg" />
+                </div>
+              )}
               <pre className="cb-text">{m.content}</pre>
               {m.coinCost != null && m.coinCost > 0 && (
                 <span className="coin-cost">{m.coinCost} credits</span>

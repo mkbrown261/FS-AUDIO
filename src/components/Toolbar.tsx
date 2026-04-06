@@ -64,13 +64,8 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
     <div className="toolbar">
       {/* Brand */}
       <div className="toolbar-brand">
-        <svg className="brand-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <rect x="2" y="6" width="3" height="10" rx="1.5" fill="#10b981"/>
-          <rect x="7" y="3" width="3" height="13" rx="1.5" fill="#06b6d4"/>
-          <rect x="12" y="8" width="3" height="8" rx="1.5" fill="#10b981"/>
-          <rect x="17" y="5" width="3" height="11" rx="1.5" fill="#06b6d4" opacity="0.7"/>
-        </svg>
-        <span className="brand-name">Flowstate Audio</span>
+        <img src="/assets/fs-icon.png" alt="FS Audio" className="brand-icon" />
+        <span className="brand-name">FLOWSTATE</span>
       </div>
 
       <div className="toolbar-sep" />
@@ -230,19 +225,11 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
 
       {/* Clawbot toggle */}
       <button
-        className={`tbt clawbot-toggle ${showClawbot ? 'active' : ''}`}
+        className={`tbt tbt-clawbot clawbot-toggle ${showClawbot ? 'active' : ''}`}
         onClick={() => setShowClawbot(!showClawbot)}
         title="Clawbot AI Panel"
       >
-        <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-          <rect x="3" y="5" width="7" height="6" rx="2" stroke="currentColor" strokeWidth="1.2"/>
-          <rect x="5" y="2" width="3" height="3" rx="1" stroke="currentColor" strokeWidth="1.2"/>
-          <line x1="6.5" y1="5" x2="6.5" y2="4" stroke="currentColor" strokeWidth="1.2"/>
-          <circle cx="5" cy="8" r="0.8" fill="currentColor"/>
-          <circle cx="8" cy="8" r="0.8" fill="currentColor"/>
-          <line x1="1" y1="7" x2="3" y2="7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-          <line x1="10" y1="7" x2="12" y2="7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-        </svg>
+        <img src="/assets/clawbot-mascot.png" alt="Clawbot" className="mascot-sm" />
       </button>
     </div>
   )
