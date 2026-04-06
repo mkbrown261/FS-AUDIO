@@ -70,9 +70,37 @@ function snapBeat(beat: number, snapValue: string, enabled: boolean): number {
   return Math.round(beat / g) * g
 }
 
+// ── Clip Tooltip ──────────────────────────────────────────────────────────────
+interface ClipTooltipProps {
+  clip: Clip
+  x: number
+  y: number
+  bpm: number
+}
+
+function ClipTooltip({ clip, x, y, bpm }: ClipTooltipProps) {
+  const beatsToBarsBeat = (beats: number) => {
+    const bar = Math.floor(beats / 4) + 1
+    const beat = Math.floor(beats % 4) + 1
+    return `${bar}:${beat}`
+  }
+  return (
+    <div className="clip-tooltip" style={{ left: x + 12, top: y - 8 }}>
+      <div className="clip-tooltip-title">{clip.name}</div>
+      <div>Start: {beatsToBarsBeat(clip.startBeat)}</div>
+      <div>Duration: {beatsToBarsBeat(clip.durationBeats)}</div>
+      <div>Type: {clip.type === 'audio' ? 'Audio' : 'MIDI'}</div>
+      {clip.type === 'audio' && clip.waveformPeaks && (
+        <div>Waveform: {clip.waveformPeaks.length} pts</div>
+      )}
+      {clip.gain !== 1 && <div>Gain: {Math.round(clip.gain * 100)}%</div>}
+    </div>
+  )
+}
+
 // ── Clip View ──────────────────────────────────────────────────────────────────
 function ClipView({
-  clip, track, pixelsPerBeat, laneHeight, selected, onSelect, onContextMenu
+  clip, track, pixelsPerBeat, laneHeight, selected, onSelect, onContextMenu,
 }: {
   clip: Clip; track: Track; pixelsPerBeat: number; laneHeight: number;
   selected: boolean; onSelect: (e: React.MouseEvent) => void
@@ -80,18 +108,21 @@ function ClipView({
 }) {
   const { updateClip, setShowPianoRoll, snapEnabled, snapValue } = useProjectStore()
   const isDragging = useRef(false)
-  // Hover tooltip
-  const [tooltip, setTooltip] = useState<{ x: number; y: number } | null>(null)
-  const tooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null)
 
   const x = clip.startBeat * pixelsPerBeat
   const w = Math.max(8, clip.durationBeats * pixelsPerBeat)
+  const bpm = useProjectStore.getState().bpm
 
   function handleMouseDown(e: React.MouseEvent) {
     if (e.button !== 0 || (e.target as HTMLElement).classList.contains('clip-resize-handle')) return
     e.stopPropagation()
     onSelect(e)
     isDragging.current = false
+    // Cancel tooltip on drag start
+    if (tooltipTimerRef.current) { clearTimeout(tooltipTimerRef.current); tooltipTimerRef.current = null }
+    setTooltipPos(null)
 
     const startX = e.clientX
     const origBeat = clip.startBeat
@@ -112,91 +143,100 @@ function ClipView({
     window.addEventListener('mouseup', up)
   }
 
+  function handleMouseEnter(e: React.MouseEvent) {
+    const ex = e.clientX
+    const ey = e.clientY
+    tooltipTimerRef.current = setTimeout(() => {
+      setTooltipPos({ x: ex, y: ey })
+    }, 500)
+  }
+
+  function handleMouseLeave() {
+    if (tooltipTimerRef.current) { clearTimeout(tooltipTimerRef.current); tooltipTimerRef.current = null }
+    setTooltipPos(null)
+  }
+
+  function handleMouseMove(e: React.MouseEvent) {
+    if (tooltipPos) {
+      setTooltipPos({ x: e.clientX, y: e.clientY })
+    }
+  }
+
   function handleDoubleClick(e: React.MouseEvent) {
     e.stopPropagation()
     if (clip.type === 'midi') setShowPianoRoll(true, clip.id)
-    else updateClip(clip.id, { name: window.prompt('Rename clip:', clip.name) || clip.name })
+  }
+
+  function handleContextMenuEvt(e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (tooltipTimerRef.current) { clearTimeout(tooltipTimerRef.current); tooltipTimerRef.current = null }
+    setTooltipPos(null)
+    onContextMenu(e, clip)
   }
 
   return (
-    <div
-      className={`clip ${selected ? 'clip-selected' : ''} ${clip.muted ? 'clip-muted' : ''}`}
-      style={{
-        left: x, width: w, height: laneHeight - 6, top: 3,
-        background: `${track.color}${clip.muted ? '44' : '99'}`,
-        borderColor: selected ? '#fff' : track.color + 'cc',
-        borderRadius: 2,
-      }}
-      onMouseDown={handleMouseDown}
-      onDoubleClick={handleDoubleClick}
-      onContextMenu={e => { e.preventDefault(); e.stopPropagation(); onContextMenu(e, clip) }}
-      onMouseEnter={e => {
-        tooltipTimer.current = setTimeout(() => setTooltip({ x: e.clientX + 12, y: e.clientY + 12 }), 500)
-      }}
-      onMouseLeave={() => {
-        if (tooltipTimer.current) clearTimeout(tooltipTimer.current)
-        setTooltip(null)
-      }}
-      onMouseMove={e => {
-        if (tooltip) setTooltip({ x: e.clientX + 12, y: e.clientY + 12 })
-      }}
-    >
-      <div className="clip-name">
-        {clip.name}
-        {clip.aiGenerated && <span className="clip-badge clip-badge-ai">AI</span>}
-        {clip.looped && <span className="clip-badge clip-badge-loop">LOOP</span>}
-      </div>
-
-      {clip.type === 'audio' && clip.waveformPeaks && clip.waveformPeaks.length > 0 && (
-        <WaveformCanvas peaks={clip.waveformPeaks} width={w} height={laneHeight - 6} color="#fff" />
-      )}
-      {clip.type === 'audio' && (!clip.waveformPeaks || clip.waveformPeaks.length === 0) && (
-        <FlatLine width={w} height={laneHeight - 6} color="#fff" />
-      )}
-      {clip.type === 'midi' && clip.midiNotes && (
-        <MidiPreview notes={clip.midiNotes} width={w} height={laneHeight - 6} />
-      )}
-
-      {/* Fade-in visual */}
-      {clip.fadeIn > 0 && (
-        <div style={{
-          position:'absolute', left:0, top:0, bottom:0,
-          width: clip.fadeIn * pixelsPerBeat,
-          background: 'linear-gradient(to right, rgba(0,0,0,0.5), transparent)',
-          pointerEvents: 'none',
-        }} />
-      )}
-
-      {/* Resize handle */}
+    <>
       <div
-        className="clip-resize-handle"
-        onMouseDown={e => {
-          e.stopPropagation()
-          const startX = e.clientX
-          const orig = clip.durationBeats
-          const mv = (me: MouseEvent) => {
-            const dBeats = (me.clientX - startX) / pixelsPerBeat
-            updateClip(clip.id, { durationBeats: Math.max(0.25, snapBeat(orig + dBeats, snapValue, snapEnabled)) })
-          }
-          const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up) }
-          window.addEventListener('mousemove', mv)
-          window.addEventListener('mouseup', up)
+        className={`clip ${selected ? 'clip-selected' : ''} ${clip.muted ? 'clip-muted' : ''}`}
+        style={{
+          left: x, width: w, height: laneHeight - 6, top: 3,
+          background: `${track.color}${clip.muted ? '44' : '99'}`,
+          borderColor: selected ? '#fff' : track.color + 'cc',
+          borderRadius: 2,
         }}
-      />
-
-      {/* Hover tooltip */}
-      {tooltip && (
-        <div className="clip-tooltip" style={{ left: tooltip.x, top: tooltip.y }}>
-          <div className="clip-tooltip-title">{clip.name}</div>
-          <div>Start: bar {Math.floor(clip.startBeat / 4) + 1} beat {(clip.startBeat % 4) + 1}</div>
-          <div>Duration: {clip.durationBeats.toFixed(2)} beats</div>
-          <div>Type: {clip.type === 'midi' ? 'MIDI' : 'Audio'}</div>
-          {clip.type === 'audio' && clip.waveformPeaks && (
-            <div>Waveform: {clip.waveformPeaks.length} pts</div>
-          )}
+        onMouseDown={handleMouseDown}
+        onDoubleClick={handleDoubleClick}
+        onContextMenu={handleContextMenuEvt}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        onMouseMove={handleMouseMove}
+      >
+        <div className="clip-name">
+          {clip.name}
+          {clip.aiGenerated && <span className="clip-badge clip-badge-ai">AI</span>}
+          {clip.looped && <span className="clip-badge clip-badge-loop">LOOP</span>}
         </div>
-      )}
-    </div>
+
+        {clip.type === 'audio' && clip.waveformPeaks && clip.waveformPeaks.length > 0 && (
+          <WaveformCanvas peaks={clip.waveformPeaks} width={w} height={laneHeight - 6} color="#fff" />
+        )}
+        {clip.type === 'audio' && (!clip.waveformPeaks || clip.waveformPeaks.length === 0) && (
+          <FlatLine width={w} height={laneHeight - 6} color="#fff" />
+        )}
+        {clip.type === 'midi' && clip.midiNotes && (
+          <MidiPreview notes={clip.midiNotes} width={w} height={laneHeight - 6} />
+        )}
+
+        {/* Fade-in visual */}
+        {clip.fadeIn > 0 && (
+          <div style={{
+            position:'absolute', left:0, top:0, bottom:0,
+            width: clip.fadeIn * pixelsPerBeat,
+            background: 'linear-gradient(to right, rgba(0,0,0,0.5), transparent)',
+            pointerEvents: 'none',
+          }} />
+        )}
+
+        {/* Resize handle */}
+        <div
+          className="clip-resize-handle"
+          onMouseDown={e => {
+            e.stopPropagation()
+            const startX = e.clientX
+            const orig = clip.durationBeats
+            const mv = (me: MouseEvent) => {
+              const dBeats = (me.clientX - startX) / pixelsPerBeat
+              updateClip(clip.id, { durationBeats: Math.max(0.25, snapBeat(orig + dBeats, snapValue, snapEnabled)) })
+            }
+            const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up) }
+            window.addEventListener('mousemove', mv)
+            window.addEventListener('mouseup', up)
+          }}
+        />
+      </div>
+      {tooltipPos && <ClipTooltip clip={clip} x={tooltipPos.x} y={tooltipPos.y} bpm={bpm} />}
+    </>
   )
 }
 
@@ -215,7 +255,7 @@ function TrackLane({
   currentBeat: number
   recordStartBeat: number
   onClipContextMenu: (e: React.MouseEvent, clip: Clip) => void
-  onLaneContextMenu: (e: React.MouseEvent, track: Track, beat: number) => void
+  onLaneContextMenu: (e: React.MouseEvent, track: Track, clickBeat: number) => void
 }) {
   const { addClip, selectedClipIds, selectClip, snapEnabled, snapValue } = useProjectStore()
   const [dragOver, setDragOver] = useState(false)
@@ -237,6 +277,14 @@ function TrackLane({
       looped: false, muted: false, aiGenerated: false,
       midiNotes: track.type === 'midi' ? [] : undefined,
     })
+  }
+
+  function handleContextMenu(e: React.MouseEvent<HTMLDivElement>) {
+    e.preventDefault()
+    const rect = e.currentTarget.getBoundingClientRect()
+    const clickX = e.clientX - rect.left + scrollLeft
+    const clickBeat = snapBeat(Math.max(0, clickX / pixelsPerBeat), snapValue, snapEnabled)
+    onLaneContextMenu(e, track, clickBeat)
   }
 
   function handleDragOver(e: React.DragEvent<HTMLDivElement>) {
@@ -279,16 +327,10 @@ function TrackLane({
       className={`track-lane${dragOver ? ' track-lane-dragover' : ''}`}
       style={{ height: track.height }}
       onDoubleClick={handleDblClick}
+      onContextMenu={handleContextMenu}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      onContextMenu={e => {
-        if ((e.target as HTMLElement).closest('.clip')) return // handled by ClipView
-        e.preventDefault()
-        const rect = e.currentTarget.getBoundingClientRect()
-        const beat = snapBeat((e.clientX - rect.left + scrollLeft) / pixelsPerBeat, snapValue, snapEnabled)
-        onLaneContextMenu(e, track, beat)
-      }}
     >
       {track.clips.map(clip => (
         <ClipView
@@ -304,13 +346,11 @@ function TrackLane({
       {track.muted && <div className="lane-muted-overlay">MUTED</div>}
       {dragOver && <div className="lane-drop-hint">Drop audio file here</div>}
 
-      {/* Live recording waveform indicator */}
       {showLiveBar && recBarWidth > 0 && (
         <div
           className="rec-live-bar-wrap"
           style={{ left: recBarX, width: recBarWidth }}
         >
-          {/* Background recording region */}
           <div style={{
             position: 'absolute', left: 0, top: 3, bottom: 3, right: 0,
             background: 'rgba(239,68,68,0.1)',
@@ -318,7 +358,6 @@ function TrackLane({
             borderRadius: 3,
             pointerEvents: 'none',
           }} />
-          {/* Active level bar at the right edge */}
           <div
             className="rec-live-bar"
             style={{
@@ -388,59 +427,9 @@ export function Timeline({
   onDropCreateTrack?: (file: File) => void
   recordingMicLevel?: number
 }) {
-  const { tracks, pixelsPerBeat, scrollLeft, setScrollLeft, bpm, loopStart, loopEnd, isLooping, timeSignature, isRecording, currentTime, zoom, setZoom, addClip, updateClip, removeClip, duplicateClip, splitClipAtBeat, setLoopRange, selectedClipIds, addTrack } = useProjectStore()
+  const store = useProjectStore()
+  const { tracks, pixelsPerBeat, scrollLeft, setScrollLeft, bpm, loopStart, loopEnd, isLooping, timeSignature, isRecording, currentTime, zoom, setZoom, snapValue, setSnapValue } = store
   const scrollRef = useRef<HTMLDivElement>(null)
-
-  // Context menu state
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null)
-
-  // Build clip context menu
-  const handleClipContextMenu = useCallback((e: React.MouseEvent, clip: Clip) => {
-    e.preventDefault()
-    const currentBeatNow = useProjectStore.getState().currentTime * (useProjectStore.getState().bpm / 60)
-    const items: ContextMenuItem[] = [
-      { label: 'Split at Playhead', shortcut: 'S', action: () => {
-        if (currentBeatNow > clip.startBeat && currentBeatNow < clip.startBeat + clip.durationBeats)
-          splitClipAtBeat(clip.id, currentBeatNow)
-      }},
-      { label: 'Split at Midpoint', action: () => splitClipAtBeat(clip.id, clip.startBeat + clip.durationBeats / 2) },
-      { separator: true, label: '', action: () => {} },
-      { label: clip.looped ? 'Remove Loop' : 'Loop Clip', action: () => updateClip(clip.id, { looped: !clip.looped }) },
-      { label: clip.muted ? 'Unmute' : 'Mute', shortcut: 'M', action: () => updateClip(clip.id, { muted: !clip.muted }) },
-      { separator: true, label: '', action: () => {} },
-      { label: 'Rename…', action: () => { const n = window.prompt('Rename clip:', clip.name); if (n) updateClip(clip.id, { name: n }) } },
-      { label: 'Set Gain…', action: () => { const g = window.prompt('Gain (0–200%):', String(Math.round((clip.gain ?? 1) * 100))); if (g) updateClip(clip.id, { gain: Math.max(0, Math.min(2, parseInt(g) / 100)) }) } },
-      { separator: true, label: '', action: () => {} },
-      { label: 'Duplicate', shortcut: '⌘D', action: () => duplicateClip(clip.id) },
-      { label: 'Delete', shortcut: 'Del', danger: true, action: () => removeClip(clip.id) },
-    ]
-    setCtxMenu({ x: e.clientX, y: e.clientY, items })
-  }, [splitClipAtBeat, updateClip, duplicateClip, removeClip])
-
-  // Build lane context menu
-  const handleLaneContextMenu = useCallback((e: React.MouseEvent, track: Track, beat: number) => {
-    const items: ContextMenuItem[] = [
-      { label: 'Insert Empty Clip Here', action: () => addClip({ id: `clip-${Date.now()}`, trackId: track.id, startBeat: beat, durationBeats: 4, name: 'Empty', type: track.type === 'midi' ? 'midi' : 'audio', gain: 1, fadeIn: 0, fadeOut: 0, looped: false, muted: false, aiGenerated: false, midiNotes: track.type === 'midi' ? [] : undefined }) },
-      { separator: true, label: '', action: () => {} },
-      { label: 'Add Audio Track', action: () => addTrack('audio') },
-      { label: 'Add MIDI Track', action: () => addTrack('midi') },
-    ]
-    setCtxMenu({ x: e.clientX, y: e.clientY, items })
-  }, [addClip, addTrack])
-
-  // Build ruler context menu
-  const handleRulerContextMenu = useCallback((e: React.MouseEvent, beat: number) => {
-    const st = useProjectStore.getState()
-    const items: ContextMenuItem[] = [
-      { label: 'Set Loop Start Here', action: () => setLoopRange(beat, st.loopEnd) },
-      { label: 'Set Loop End Here', action: () => setLoopRange(st.loopStart, beat) },
-      { separator: true, label: '', action: () => {} },
-      { label: 'Snap: Beat', action: () => useProjectStore.getState().setSnapValue('1/4') },
-      { label: 'Snap: Bar', action: () => useProjectStore.getState().setSnapValue('1') },
-      { label: 'Snap: Off', action: () => useProjectStore.getState().setSnapEnabled(false) },
-    ]
-    setCtxMenu({ x: e.clientX, y: e.clientY, items })
-  }, [setLoopRange])
   const TOTAL_BARS = 96
   const BEATS_PER_BAR = timeSignature[0]
   const totalBeats = TOTAL_BARS * BEATS_PER_BAR
@@ -448,13 +437,15 @@ export function Timeline({
 
   const currentBeat = currentTime * (bpm / 60)
 
-  // Track where recording started (use current beat at time of recording start)
+  // ── Context menu state ────────────────────────────────────────────────────
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null)
+
+  // Track where recording started
   const recordStartBeatRef = useRef(0)
   useEffect(() => {
     if (isRecording) {
       recordStartBeatRef.current = currentBeat
     }
-  // Only update when recording starts
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRecording])
 
@@ -478,6 +469,7 @@ export function Timeline({
   }, [playheadX, scrollLeft])
 
   function handleRulerMouseDown(e: React.MouseEvent) {
+    if (e.button !== 0) return
     const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
     const scrub = (me: MouseEvent | React.MouseEvent) => {
       const x = me.clientX - rect.left + scrollLeft
@@ -490,7 +482,26 @@ export function Timeline({
     window.addEventListener('mouseup', up)
   }
 
-  // Also handle drop onto the ruler → create new track
+  function handleRulerContextMenu(e: React.MouseEvent) {
+    e.preventDefault()
+    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
+    const clickX = e.clientX - rect.left + scrollLeft
+    const clickBeat = Math.max(0, clickX / pixelsPerBeat)
+    const cx = e.clientX, cy = e.clientY
+    setCtxMenu({
+      x: cx, y: cy,
+      items: [
+        { label: 'Set Loop Start Here', action: () => store.setLoopRange(clickBeat, store.loopEnd) },
+        { label: 'Set Loop End Here', action: () => store.setLoopRange(store.loopStart, clickBeat) },
+        { label: 'Select All', disabled: true, action: () => {} },
+        { separator: true, label: '', action: () => {} },
+        { label: 'Snap: Beat', action: () => setSnapValue('1/4'), shortcut: store.snapValue === '1/4' ? '✓' : '' },
+        { label: 'Snap: Bar', action: () => setSnapValue('1'), shortcut: store.snapValue === '1' ? '✓' : '' },
+        { label: 'Snap: Off', action: () => setSnapValue('off'), shortcut: store.snapValue === 'off' ? '✓' : '' },
+      ]
+    })
+  }
+
   function handleRulerDragOver(e: React.DragEvent<HTMLDivElement>) {
     const hasAudio = Array.from(e.dataTransfer.items).some(item => item.kind === 'file' && item.type.startsWith('audio/'))
     if (!hasAudio) return
@@ -506,6 +517,120 @@ export function Timeline({
       onDropCreateTrack(file)
     }
   }
+
+  // ── Clip context menu handler ─────────────────────────────────────────────
+  const handleClipContextMenu = useCallback((e: React.MouseEvent, clip: Clip) => {
+    const cx = e.clientX, cy = e.clientY
+    const currentBeatNow = useProjectStore.getState().currentTime * (useProjectStore.getState().bpm / 60)
+    setCtxMenu({
+      x: cx, y: cy,
+      items: [
+        {
+          label: 'Split at Playhead', shortcut: 'S',
+          action: () => {
+            if (currentBeatNow > clip.startBeat && currentBeatNow < clip.startBeat + clip.durationBeats) {
+              store.splitClipAtBeat(clip.id, currentBeatNow)
+            }
+          },
+          disabled: currentBeatNow <= clip.startBeat || currentBeatNow >= clip.startBeat + clip.durationBeats,
+        },
+        {
+          label: 'Split at Midpoint',
+          action: () => store.splitClipAtBeat(clip.id, clip.startBeat + clip.durationBeats / 2),
+        },
+        { separator: true, label: '', action: () => {} },
+        {
+          label: clip.looped ? 'Unloop' : 'Loop',
+          action: () => store.updateClip(clip.id, { looped: !clip.looped }),
+        },
+        {
+          label: clip.muted ? 'Unmute' : 'Mute', shortcut: 'M',
+          action: () => store.updateClip(clip.id, { muted: !clip.muted }),
+        },
+        { separator: true, label: '', action: () => {} },
+        {
+          label: 'Rename...',
+          action: () => {
+            const newName = prompt('Clip name:', clip.name)
+            if (newName !== null && newName.trim()) store.updateClip(clip.id, { name: newName.trim() })
+          },
+        },
+        {
+          label: 'Set Gain...',
+          action: () => {
+            const val = prompt('Gain (0–200%):', String(Math.round(clip.gain * 100)))
+            if (val !== null) {
+              const n = parseFloat(val)
+              if (!isNaN(n)) store.updateClip(clip.id, { gain: Math.max(0, Math.min(2, n / 100)) })
+            }
+          },
+        },
+        { separator: true, label: '', action: () => {} },
+        {
+          label: 'Duplicate', shortcut: '⌘D',
+          action: () => store.duplicateClip(clip.id),
+        },
+        {
+          label: 'Delete', shortcut: 'Del', danger: true,
+          action: () => store.removeClip(clip.id),
+        },
+      ],
+    })
+  }, [store])
+
+  // ── Lane context menu handler ─────────────────────────────────────────────
+  const handleLaneContextMenu = useCallback((e: React.MouseEvent, track: Track, clickBeat: number) => {
+    const cx = e.clientX, cy = e.clientY
+    const cb = useProjectStore.getState().clipboardClip
+    const items: ContextMenuItem[] = []
+
+    if (cb) {
+      items.push({
+        label: 'Paste',
+        action: () => {
+          store.addClip({ ...cb, id: `clip-paste-${Date.now()}`, trackId: track.id, startBeat: clickBeat })
+        },
+      })
+    }
+    items.push({
+      label: 'Insert Silence',
+      action: () => {
+        store.addClip({
+          id: `clip-silence-${Date.now()}`,
+          trackId: track.id,
+          startBeat: clickBeat,
+          durationBeats: 4,
+          name: 'Silence',
+          type: 'audio',
+          gain: 0, fadeIn: 0, fadeOut: 0,
+          looped: false, muted: false, aiGenerated: false,
+        })
+      },
+    })
+    items.push({ separator: true, label: '', action: () => {} })
+    items.push({ label: 'Add Audio Track', action: () => store.addTrack('audio') })
+    items.push({ label: 'Add MIDI Track', action: () => store.addTrack('midi') })
+    items.push({ separator: true, label: '', action: () => {} })
+
+    const PRESET_COLORS = ['#a855f7', '#ec4899', '#3b82f6', '#10b981', '#f59e0b', '#ef4444']
+    items.push({
+      label: 'Track Color...',
+      action: () => {
+        const colorChoice = prompt(
+          `Pick a color:\n${PRESET_COLORS.map((c, i) => `${i + 1}. ${c}`).join('\n')}\nEnter number or hex:`,
+          '1'
+        )
+        if (!colorChoice) return
+        const idx = parseInt(colorChoice) - 1
+        const color = (idx >= 0 && idx < PRESET_COLORS.length) ? PRESET_COLORS[idx] : colorChoice
+        if (/^#[0-9a-fA-F]{3,6}$/.test(color)) {
+          store.updateTrack(track.id, { color })
+        }
+      },
+    })
+
+    setCtxMenu({ x: cx, y: cy, items })
+  }, [store])
 
   // Build ruler ticks
   const ticks: React.ReactNode[] = []
@@ -542,7 +667,6 @@ export function Timeline({
   }
 
   return (
-    <>
     <div
       ref={scrollRef}
       className="timeline"
@@ -560,14 +684,9 @@ export function Timeline({
         className="timeline-ruler"
         style={{ width: totalWidth, minWidth: '100%', position: 'sticky', top: 0, zIndex: 10 }}
         onMouseDown={handleRulerMouseDown}
+        onContextMenu={handleRulerContextMenu}
         onDragOver={handleRulerDragOver}
         onDrop={handleRulerDrop}
-        onContextMenu={e => {
-          e.preventDefault()
-          const rect = e.currentTarget.getBoundingClientRect()
-          const beat = Math.max(0, (e.clientX - rect.left + scrollLeft) / pixelsPerBeat)
-          handleRulerContextMenu(e, beat)
-        }}
       >
         {ticks}
         {isLooping && (
@@ -576,7 +695,6 @@ export function Timeline({
               left: loopStart * pixelsPerBeat,
               width: (loopEnd - loopStart) * pixelsPerBeat,
             }} />
-            {/* Left locator */}
             <div
               className="loop-locator loop-locator-start"
               style={{ left: loopStart * pixelsPerBeat }}
@@ -594,7 +712,6 @@ export function Timeline({
                 window.addEventListener('mouseup', up)
               }}
             />
-            {/* Right locator */}
             <div
               className="loop-locator loop-locator-end"
               style={{ left: loopEnd * pixelsPerBeat }}
@@ -635,7 +752,6 @@ export function Timeline({
           />
         ))}
 
-        {/* Drop zone below all tracks */}
         <TimelineDropZone onDropCreateTrack={onDropCreateTrack} />
 
         {/* Playhead */}
@@ -646,16 +762,16 @@ export function Timeline({
           <div className="playhead-head" />
         </div>
       </div>
-    </div>
 
-    {/* Context menu */}
-    {ctxMenu && (
-      <ContextMenu
-        x={ctxMenu.x} y={ctxMenu.y}
-        items={ctxMenu.items}
-        onClose={() => setCtxMenu(null)}
-      />
-    )}
-  </>
+      {/* Context Menu */}
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          items={ctxMenu.items}
+          onClose={() => setCtxMenu(null)}
+        />
+      )}
+    </div>
   )
 }
