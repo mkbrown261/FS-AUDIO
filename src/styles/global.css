@@ -757,3 +757,21 @@ html, body, #root {
 .mt-black-key.active { background:var(--accent); color:#fff; }
 .mt-hints { display:flex; gap:8px; flex-wrap:wrap; padding:0 12px 10px; }
 .mt-hint { font-size:10px; color:var(--text-m); background:var(--bg-card); border:1px solid var(--border); border-radius:3px; padding:2px 6px; }
+
+/* ── Clip tooltip ─────────────────────────────────────────────────────────── */
+.clip-tooltip {
+  position: fixed; z-index: 9998;
+  background: #0d0d18; border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 4px; padding: 6px 10px;
+  font-size: 11px; color: var(--text-s); pointer-events: none;
+  line-height: 1.6; white-space: nowrap;
+}
+.clip-tooltip-title { font-weight: 700; color: var(--text-p); margin-bottom: 2px; font-size: 12px; }
+
+/* ── Panel resizer ────────────────────────────────────────────────────────── */
+.panel-resizer {
+  width: 4px; flex-shrink: 0; cursor: col-resize;
+  background: transparent; transition: background 0.15s;
+  position: relative; z-index: 10;
+}
+.panel-resizer:hover, .panel-resizer:active { background: var(--accent); opacity: 0.6; }
