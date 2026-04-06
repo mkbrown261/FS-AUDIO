@@ -245,7 +245,7 @@ export function InspectorPanel({ onSetTrackEQ, onSetTrackVolume, onSetTrackPan, 
 
   if (!track) {
     return (
-      <div className="inspector-panel">
+      <div className="inspector-panel" style={{ width: '100%', minWidth: 0 }}>
         <div className="inspector-empty">
           <div className="inspector-empty-icon">
             <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
@@ -278,7 +278,7 @@ export function InspectorPanel({ onSetTrackEQ, onSetTrackVolume, onSetTrackPan, 
   const panStr = panToStr(track!.pan)
 
   return (
-    <div className="inspector-panel">
+    <div className="inspector-panel" style={{ width: '100%', minWidth: 0 }}>
       {/* Track identity */}
       <div className="inspector-section">
         <div className="inspector-track-header">

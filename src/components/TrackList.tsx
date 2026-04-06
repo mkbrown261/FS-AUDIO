@@ -179,15 +179,16 @@ function TrackHeader({ track, onVolumeChange, onPanChange, onArmClick }: {
   )
 }
 
-export function TrackList({ onVolumeChange, onPanChange, onArmClick }: {
+export function TrackList({ onVolumeChange, onPanChange, onArmClick, width }: {
   onVolumeChange: (id: string, v: number) => void
   onPanChange: (id: string, v: number) => void
   onArmClick: (trackId: string) => void
+  width?: number
 }) {
   const { tracks, addTrack } = useProjectStore()
 
   return (
-    <div className="track-list">
+    <div className="track-list" style={width !== undefined ? { width: '100%' } : undefined}>
       <div className="track-list-header">
         <button className="add-track-btn" onClick={() => addTrack('audio')}>+ Audio</button>
         <button className="add-track-btn" onClick={() => addTrack('midi')}>+ MIDI</button>

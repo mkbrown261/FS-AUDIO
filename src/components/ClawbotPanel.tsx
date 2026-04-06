@@ -247,7 +247,7 @@ export function ClawbotPanel() {
   }
 
   return (
-    <div className="clawbot-panel">
+    <div className="clawbot-panel" style={{ width: '100%' }}>
       {/* Header */}
       <div className="clawbot-panel-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>

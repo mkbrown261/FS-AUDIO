@@ -131,6 +131,9 @@ export interface ProjectState {
   // Inspector
   inspectorOpen: boolean
 
+  // Clipboard
+  clipboardClip: Clip | null
+
   // Undo/redo
   undoStack: Track[][]
   redoStack: Track[][]
@@ -220,6 +223,7 @@ interface Actions {
   setSnapEnabled: (v: boolean) => void
   setSnapValue: (v: string) => void
   setInspectorOpen: (v: boolean) => void
+  setClipboardClip: (clip: Clip | null) => void
 
   newProject: () => void
   saveSnapshot: () => void
@@ -273,6 +277,8 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
   snapEnabled: true,
   snapValue: '1/4',
   inspectorOpen: true,
+
+  clipboardClip: null,
 
   undoStack: [],
   redoStack: [],
@@ -440,6 +446,7 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
   setSnapEnabled: (v) => set({ snapEnabled: v }),
   setSnapValue: (v) => set({ snapValue: v }),
   setInspectorOpen: (v) => set({ inspectorOpen: v }),
+  setClipboardClip: (clip) => set({ clipboardClip: clip }),
 
   // ── Project ────────────────────────────────────────────────────────────────
   newProject: () => set({

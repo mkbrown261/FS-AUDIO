@@ -14,12 +14,30 @@ import { MusicalTyping } from './components/MusicalTyping'
 
 const FLOWSTATE_HUB = 'https://flowstate-67g.pages.dev'
 
+// ── Panel Resizer ─────────────────────────────────────────────────────────────
+function PanelResizer({ onDrag, direction = 'right' }: { onDrag: (delta: number) => void; direction?: 'right' | 'left' }) {
+  const onMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const move = (ev: MouseEvent) => onDrag(direction === 'right' ? ev.clientX - startX : startX - ev.clientX)
+    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+  }
+  return <div className="panel-resizer" onMouseDown={onMouseDown} />
+}
+
 export default function App() {
   const store = useProjectStore()
   const engine = useAudioEngine()
   const [trackLevels, setTrackLevels] = useState<Map<string, number>>(new Map())
   const [micLevel, setMicLevel] = useState(0)
   const [showMusicalTyping, setShowMusicalTyping] = useState(false)
+
+  // ── Panel widths (resizable) ──────────────────────────────────────────────
+  const [inspectorWidth, setInspectorWidth] = useState(240)
+  const [tracklistWidth, setTracklistWidth] = useState(220)
+  const [clawbotWidth, setClawbotWidth] = useState(280)
 
   // ── Transport — wired to audio engine ─────────────────────────────────────
   const transport = useTransport(
@@ -97,23 +115,19 @@ export default function App() {
   const handleArmClick = useCallback(async (trackId: string) => {
     const st = useProjectStore.getState()
     if (st.isRecording) {
-      // Stop recording — clip will be saved by stopRecord
       await transport.record()
     } else if (st.countIn > 0) {
-      // Cancel count-in
       await transport.record()
     } else {
-      // Just toggle arm state
       const track = st.tracks.find(t => t.id === trackId)
       if (!track) return
       const willArm = !track.armed
-      // Disarm all others first (exclusive arm like Logic Pro)
       st.tracks.forEach((t: import('./store/projectStore').Track) => {
         if (t.id !== trackId && t.armed) useProjectStore.getState().updateTrack(t.id, { armed: false })
       })
       useProjectStore.getState().updateTrack(trackId, { armed: willArm })
     }
-  }, [transport, store])
+  }, [transport])
 
   const handleSetTrackEQ = useCallback((id: string, l: number, m: number, h: number) => {
     engine.setTrackEQ(id, l, m, h)
@@ -126,7 +140,6 @@ export default function App() {
       const ctx = engine.getCtx()
       const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
 
-      // Generate 200-point waveform peaks
       const channel = audioBuffer.getChannelData(0)
       const blockSize = Math.floor(channel.length / 200)
       const peaks: number[] = []
@@ -139,11 +152,8 @@ export default function App() {
         peaks.push(max)
       }
 
-      // Create blob URL for playback
       const blob = new Blob([arrayBuffer], { type: file.type })
       const audioUrl = URL.createObjectURL(blob)
-
-      // Register in engine cache so first playback is instant
       engine.registerAudioBuffer(audioUrl, audioBuffer)
 
       const durationBeats = (audioBuffer.duration / 60) * store.bpm
@@ -171,7 +181,6 @@ export default function App() {
       const ctx = engine.getCtx()
       const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
 
-      // Generate peaks
       const channel = audioBuffer.getChannelData(0)
       const blockSize = Math.floor(channel.length / 200)
       const peaks: number[] = []
@@ -188,10 +197,8 @@ export default function App() {
       const audioUrl = URL.createObjectURL(blob)
       engine.registerAudioBuffer(audioUrl, audioBuffer)
 
-      // Create new audio track
       store.addTrack('audio')
 
-      // After the state settles, get the new track and add the clip
       setTimeout(() => {
         const currentTracks = useProjectStore.getState().tracks
         const nonMaster = currentTracks.filter(t => t.type !== 'master')
@@ -223,6 +230,7 @@ export default function App() {
       .then(r => r.json())
       .then(d => store.setClawflowActive(d.subscriptionActive))
       .catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
@@ -232,6 +240,7 @@ export default function App() {
       if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return
 
       const meta = e.metaKey || e.ctrlKey
+      const inPianoRoll = store.activePanel === 'piano-roll' && store.showPianoRoll
 
       // Shift+P — toggle Musical Typing window
       if (e.shiftKey && (e.key === 'P' || e.key === 'p')) {
@@ -241,6 +250,7 @@ export default function App() {
       }
 
       switch (e.code) {
+        // ── Transport ────────────────────────────────────────────────────
         case 'Space':
           e.preventDefault()
           transport.togglePlay()
@@ -249,53 +259,154 @@ export default function App() {
           e.preventDefault()
           transport.toStart()
           break
+        case 'KeyR':
+          if (!meta) { e.preventDefault(); transport.record() }
+          break
+
+        // ── Undo/Redo ────────────────────────────────────────────────────
+        case 'KeyZ':
+          if (meta) { e.preventDefault(); e.shiftKey ? store.redo() : store.undo() }
+          break
+
+        // ── Editing (not in piano roll) ──────────────────────────────────
+        case 'KeyA':
+          if (meta && !inPianoRoll) {
+            e.preventDefault()
+            // Select all clips
+            const allIds: string[] = []
+            useProjectStore.getState().tracks.forEach(t => t.clips.forEach(c => allIds.push(c.id)))
+            if (allIds.length > 0) {
+              useProjectStore.getState().selectClip(allIds[0], false)
+              allIds.slice(1).forEach(id => useProjectStore.getState().selectClip(id, true))
+            }
+          }
+          break
+        case 'KeyD':
+          if (meta && !inPianoRoll) {
+            e.preventDefault()
+            const ids = useProjectStore.getState().selectedClipIds
+            if (ids.length > 0) store.duplicateClip(ids[0])
+          }
+          break
+        case 'KeyS':
+          if (meta) {
+            e.preventDefault()
+            // Cmd+S = save (no-op for now)
+          } else if (!inPianoRoll) {
+            // S = split selected clip at playhead
+            const st = useProjectStore.getState()
+            const currentBeatNow = st.currentTime * (st.bpm / 60)
+            for (const clipId of st.selectedClipIds) {
+              for (const track of st.tracks) {
+                const clip = track.clips.find(c => c.id === clipId)
+                if (clip && currentBeatNow > clip.startBeat && currentBeatNow < clip.startBeat + clip.durationBeats) {
+                  store.splitClipAtBeat(clipId, currentBeatNow)
+                  break
+                }
+              }
+            }
+          }
+          break
+        case 'KeyM':
+          if (!inPianoRoll) {
+            const ids = useProjectStore.getState().selectedClipIds
+            if (ids.length > 0) {
+              for (const track of useProjectStore.getState().tracks) {
+                const clip = track.clips.find(c => c.id === ids[0])
+                if (clip) { store.updateClip(clip.id, { muted: !clip.muted }); break }
+              }
+            } else if (store.selectedTrackId) {
+              const t = store.tracks.find(tr => tr.id === store.selectedTrackId)
+              if (t) store.updateTrack(t.id, { muted: !t.muted })
+            }
+          }
+          break
+        case 'KeyG':
+          if (!meta) store.toggleLoop()
+          break
         case 'KeyL':
           if (!meta) store.toggleLoop()
           break
         case 'KeyK':
           if (!meta) store.toggleMetronome()
           break
-        case 'KeyM':
-          if (store.selectedTrackId) {
-            const t = store.tracks.find(tr => tr.id === store.selectedTrackId)
-            if (t) store.updateTrack(t.id, { muted: !t.muted })
-          }
-          break
-        case 'KeyS':
-          if (meta) { e.preventDefault() /* save */ }
-          else if (store.selectedTrackId) {
-            const t = store.tracks.find(tr => tr.id === store.selectedTrackId)
-            if (t) store.updateTrack(t.id, { solo: !t.solo })
-          }
-          break
-        case 'KeyR':
-          if (!meta) transport.record()
-          break
         case 'KeyI':
           if (!meta) store.setInspectorOpen(!store.inspectorOpen)
           break
-        case 'Equal':
-          if (meta) { e.preventDefault(); store.setZoom(Math.min(6, store.zoom + 0.25)) }
+        case 'KeyT':
+          if (!meta) {
+            // Toggle tracklist: collapse to 40px or expand back to saved width
+            setTracklistWidth(w => w > 40 ? 40 : 220)
+          }
           break
-        case 'Minus':
-          if (meta) { e.preventDefault(); store.setZoom(Math.max(0.25, store.zoom - 0.25)) }
+        case 'KeyB':
+          if (!meta) store.setShowClawbot(!store.showClawbot)
           break
-        case 'KeyZ':
-          if (meta) { e.preventDefault(); e.shiftKey ? store.redo() : store.undo() }
-          break
+
+        // ── Delete selected clips ────────────────────────────────────────
         case 'Backspace':
         case 'Delete':
-          store.selectedClipIds.forEach(id => store.removeClip(id))
-          store.deselectAll()
+          if (!inPianoRoll) {
+            store.selectedClipIds.forEach(id => store.removeClip(id))
+            store.deselectAll()
+          }
           break
         case 'Escape':
           store.deselectAll()
+          break
+
+        // ── Navigation (playhead) ────────────────────────────────────────
+        case 'ArrowLeft': {
+          e.preventDefault()
+          const st = useProjectStore.getState()
+          const beatsBack = meta ? 4 : 1
+          const newBeat = Math.max(0, st.currentTime * (st.bpm / 60) - beatsBack)
+          transport.seekToBeat(newBeat)
+          break
+        }
+        case 'ArrowRight': {
+          e.preventDefault()
+          const st = useProjectStore.getState()
+          const beatsFwd = meta ? 4 : 1
+          const newBeat = st.currentTime * (st.bpm / 60) + beatsFwd
+          transport.seekToBeat(newBeat)
+          break
+        }
+
+        // ── Zoom ─────────────────────────────────────────────────────────
+        case 'Equal':
+          e.preventDefault()
+          store.setZoom(Math.min(6, store.zoom + 0.25))
+          break
+        case 'Minus':
+          e.preventDefault()
+          store.setZoom(Math.max(0.25, store.zoom - 0.25))
+          break
+        case 'Digit0':
+        case 'Numpad0':
+          if (!meta) {
+            e.preventDefault()
+            // Zoom to fit: find rightmost clip end beat
+            const st = useProjectStore.getState()
+            let maxBeat = 16
+            for (const t of st.tracks) {
+              for (const c of t.clips) {
+                const end = c.startBeat + c.durationBeats
+                if (end > maxBeat) maxBeat = end
+              }
+            }
+            // Available width: rough estimate
+            const availW = window.innerWidth - inspectorWidth - tracklistWidth - (store.showClawbot ? clawbotWidth : 0)
+            const fitZoom = (availW / (maxBeat * 40))
+            store.setZoom(Math.max(0.1, Math.min(6, fitZoom)))
+          }
           break
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [transport, store])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transport, store, inspectorWidth, tracklistWidth, clawbotWidth])
 
   // ── Playhead position for timeline ───────────────────────────────────────
   const currentBeat = store.currentTime * (store.bpm / 60)
@@ -314,16 +425,27 @@ export default function App() {
       <div className="main-area">
         {/* Inspector */}
         {store.inspectorOpen && (
-          <InspectorPanel
-            onSetTrackEQ={handleSetTrackEQ}
-            onSetTrackVolume={handleSetTrackVolume}
-            onSetTrackPan={handleSetTrackPan}
-            onSetTrackCompressor={handleSetTrackCompressor}
-          />
+          <div style={{ display: 'flex', flexShrink: 0, width: inspectorWidth }}>
+            <InspectorPanel
+              onSetTrackEQ={handleSetTrackEQ}
+              onSetTrackVolume={handleSetTrackVolume}
+              onSetTrackPan={handleSetTrackPan}
+              onSetTrackCompressor={handleSetTrackCompressor}
+            />
+            <PanelResizer onDrag={d => setInspectorWidth(w => Math.max(160, Math.min(400, w + d)))} />
+          </div>
         )}
 
         {/* Track list */}
-        <TrackList onVolumeChange={handleVolumeChange} onPanChange={handlePanChange} onArmClick={handleArmClick} />
+        <div style={{ display: 'flex', flexShrink: 0, width: tracklistWidth }}>
+          <TrackList
+            width={tracklistWidth}
+            onVolumeChange={handleVolumeChange}
+            onPanChange={handlePanChange}
+            onArmClick={handleArmClick}
+          />
+          <PanelResizer onDrag={d => setTracklistWidth(w => Math.max(40, Math.min(360, w + d)))} />
+        </div>
 
         {/* Center */}
         <div className="center-area">
@@ -347,7 +469,12 @@ export default function App() {
         </div>
 
         {/* Clawbot */}
-        {store.showClawbot && <ClawbotPanel />}
+        {store.showClawbot && (
+          <div style={{ display: 'flex', flexShrink: 0, width: clawbotWidth }}>
+            <PanelResizer direction="left" onDrag={d => setClawbotWidth(w => Math.max(200, Math.min(480, w + d)))} />
+            <ClawbotPanel />
+          </div>
+        )}
       </div>
 
       <StatusBar />
