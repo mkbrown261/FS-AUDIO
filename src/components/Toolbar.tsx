@@ -1,5 +1,6 @@
-import React, { useCallback, useRef } from 'react'
+import React, { useCallback, useRef, useState } from 'react'
 import { useProjectStore } from '../store/projectStore'
+import { CustomSelect } from './CustomSelect'
 
 interface ToolbarProps {
   onPlay: () => void
@@ -19,6 +20,9 @@ const KEYS = [
 ]
 
 const SNAP_VALUES = ['off','1','1/2','1/4','1/8','1/16','1/32']
+
+const KEY_OPTIONS = KEYS.map(k => ({ value: k, label: k }))
+const SNAP_OPTIONS = SNAP_VALUES.map(v => ({ value: v, label: v === 'off' ? 'Free' : v }))
 
 function beatsToSMPTE(beat: number, bpm: number, ts: [number,number]): string {
   const beatsPerBar = ts[0]
@@ -43,10 +47,50 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
     toggleLoop, toggleMetronome, showClawbot, setShowClawbot,
     setZoom, zoom, countIn, snapEnabled, snapValue,
     setSnapEnabled, setSnapValue, inspectorOpen, setInspectorOpen,
+    tracks,
   } = useProjectStore()
 
   const bpmRef = useRef<HTMLInputElement>(null)
   const currentBeat = currentTime * (bpm / 60)
+
+  // ── Tap tempo ────────────────────────────────────────────────────────────────
+  const tapTimestampsRef = useRef<number[]>([])
+  const tapResetTimerRef = useRef<number | null>(null)
+  const [tapActive, setTapActive] = useState(false)
+
+  const handleTapTempo = useCallback(() => {
+    const now = performance.now()
+    const taps = tapTimestampsRef.current
+
+    // Reset if gap > 3 seconds
+    if (taps.length > 0 && now - taps[taps.length - 1] > 3000) {
+      tapTimestampsRef.current = []
+    }
+
+    tapTimestampsRef.current = [...tapTimestampsRef.current, now].slice(-8)
+    setTapActive(true)
+
+    // Clear previous reset timer
+    if (tapResetTimerRef.current !== null) {
+      window.clearTimeout(tapResetTimerRef.current)
+    }
+    tapResetTimerRef.current = window.setTimeout(() => {
+      setTapActive(false)
+    }, 3100)
+
+    const ts = tapTimestampsRef.current
+    if (ts.length >= 2) {
+      let totalInterval = 0
+      for (let i = 1; i < ts.length; i++) {
+        totalInterval += ts[i] - ts[i - 1]
+      }
+      const avgIntervalMs = totalInterval / (ts.length - 1)
+      const tapBpm = Math.round((60000 / avgIntervalMs) * 10) / 10
+      if (tapBpm >= 20 && tapBpm <= 300) {
+        setBpm(tapBpm)
+      }
+    }
+  }, [setBpm])
 
   const handleBpmChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const v = parseFloat(e.target.value)
@@ -60,11 +104,19 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
 
   const aiLabel = aiLevel === 0 ? 'Manual' : aiLevel === 100 ? 'Full AI' : `AI ${aiLevel}%`
 
+  // Issue 6: check if any track is armed
+  const anyArmed = tracks.some(t => t.armed)
+
   return (
     <div className="toolbar">
       {/* Brand */}
       <div className="toolbar-brand">
-        <img src="/assets/fs-icon.png" alt="FS Audio" className="brand-icon" />
+        <img
+          src="/assets/fs-icon.png"
+          alt="FS Audio"
+          className="brand-icon"
+          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+        />
         <span className="brand-name">FLOWSTATE</span>
       </div>
 
@@ -72,7 +124,7 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
 
       {/* Transport */}
       <div className="transport">
-        {/* Go to Start — stops playback and returns playhead to 0 */}
+        {/* Go to Start */}
         <button className="tbt" onClick={onToStart} title="Return to Start">
           <svg width="11" height="11" viewBox="0 0 11 11"><rect x="0" y="0" width="2" height="11" fill="currentColor"/><polygon points="11,0 2,5.5 11,11" fill="currentColor"/></svg>
         </button>
@@ -87,17 +139,19 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
             : <svg width="11" height="13" viewBox="0 0 11 13"><polygon points="0,0 11,6.5 0,13" fill="currentColor"/></svg>
           }
         </button>
-        {/* Stop — ends playback (keeps playhead position) */}
+        {/* Stop */}
         <button className="tbt" onClick={onStop} title="Stop">
           <svg width="11" height="11" viewBox="0 0 11 11"><rect x="0" y="0" width="11" height="11" fill="currentColor"/></svg>
         </button>
+        {/* Record — armed-ready indicator */}
         <button
-          className={`tbt tbt-rec ${isRecording ? 'rec-active' : ''}`}
+          className={`tbt tbt-rec ${isRecording ? 'rec-active' : ''} ${anyArmed && !isRecording ? 'armed-ready' : ''}`}
           onClick={onRecord}
           title="Record (R)"
         >
           <svg width="11" height="11" viewBox="0 0 11 11"><circle cx="5.5" cy="5.5" r="5" fill="currentColor"/></svg>
         </button>
+        {/* Loop */}
         <button
           className={`tbt ${isLooping ? 'active' : ''}`}
           onClick={toggleLoop}
@@ -105,12 +159,21 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
         >
           <svg width="13" height="11" viewBox="0 0 13 11"><path d="M1 4 Q1 1 4 1 L9 1 L9 0 L12 2.5 L9 5 L9 4 L4 4 Q3 4 3 5 L3 7 Q3 9 4 9 L10 9 Q12 9 12 7" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/></svg>
         </button>
+        {/* Metronome */}
         <button
           className={`tbt ${metronomeEnabled ? 'active' : ''}`}
           onClick={toggleMetronome}
           title="Metronome (K)"
         >
           <svg width="9" height="13" viewBox="0 0 9 13"><polygon points="4.5,0 9,13 0,13" stroke="currentColor" strokeWidth="1" fill="none"/><line x1="4.5" y1="13" x2="7" y2="5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+        </button>
+        {/* Tap Tempo */}
+        <button
+          className={`tbt tbt-tap ${tapActive ? 'tapped' : ''}`}
+          onClick={handleTapTempo}
+          title="Tap Tempo — click to the beat to set BPM"
+        >
+          TAP
         </button>
       </div>
 
@@ -149,9 +212,12 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
       {/* Key */}
       <div className="key-wrap">
         <label className="param-label">Key</label>
-        <select className="key-select" value={key} onChange={e => setKey(e.target.value)}>
-          {KEYS.map(k => <option key={k}>{k}</option>)}
-        </select>
+        <CustomSelect
+          value={key}
+          options={KEY_OPTIONS}
+          onChange={setKey}
+          width={110}
+        />
       </div>
 
       {/* Time sig */}
@@ -177,16 +243,13 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
             <line x1="8.5" y1="5.5" x2="11" y2="5.5" stroke="currentColor" strokeWidth="1.5"/>
           </svg>
         </button>
-        <select
-          className="key-select snap-select"
+        <CustomSelect
           value={snapValue}
-          onChange={e => setSnapValue(e.target.value)}
+          options={SNAP_OPTIONS}
+          onChange={setSnapValue}
           disabled={!snapEnabled}
-          title="Snap value"
-          style={{ opacity: snapEnabled ? 1 : 0.4 }}
-        >
-          {SNAP_VALUES.map(v => <option key={v} value={v}>{v === 'off' ? 'No Snap' : v}</option>)}
-        </select>
+          width={70}
+        />
       </div>
 
       {/* Zoom */}
@@ -229,7 +292,12 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
         onClick={() => setShowClawbot(!showClawbot)}
         title="Clawbot AI Panel"
       >
-        <img src="/assets/clawbot-mascot.png" alt="Clawbot" className="mascot-sm" />
+        <img
+          src="/assets/clawbot-mascot.png"
+          alt="Clawbot"
+          className="mascot-sm"
+          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+        />
       </button>
     </div>
   )

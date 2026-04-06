@@ -17,6 +17,7 @@ export default function App() {
   const store = useProjectStore()
   const engine = useAudioEngine()
   const [trackLevels, setTrackLevels] = useState<Map<string, number>>(new Map())
+  const [micLevel, setMicLevel] = useState(0)
 
   // ── Transport — wired to audio engine ─────────────────────────────────────
   const transport = useTransport(
@@ -45,8 +46,22 @@ export default function App() {
     return () => cancelAnimationFrame(rafId)
   }, [store.isPlaying, store.tracks, engine])
 
+  // ── Mic level RAF — active during recording ───────────────────────────────
+  useEffect(() => {
+    if (!store.isRecording) {
+      setMicLevel(0)
+      return
+    }
+    let rafId: number
+    const tick = () => {
+      setMicLevel(engine.getMicLevel())
+      rafId = requestAnimationFrame(tick)
+    }
+    rafId = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(rafId)
+  }, [store.isRecording, engine])
+
   // ── Live volume/pan sync — track state → audio engine ───────────────────
-  // This runs every time tracks change so sliders are always wired
   useEffect(() => {
     for (const t of store.tracks) {
       engine.setTrackVolume(t.id, t.muted ? 0 : t.volume)
@@ -110,6 +125,59 @@ export default function App() {
       })
     } catch (err) {
       console.error('Audio import failed:', err)
+    }
+  }, [engine, store])
+
+  // ── Drag-and-drop onto empty area → create new track ─────────────────────
+  const handleDropCreateTrack = useCallback(async (file: File) => {
+    try {
+      const arrayBuffer = await file.arrayBuffer()
+      const ctx = engine.getCtx()
+      const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
+
+      // Generate peaks
+      const channel = audioBuffer.getChannelData(0)
+      const blockSize = Math.floor(channel.length / 200)
+      const peaks: number[] = []
+      for (let i = 0; i < 200; i++) {
+        let max = 0
+        for (let j = 0; j < blockSize; j++) {
+          const v = Math.abs(channel[i * blockSize + j] ?? 0)
+          if (v > max) max = v
+        }
+        peaks.push(max)
+      }
+
+      const blob = new Blob([arrayBuffer], { type: file.type })
+      const audioUrl = URL.createObjectURL(blob)
+      engine.registerAudioBuffer(audioUrl, audioBuffer)
+
+      // Create new audio track
+      store.addTrack('audio')
+
+      // After the state settles, get the new track and add the clip
+      setTimeout(() => {
+        const currentTracks = useProjectStore.getState().tracks
+        const nonMaster = currentTracks.filter(t => t.type !== 'master')
+        const newTrack = nonMaster[nonMaster.length - 1]
+        if (!newTrack) return
+
+        const durationBeats = (audioBuffer.duration / 60) * useProjectStore.getState().bpm
+        useProjectStore.getState().addClip({
+          id: `clip-drop-${Date.now()}`,
+          trackId: newTrack.id,
+          startBeat: 0,
+          durationBeats: Math.max(1, durationBeats),
+          name: file.name.replace(/\.[^.]+$/, ''),
+          type: 'audio',
+          audioUrl,
+          gain: 1, fadeIn: 0, fadeOut: 0,
+          looped: false, muted: false, aiGenerated: false,
+          waveformPeaks: peaks,
+        })
+      }, 0)
+    } catch (err) {
+      console.error('Drop-create-track failed:', err)
     }
   }, [engine, store])
 
@@ -218,6 +286,8 @@ export default function App() {
               playheadX={Math.max(0, playheadX)}
               onScrub={beat => transport.seekToBeat(beat)}
               onImportAudio={handleImportAudio}
+              onDropCreateTrack={handleDropCreateTrack}
+              recordingMicLevel={micLevel}
             />
           )}
 

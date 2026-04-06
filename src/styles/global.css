@@ -74,7 +74,7 @@ html, body, #root {
 .toolbar > * { -webkit-app-region: no-drag; }
 
 .toolbar-brand { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
-.brand-icon { width: 24px; height: 24px; object-fit: contain; border-radius: 5px; flex-shrink: 0; }
+.brand-icon { display: inline-block; width: 24px; height: 24px; object-fit: contain; border-radius: 5px; flex-shrink: 0; }
 .brand-name {
   font-size: 14px; font-weight: 900;
   background: linear-gradient(135deg, #10b981, #06b6d4);
@@ -83,9 +83,9 @@ html, body, #root {
 }
 
 /* ─── Mascot / Asset helpers ───────────────────────────────────────────────── */
-.mascot-sm  { width: 20px; height: 20px; object-fit: contain; }
-.mascot-md  { width: 28px; height: 28px; object-fit: contain; }
-.mascot-lg  { width: 48px; height: 48px; object-fit: contain; }
+.mascot-sm  { display: inline-block; width: 20px; height: 20px; object-fit: contain; flex-shrink: 0; }
+.mascot-md  { display: inline-block; width: 28px; height: 28px; object-fit: contain; flex-shrink: 0; }
+.mascot-lg  { display: inline-block; width: 48px; height: 48px; object-fit: contain; }
 
 .transport { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 
@@ -134,9 +134,9 @@ html, body, #root {
 }
 .param-label { font-size: 10px; color: var(--text-m); font-weight: 700; text-transform: uppercase; letter-spacing: .5px; white-space: nowrap; }
 .bpm-input {
-  width: 52px; background: var(--bg-card); border: 1px solid var(--border);
+  width: 72px; background: var(--bg-card); border: 1px solid var(--border);
   border-radius: 6px; color: var(--text-p); padding: 4px 7px;
-  font-size: 14px; font-weight: 900; font-variant-numeric: tabular-nums;
+  font-size: 15px; font-weight: 900; font-variant-numeric: tabular-nums;
   text-align: center; outline: none;
 }
 .bpm-input:hover { border-color: var(--border-h); }
@@ -649,6 +649,70 @@ html, body, #root {
 .plugin-slot-remove:hover { color: #f87171; }
 .plugin-slots { display: flex; flex-direction: column; gap: 4px; }
 .plugin-add-row { display: flex; gap: 6px; align-items: center; }
+
+/* ─── Armed / Record button ─────────────────────────────────────────────────── */
+.tbt-rec.armed-ready { border-color: #f59e0b; box-shadow: 0 0 6px rgba(245,158,11,0.4); }
+
+/* ─── Tap Tempo button ──────────────────────────────────────────────────────── */
+.tbt-tap { font-size: 9px; font-weight: 900; letter-spacing: .04em; width: 36px; }
+.tbt-tap.tapped { background: rgba(6,182,212,.15); border-color: var(--cyan); color: var(--cyan); }
+
+/* ─── Timeline drop zone (below all tracks) ─────────────────────────────────── */
+.timeline-drop-zone {
+  height: 48px; position: relative;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: var(--text-m);
+  letter-spacing: .06em; text-transform: uppercase;
+  border: 2px dashed rgba(255,255,255,.08);
+  border-radius: 6px; margin: 4px 4px; transition: .15s;
+}
+.timeline-drop-zone.dragover {
+  background: rgba(16,185,129,.06);
+  border-color: rgba(16,185,129,.5);
+  color: var(--green);
+}
+
+/* ─── Live recording waveform bar ───────────────────────────────────────────── */
+.rec-live-bar-wrap {
+  position: absolute; top: 3px; bottom: 3px;
+  pointer-events: none; z-index: 5;
+  display: flex; align-items: center;
+}
+.rec-live-bar {
+  width: 3px; border-radius: 2px;
+  background: #ef4444;
+  box-shadow: 0 0 6px rgba(239,68,68,.7);
+  transition: height .05s;
+}
+
+/* ─── Custom Select ─────────────────────────────────────────────────────────── */
+.cs-wrap { position: relative; flex-shrink: 0; }
+.cs-trigger {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 8px; gap: 6px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 7px; cursor: pointer; font-size: 12px; color: var(--text-p);
+  transition: border-color .15s, background .15s;
+  white-space: nowrap; min-height: 30px;
+}
+.cs-trigger:hover { border-color: var(--border-h); background: var(--bg-hover); }
+.cs-open .cs-trigger { border-color: var(--accent); }
+.cs-disabled .cs-trigger { opacity: 0.4; cursor: not-allowed; }
+.cs-chevron { flex-shrink: 0; color: var(--text-m); transition: transform .15s; }
+.cs-open .cs-chevron { transform: rotate(180deg); }
+.cs-value { flex: 1; font-size: 12px; font-weight: 600; }
+.cs-dropdown {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+  background: var(--bg-panel); border: 1px solid var(--border-h);
+  border-radius: 8px; overflow: hidden; z-index: 1000;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5); max-height: 220px; overflow-y: auto;
+}
+.cs-option {
+  padding: 7px 12px; font-size: 12px; color: var(--text-s);
+  cursor: pointer; transition: background .1s;
+}
+.cs-option:hover { background: var(--bg-hover); color: var(--text-p); }
+.cs-option.cs-selected { color: var(--accent); font-weight: 700; background: rgba(168,85,247,.08); }
 
 /* ─── Scrollbars ────────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }

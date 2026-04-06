@@ -27,6 +27,8 @@ export function useAudioEngine() {
   const mediaStreamRef = useRef<MediaStream | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const recordedChunksRef = useRef<BlobPart[]>([])
+  const micAnalyserRef = useRef<AnalyserNode | null>(null)
+  const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
 
   const getCtx = useCallback((): AudioContext => {
     if (!ctxRef.current) {
@@ -232,6 +234,14 @@ export function useAudioEngine() {
         ? 'audio/webm'
         : 'audio/ogg'
 
+      // Pipe mic into AudioContext for live level monitoring
+      const micSource = ctx.createMediaStreamSource(stream)
+      const micAnalyser = ctx.createAnalyser()
+      micAnalyser.fftSize = 512
+      micSource.connect(micAnalyser)
+      micSourceRef.current = micSource
+      micAnalyserRef.current = micAnalyser
+
       const recorder = new MediaRecorder(stream, { mimeType })
       mediaRecorderRef.current = recorder
 
@@ -259,6 +269,12 @@ export function useAudioEngine() {
       }
 
       recorder.onstop = async () => {
+        // Disconnect mic analyser
+        try { micSourceRef.current?.disconnect() } catch {}
+        try { micAnalyserRef.current?.disconnect() } catch {}
+        micSourceRef.current = null
+        micAnalyserRef.current = null
+
         // Stop all mic tracks
         mediaStreamRef.current?.getTracks().forEach(t => t.stop())
         mediaStreamRef.current = null
@@ -288,6 +304,17 @@ export function useAudioEngine() {
 
   const isRecordingActive = useCallback((): boolean => {
     return mediaRecorderRef.current?.state === 'recording'
+  }, [])
+
+  // ── Mic level meter ──────────────────────────────────────────────────────
+  const getMicLevel = useCallback((): number => {
+    const analyser = micAnalyserRef.current
+    if (!analyser) return 0
+    const data = new Float32Array(analyser.fftSize)
+    analyser.getFloatTimeDomainData(data)
+    let max = 0
+    for (const v of data) if (Math.abs(v) > max) max = Math.abs(v)
+    return Math.min(1, max)
   }, [])
 
   // ── Level meters ─────────────────────────────────────────────────────────
@@ -395,6 +422,7 @@ export function useAudioEngine() {
     startRecording,
     stopRecording,
     isRecordingActive,
+    getMicLevel,
     getTrackLevel,
     getMasterLevel,
     setTrackEQ,

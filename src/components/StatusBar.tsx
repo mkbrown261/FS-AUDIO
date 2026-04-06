@@ -1,5 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useProjectStore } from '../store/projectStore'
+import { CustomSelect } from './CustomSelect'
+
+const SR_OPTIONS = [
+  { value: '44100', label: '44.1kHz' },
+  { value: '48000', label: '48kHz' },
+  { value: '88200', label: '88.2kHz' },
+  { value: '96000', label: '96kHz' },
+]
+
+const BIT_OPTIONS = [
+  { value: '16', label: '16-bit' },
+  { value: '24', label: '24-bit' },
+  { value: '32', label: '32-bit float' },
+]
 
 export function StatusBar() {
   const { bpm, sampleRate, bitDepth, bufferSize, isPlaying, isRecording, name, isDirty, setSampleRate, setBitDepth } = useProjectStore()
@@ -27,19 +41,20 @@ export function StatusBar() {
       <span className="status-project" title={name}>{isDirty ? '● ' : ''}{name}</span>
       <div className="status-divider" />
       <span className="status-label">SR</span>
-      <select className="status-select" value={sampleRate} onChange={e => setSampleRate(parseInt(e.target.value) as any)} title="Sample Rate">
-        <option value={44100}>44.1kHz</option>
-        <option value={48000}>48kHz</option>
-        <option value={88200}>88.2kHz</option>
-        <option value={96000}>96kHz</option>
-      </select>
+      <CustomSelect
+        value={String(sampleRate)}
+        options={SR_OPTIONS}
+        onChange={v => setSampleRate(parseInt(v) as 44100 | 48000 | 88200 | 96000)}
+        width={80}
+      />
       <div className="status-divider" />
       <span className="status-label">Bit</span>
-      <select className="status-select" value={bitDepth} onChange={e => setBitDepth(parseInt(e.target.value) as any)} title="Bit Depth">
-        <option value={16}>16-bit</option>
-        <option value={24}>24-bit</option>
-        <option value={32}>32-bit float</option>
-      </select>
+      <CustomSelect
+        value={String(bitDepth)}
+        options={BIT_OPTIONS}
+        onChange={v => setBitDepth(parseInt(v) as 16 | 24 | 32)}
+        width={90}
+      />
       <div className="status-divider" />
       <span className="status-label">Buffer</span>
       <span className="status-val">{bufferSize}</span>

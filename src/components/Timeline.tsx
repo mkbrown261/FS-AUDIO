@@ -115,7 +115,6 @@ function ClipView({
   function handleContextMenu(e: React.MouseEvent) {
     e.preventDefault()
     e.stopPropagation()
-    // Remove any existing menus
     document.querySelectorAll('.clip-ctx-menu').forEach(m => m.remove())
     const menu = document.createElement('div')
     menu.className = 'clip-ctx-menu'
@@ -210,11 +209,16 @@ function ClipView({
 // ── Track Lane ────────────────────────────────────────────────────────────────
 function TrackLane({
   track, pixelsPerBeat, scrollLeft, onImportAudio,
+  isRecording, recordingMicLevel, currentBeat, recordStartBeat,
 }: {
   track: Track
   pixelsPerBeat: number
   scrollLeft: number
   onImportAudio?: (trackId: string, file: File, startBeat: number) => Promise<void>
+  isRecording: boolean
+  recordingMicLevel: number
+  currentBeat: number
+  recordStartBeat: number
 }) {
   const { addClip, selectedClipIds, selectClip, snapEnabled, snapValue } = useProjectStore()
   const [dragOver, setDragOver] = useState(false)
@@ -247,7 +251,6 @@ function TrackLane({
   }
 
   function handleDragLeave(e: React.DragEvent<HTMLDivElement>) {
-    // Only clear if leaving the lane entirely (not entering a child)
     if (!e.currentTarget.contains(e.relatedTarget as Node)) {
       setDragOver(false)
     }
@@ -267,6 +270,12 @@ function TrackLane({
       await onImportAudio(track.id, file, startBeat)
     }
   }
+
+  // Live recording waveform bar for armed track
+  const showLiveBar = isRecording && track.armed
+  const recBarX = recordStartBeat * pixelsPerBeat - scrollLeft
+  const recBarWidth = Math.max(0, (currentBeat - recordStartBeat) * pixelsPerBeat)
+  const barHeight = Math.max(4, recordingMicLevel * (track.height - 12))
 
   return (
     <div
@@ -289,6 +298,73 @@ function TrackLane({
       ))}
       {track.muted && <div className="lane-muted-overlay">MUTED</div>}
       {dragOver && <div className="lane-drop-hint">Drop audio file here</div>}
+
+      {/* Live recording waveform indicator */}
+      {showLiveBar && recBarWidth > 0 && (
+        <div
+          className="rec-live-bar-wrap"
+          style={{ left: recBarX, width: recBarWidth }}
+        >
+          {/* Background recording region */}
+          <div style={{
+            position: 'absolute', left: 0, top: 3, bottom: 3, right: 0,
+            background: 'rgba(239,68,68,0.1)',
+            border: '1px solid rgba(239,68,68,0.3)',
+            borderRadius: 3,
+            pointerEvents: 'none',
+          }} />
+          {/* Active level bar at the right edge */}
+          <div
+            className="rec-live-bar"
+            style={{
+              position: 'absolute',
+              right: 0,
+              height: `${barHeight}px`,
+              top: `${(track.height - barHeight) / 2}px`,
+            }}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Drop zone below all tracks ─────────────────────────────────────────────────
+function TimelineDropZone({ onDropCreateTrack }: { onDropCreateTrack?: (file: File) => void }) {
+  const [dragOver, setDragOver] = useState(false)
+
+  function handleDragOver(e: React.DragEvent<HTMLDivElement>) {
+    const hasAudio = Array.from(e.dataTransfer.items).some(item => item.kind === 'file' && item.type.startsWith('audio/'))
+    if (!hasAudio) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+    setDragOver(true)
+  }
+
+  function handleDragLeave(e: React.DragEvent<HTMLDivElement>) {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setDragOver(false)
+    }
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    setDragOver(false)
+    if (!onDropCreateTrack) return
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('audio/'))
+    for (const file of files) {
+      onDropCreateTrack(file)
+    }
+  }
+
+  return (
+    <div
+      className={`timeline-drop-zone ${dragOver ? 'dragover' : ''}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {dragOver ? '+ Create new track with this file' : 'Drop audio here to create a new track'}
     </div>
   )
 }
@@ -298,17 +374,33 @@ export function Timeline({
   playheadX,
   onScrub,
   onImportAudio,
+  onDropCreateTrack,
+  recordingMicLevel = 0,
 }: {
   playheadX: number
   onScrub: (beat: number) => void
   onImportAudio?: (trackId: string, file: File, startBeat: number) => Promise<void>
+  onDropCreateTrack?: (file: File) => void
+  recordingMicLevel?: number
 }) {
-  const { tracks, pixelsPerBeat, scrollLeft, setScrollLeft, bpm, loopStart, loopEnd, isLooping, timeSignature } = useProjectStore()
+  const { tracks, pixelsPerBeat, scrollLeft, setScrollLeft, bpm, loopStart, loopEnd, isLooping, timeSignature, isRecording, currentTime } = useProjectStore()
   const scrollRef = useRef<HTMLDivElement>(null)
   const TOTAL_BARS = 96
   const BEATS_PER_BAR = timeSignature[0]
   const totalBeats = TOTAL_BARS * BEATS_PER_BAR
   const totalWidth = totalBeats * pixelsPerBeat
+
+  const currentBeat = currentTime * (bpm / 60)
+
+  // Track where recording started (use current beat at time of recording start)
+  const recordStartBeatRef = useRef(0)
+  useEffect(() => {
+    if (isRecording) {
+      recordStartBeatRef.current = currentBeat
+    }
+  // Only update when recording starts
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRecording])
 
   useEffect(() => {
     const el = scrollRef.current
@@ -342,19 +434,35 @@ export function Timeline({
     window.addEventListener('mouseup', up)
   }
 
+  // Also handle drop onto the ruler → create new track
+  function handleRulerDragOver(e: React.DragEvent<HTMLDivElement>) {
+    const hasAudio = Array.from(e.dataTransfer.items).some(item => item.kind === 'file' && item.type.startsWith('audio/'))
+    if (!hasAudio) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+  }
+
+  function handleRulerDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    if (!onDropCreateTrack) return
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('audio/'))
+    for (const file of files) {
+      onDropCreateTrack(file)
+    }
+  }
+
   // Build ruler ticks
   const ticks: React.ReactNode[] = []
   for (let bar = 0; bar <= TOTAL_BARS; bar++) {
     const beat = bar * BEATS_PER_BAR
     const x = beat * pixelsPerBeat
-    if (x < scrollLeft - 10 || x > scrollLeft + 3000) continue // viewport cull
+    if (x < scrollLeft - 10 || x > scrollLeft + 3000) continue
     ticks.push(
       <div key={`bar-${bar}`} className="ruler-tick" style={{ left: x }}>
         <div className="ruler-label">{bar + 1}</div>
         <div className="ruler-line" style={{ height: 10 }} />
       </div>
     )
-    // Beat subdivisions
     for (let b = 1; b < BEATS_PER_BAR; b++) {
       const bx = (beat + b) * pixelsPerBeat
       ticks.push(
@@ -365,13 +473,12 @@ export function Timeline({
     }
   }
 
-  // Grid background lines (vertical, drawn as absolute divs)
+  // Grid background lines
   const gridLines: React.ReactNode[] = []
   for (let bar = 0; bar <= TOTAL_BARS; bar++) {
     const x = bar * BEATS_PER_BAR * pixelsPerBeat
     if (x < scrollLeft - 10 || x > scrollLeft + 3000) continue
     gridLines.push(<div key={`grid-${bar}`} style={{ position:'absolute', left: x, top:0, bottom:0, width:1, background:'rgba(255,255,255,0.05)', pointerEvents:'none' }} />)
-    // Beat grid
     for (let b = 1; b < BEATS_PER_BAR; b++) {
       const bx = (bar * BEATS_PER_BAR + b) * pixelsPerBeat
       gridLines.push(<div key={`beat-${bar}-${b}`} style={{ position:'absolute', left: bx, top:0, bottom:0, width:1, background:'rgba(255,255,255,0.025)', pointerEvents:'none' }} />)
@@ -389,6 +496,8 @@ export function Timeline({
         className="timeline-ruler"
         style={{ width: totalWidth, minWidth: '100%', position: 'sticky', top: 0, zIndex: 10 }}
         onMouseDown={handleRulerMouseDown}
+        onDragOver={handleRulerDragOver}
+        onDrop={handleRulerDrop}
       >
         {ticks}
         {isLooping && (
@@ -397,7 +506,7 @@ export function Timeline({
               left: loopStart * pixelsPerBeat,
               width: (loopEnd - loopStart) * pixelsPerBeat,
             }} />
-            {/* Left locator — drag to move loop start */}
+            {/* Left locator */}
             <div
               className="loop-locator loop-locator-start"
               style={{ left: loopStart * pixelsPerBeat }}
@@ -415,7 +524,7 @@ export function Timeline({
                 window.addEventListener('mouseup', up)
               }}
             />
-            {/* Right locator — drag to move loop end */}
+            {/* Right locator */}
             <div
               className="loop-locator loop-locator-end"
               style={{ left: loopEnd * pixelsPerBeat }}
@@ -441,10 +550,23 @@ export function Timeline({
       <div style={{ position: 'relative', width: totalWidth, minWidth: '100%' }}>
         {gridLines}
         {tracks.map(track => (
-          <TrackLane key={track.id} track={track} pixelsPerBeat={pixelsPerBeat} scrollLeft={scrollLeft} onImportAudio={onImportAudio} />
+          <TrackLane
+            key={track.id}
+            track={track}
+            pixelsPerBeat={pixelsPerBeat}
+            scrollLeft={scrollLeft}
+            onImportAudio={onImportAudio}
+            isRecording={isRecording}
+            recordingMicLevel={recordingMicLevel}
+            currentBeat={currentBeat}
+            recordStartBeat={recordStartBeatRef.current}
+          />
         ))}
 
-        {/* Playhead — left is absolute beat position in the scrollable canvas */}
+        {/* Drop zone below all tracks */}
+        <TimelineDropZone onDropCreateTrack={onDropCreateTrack} />
+
+        {/* Playhead */}
         <div
           className="playhead"
           style={{ left: (playheadX + scrollLeft), top: 0, bottom: 0 }}
