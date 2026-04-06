@@ -79,65 +79,72 @@ export function useTransport(
     onStopMetronome()
   }, [onStopAll, onStopMetronome, store])
 
+  // ── Stop recording and save clip (does NOT reset playhead) ─────────────────
+  const stopRecord = useCallback(async () => {
+    // Cancel any pending count-in
+    if (countInIntervalRef.current) {
+      clearInterval(countInIntervalRef.current)
+      countInIntervalRef.current = null
+    }
+    store.getState().setCountIn(0)
+    store.getState().setRecording(false)
+
+    const st = store.getState()
+    const audioBuffer = await onStopRecording()
+    if (audioBuffer) {
+      const armedTrack = st.tracks.find(t => t.armed)
+      if (armedTrack) {
+        const bpm = st.bpm
+        const durationBeats = Math.max(0.25, (audioBuffer.duration / 60) * bpm)
+        const startBeat = recordStartBeatRef.current
+        const id = `clip-rec-${Date.now()}`
+        const audioUrl = `rec:${id}`
+        onRegisterAudioBuffer?.(audioUrl, audioBuffer)
+
+        const peaks: number[] = []
+        const ch = audioBuffer.getChannelData(0)
+        const blockSize = Math.max(1, Math.floor(ch.length / 200))
+        for (let i = 0; i < 200; i++) {
+          let max = 0
+          for (let j = 0; j < blockSize; j++) {
+            const v = Math.abs(ch[i * blockSize + j] ?? 0)
+            if (v > max) max = v
+          }
+          peaks.push(max)
+        }
+
+        const clip: import('../store/projectStore').Clip = {
+          id,
+          trackId: armedTrack.id,
+          startBeat,
+          durationBeats,
+          name: `Take ${new Date().toLocaleTimeString()}`,
+          type: 'audio',
+          audioUrl,
+          gain: 1, fadeIn: 0, fadeOut: 0,
+          looped: false, muted: false, aiGenerated: false,
+          waveformPeaks: peaks,
+        }
+        store.getState().addClip(clip)
+      }
+    }
+    // Stop playback after saving clip
+    pause()
+    onStopMetronome()
+  }, [onStopRecording, onRegisterAudioBuffer, pause, onStopMetronome, store])
+
   const stop = useCallback(async () => {
     // If recording, stop it and save the clip
     const st = store.getState()
-    if (st.isRecording) {
-      store.getState().setRecording(false)
-      store.getState().setCountIn(0)
-      if (countInIntervalRef.current) {
-        clearInterval(countInIntervalRef.current)
-        countInIntervalRef.current = null
-      }
-      const audioBuffer = await onStopRecording()
-      if (audioBuffer) {
-        // Find first armed track
-        const armedTrack = st.tracks.find(t => t.armed)
-        if (armedTrack) {
-          const bpm = st.bpm
-          const durationBeats = (audioBuffer.duration / 60) * bpm
-          const startBeat = recordStartBeatRef.current
-          const id = `clip-rec-${Date.now()}`
-
-          // Generate a synthetic key and register the decoded buffer directly
-          // (blob: URLs are not fetchable after recording stops — we cache the AudioBuffer instead)
-          const audioUrl = `rec:${id}`
-          onRegisterAudioBuffer?.(audioUrl, audioBuffer)
-
-          // Waveform peaks
-          const peaks: number[] = []
-          const ch = audioBuffer.getChannelData(0)
-          const blockSize = Math.floor(ch.length / 200)
-          for (let i = 0; i < 200; i++) {
-            let max = 0
-            for (let j = 0; j < blockSize; j++) {
-              const v = Math.abs(ch[i * blockSize + j] ?? 0)
-              if (v > max) max = v
-            }
-            peaks.push(max)
-          }
-
-          const clip: import('../store/projectStore').Clip = {
-            id,
-            trackId: armedTrack.id,
-            startBeat,
-            durationBeats: Math.max(1, durationBeats),
-            name: `Recording ${new Date().toLocaleTimeString()}`,
-            type: 'audio',
-            audioUrl,
-            gain: 1, fadeIn: 0, fadeOut: 0,
-            looped: false, muted: false, aiGenerated: false,
-            waveformPeaks: peaks,
-          }
-          store.getState().addClip(clip)
-        }
-      }
+    if (st.isRecording || countInIntervalRef.current) {
+      await stopRecord()
+      return
     }
 
     pause()
     store.getState().setCurrentTime(0)
     anchorBeatRef.current = 0
-  }, [pause, onStopRecording, store])
+  }, [pause, stopRecord, store])
 
   const togglePlay = useCallback(() => {
     const st = store.getState()
@@ -156,9 +163,9 @@ export function useTransport(
       return
     }
 
-    if (st.isRecording) {
-      // Stop recording
-      await stop()
+    // If already recording or in count-in, stop immediately
+    if (st.isRecording || countInIntervalRef.current) {
+      await stopRecord()
       return
     }
 
@@ -203,7 +210,7 @@ export function useTransport(
         startRaf(fromBeat)
       }
     }, beatMs)
-  }, [stop, onStartRecording, onStartPlayback, onStartMetronome, onStopMetronome, startRaf, store])
+  }, [stopRecord, onStartRecording, onStartPlayback, onStartMetronome, onStopMetronome, startRaf, store])
 
   const seekToTime = useCallback((timeSec: number) => {
     const wasPlaying = store.getState().isPlaying

@@ -383,7 +383,7 @@ export function Timeline({
   onDropCreateTrack?: (file: File) => void
   recordingMicLevel?: number
 }) {
-  const { tracks, pixelsPerBeat, scrollLeft, setScrollLeft, bpm, loopStart, loopEnd, isLooping, timeSignature, isRecording, currentTime } = useProjectStore()
+  const { tracks, pixelsPerBeat, scrollLeft, setScrollLeft, bpm, loopStart, loopEnd, isLooping, timeSignature, isRecording, currentTime, zoom, setZoom } = useProjectStore()
   const scrollRef = useRef<HTMLDivElement>(null)
   const TOTAL_BARS = 96
   const BEATS_PER_BAR = timeSignature[0]
@@ -490,6 +490,13 @@ export function Timeline({
       ref={scrollRef}
       className="timeline"
       style={{ overflowX: 'auto', overflowY: 'auto', flex: 1, position: 'relative' }}
+      onWheel={e => {
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault()
+          const delta = e.deltaY > 0 ? -0.15 : 0.15
+          setZoom(Math.max(0.25, Math.min(6, zoom + delta)))
+        }
+      }}
     >
       {/* Ruler */}
       <div
@@ -569,7 +576,7 @@ export function Timeline({
         {/* Playhead */}
         <div
           className="playhead"
-          style={{ left: (playheadX + scrollLeft), top: 0, bottom: 0 }}
+          style={{ left: playheadX, top: 0, bottom: 0 }}
         >
           <div className="playhead-head" />
         </div>

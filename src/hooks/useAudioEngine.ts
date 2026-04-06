@@ -390,8 +390,13 @@ export function useAudioEngine() {
   }, [])
 
   // ── Play a preview note (piano roll key click) ────────────────────────────
-  const playPreviewNote = useCallback((pitch: number, durationSec = 0.4) => {
+  // Held notes for Musical Typing (pitch -> {osc, gain})
+  const heldNotesRef = useRef<Map<number, { osc: OscillatorNode; gain: GainNode }>>(new Map())
+
+  const noteOn = useCallback((pitch: number, velocity = 100) => {
+    if (heldNotesRef.current.has(pitch)) return // already playing
     const ctx = getCtx()
+    if (ctx.state === 'suspended') ctx.resume()
     const freq = 440 * Math.pow(2, (pitch - 69) / 12)
     const osc = ctx.createOscillator()
     const gain = ctx.createGain()
@@ -399,11 +404,33 @@ export function useAudioEngine() {
     osc.frequency.value = freq
     osc.connect(gain)
     gain.connect(masterGainRef.current ?? ctx.destination)
-    gain.gain.setValueAtTime(0.3, ctx.currentTime)
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + durationSec)
+    const vol = (velocity / 127) * 0.4
+    gain.gain.setValueAtTime(0, ctx.currentTime)
+    gain.gain.linearRampToValueAtTime(vol, ctx.currentTime + 0.005) // 5ms attack
     osc.start(ctx.currentTime)
-    osc.stop(ctx.currentTime + durationSec + 0.05)
+    heldNotesRef.current.set(pitch, { osc, gain })
   }, [getCtx])
+
+  const noteOff = useCallback((pitch: number) => {
+    const held = heldNotesRef.current.get(pitch)
+    if (!held) return
+    const ctx = getCtx()
+    const { osc, gain } = held
+    gain.gain.cancelScheduledValues(ctx.currentTime)
+    gain.gain.setValueAtTime(gain.gain.value, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08) // 80ms release
+    try { osc.stop(ctx.currentTime + 0.09) } catch {}
+    heldNotesRef.current.delete(pitch)
+  }, [getCtx])
+
+  const allNotesOff = useCallback(() => {
+    for (const pitch of heldNotesRef.current.keys()) noteOff(pitch)
+  }, [noteOff])
+
+  const playPreviewNote = useCallback((pitch: number, durationSec = 0.4) => {
+    noteOn(pitch, 100)
+    setTimeout(() => noteOff(pitch), durationSec * 1000)
+  }, [noteOn, noteOff])
 
   useEffect(() => {
     return () => {
@@ -436,6 +463,9 @@ export function useAudioEngine() {
     loadAudioBuffer,
     registerAudioBuffer,
     generateWaveformPeaks,
+    noteOn,
+    noteOff,
+    allNotesOff,
     playPreviewNote,
   }
 }

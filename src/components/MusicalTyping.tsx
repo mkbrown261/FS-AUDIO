@@ -66,11 +66,12 @@ const BLACK_KEYS = [
 interface MusicalTypingProps {
   isOpen: boolean
   onClose: () => void
-  onPlayNote: (pitch: number, velocity: number) => void
-  onNoteOff?: (pitch: number) => void
+  onNoteOn: (pitch: number, velocity: number) => void
+  onNoteOff: (pitch: number) => void
+  onPlayNote: (pitch: number, durationSec?: number) => void // for mouse clicks (auto-release)
 }
 
-export function MusicalTyping({ isOpen, onClose, onPlayNote, onNoteOff }: MusicalTypingProps) {
+export function MusicalTyping({ isOpen, onClose, onNoteOn, onNoteOff, onPlayNote }: MusicalTypingProps) {
   const [octaveOffset, setOctaveOffset] = useState(0)
   const [velocity, setVelocity] = useState(100)
   const [sustain, setSustain] = useState(false)
@@ -105,7 +106,7 @@ export function MusicalTyping({ isOpen, onClose, onPlayNote, onNoteOff }: Musica
         heldKeys.current.add(key)
         const basePitch = NOTE_KEY_MAP[key]
         const pitch = Math.max(0, Math.min(127, basePitch + octaveOffset * 12))
-        onPlayNote(pitch, velocity)
+        onNoteOn(pitch, velocity)
         setActiveNotes(prev => new Set(prev).add(pitch))
         return
       }
@@ -171,7 +172,7 @@ export function MusicalTyping({ isOpen, onClose, onPlayNote, onNoteOff }: Musica
           return next
         })
         if (!sustain) {
-          onNoteOff?.(pitch)
+          onNoteOff(pitch)
         }
       }
 
@@ -186,7 +187,7 @@ export function MusicalTyping({ isOpen, onClose, onPlayNote, onNoteOff }: Musica
       document.removeEventListener('keydown', handleKeyDown)
       document.removeEventListener('keyup', handleKeyUp)
     }
-  }, [isOpen, octaveOffset, velocity, sustain, onPlayNote, onNoteOff, isInputFocused])
+  }, [isOpen, octaveOffset, velocity, sustain, onNoteOn, onNoteOff, isInputFocused])
 
   if (!isOpen) return null
 
@@ -234,15 +235,16 @@ export function MusicalTyping({ isOpen, onClose, onPlayNote, onNoteOff }: Musica
               key={k.key}
               className={`mt-white-key${activeNotes.has(k.pitch) ? ' active' : ''}`}
               onMouseDown={() => {
-                onPlayNote(k.pitch, velocity)
+                onNoteOn(k.pitch, velocity)
                 setActiveNotes(prev => new Set(prev).add(k.pitch))
               }}
               onMouseUp={() => {
                 setActiveNotes(prev => { const n = new Set(prev); n.delete(k.pitch); return n })
-                if (!sustain) onNoteOff?.(k.pitch)
+                if (!sustain) onNoteOff(k.pitch)
               }}
               onMouseLeave={() => {
                 setActiveNotes(prev => { const n = new Set(prev); n.delete(k.pitch); return n })
+                if (!sustain) onNoteOff(k.pitch)
               }}
               title={`${k.label} (${k.key})`}
             >
@@ -258,16 +260,17 @@ export function MusicalTyping({ isOpen, onClose, onPlayNote, onNoteOff }: Musica
               style={{ left: k.left }}
               onMouseDown={e => {
                 e.stopPropagation()
-                onPlayNote(k.pitch, velocity)
+                onNoteOn(k.pitch, velocity)
                 setActiveNotes(prev => new Set(prev).add(k.pitch))
               }}
               onMouseUp={e => {
                 e.stopPropagation()
                 setActiveNotes(prev => { const n = new Set(prev); n.delete(k.pitch); return n })
-                if (!sustain) onNoteOff?.(k.pitch)
+                if (!sustain) onNoteOff(k.pitch)
               }}
               onMouseLeave={() => {
                 setActiveNotes(prev => { const n = new Set(prev); n.delete(k.pitch); return n })
+                if (!sustain) onNoteOff(k.pitch)
               }}
               title={`${k.label} (${k.key})`}
             >

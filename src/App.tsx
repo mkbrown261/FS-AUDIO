@@ -332,7 +332,9 @@ export default function App() {
 
       <MusicalTyping
         isOpen={showMusicalTyping}
-        onClose={() => setShowMusicalTyping(false)}
+        onClose={() => { setShowMusicalTyping(false); engine.allNotesOff() }}
+        onNoteOn={engine.noteOn}
+        onNoteOff={engine.noteOff}
         onPlayNote={engine.playPreviewNote}
       />
     </div>
