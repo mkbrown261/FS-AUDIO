@@ -101,8 +101,11 @@ export function useAudioEngine() {
   const loadAudioBuffer = useCallback(async (url: string): Promise<AudioBuffer | null> => {
     const cached = audioBuffersRef.current.get(url)
     if (cached) return cached
-    // blob: URLs that were revoked or synthetic keys won't fetch — skip
-    if (!url.startsWith('http') && !url.startsWith('blob:')) return null
+    // Only fetch http/https URLs — rec: and blob: keys must be pre-registered via registerAudioBuffer
+    if (!url.startsWith('http')) {
+      console.warn('loadAudioBuffer: no cached buffer for key:', url)
+      return null
+    }
     try {
       const ctx = getCtx()
       const res = await fetch(url)

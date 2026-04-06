@@ -99,45 +99,10 @@ export function useTransport(
           const startBeat = recordStartBeatRef.current
           const id = `clip-rec-${Date.now()}`
 
-          // Convert AudioBuffer → Blob → Object URL so playback can fetch it
-          let audioUrl: string | undefined
-          try {
-            const numChannels = audioBuffer.numberOfChannels
-            const sampleRate = audioBuffer.sampleRate
-            const length = audioBuffer.length
-            const offlineCtx = new OfflineAudioContext(numChannels, length, sampleRate)
-            const src = offlineCtx.createBufferSource()
-            src.buffer = audioBuffer
-            src.connect(offlineCtx.destination)
-            src.start(0)
-            const rendered = await offlineCtx.startRendering()
-            // WAV encode
-            const numSamples = rendered.length * numChannels
-            const wavBuffer = new ArrayBuffer(44 + numSamples * 2)
-            const view = new DataView(wavBuffer)
-            const writeStr = (off: number, s: string) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)) }
-            writeStr(0, 'RIFF'); view.setUint32(4, 36 + numSamples * 2, true)
-            writeStr(8, 'WAVE'); writeStr(12, 'fmt ')
-            view.setUint32(16, 16, true); view.setUint16(20, 1, true)
-            view.setUint16(22, numChannels, true); view.setUint32(24, sampleRate, true)
-            view.setUint32(28, sampleRate * numChannels * 2, true)
-            view.setUint16(32, numChannels * 2, true); view.setUint16(34, 16, true)
-            writeStr(36, 'data'); view.setUint32(40, numSamples * 2, true)
-            let offset = 44
-            for (let i = 0; i < rendered.length; i++) {
-              for (let ch = 0; ch < numChannels; ch++) {
-                const s = Math.max(-1, Math.min(1, rendered.getChannelData(ch)[i]))
-                view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true)
-                offset += 2
-              }
-            }
-            const blob = new Blob([wavBuffer], { type: 'audio/wav' })
-            audioUrl = URL.createObjectURL(blob)
-            // Also pre-register in audio engine cache so first playback is instant
-            onRegisterAudioBuffer?.(audioUrl, rendered)
-          } catch (encErr) {
-            console.error('WAV encode failed:', encErr)
-          }
+          // Generate a synthetic key and register the decoded buffer directly
+          // (blob: URLs are not fetchable after recording stops — we cache the AudioBuffer instead)
+          const audioUrl = `rec:${id}`
+          onRegisterAudioBuffer?.(audioUrl, audioBuffer)
 
           // Waveform peaks
           const peaks: number[] = []
