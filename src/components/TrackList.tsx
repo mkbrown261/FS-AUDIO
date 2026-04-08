@@ -210,16 +210,18 @@ function TrackHeader({
           type="range" min={0} max={125} step={1}
           className="track-vol-slider"
           id={`vol-${track.id}`}
-          value={Math.round(track.volume * 100)}
+          value={Math.round(Math.max(0, Math.min(1.25, track.volume)) * 100)}
           onChange={e => {
             e.stopPropagation()
-            const v = parseInt(e.target.value) / 100
-            console.log('[TrackList] 🔊 VOLUME slider changed:', track.name, 'value=', e.target.value, 'volume=', v)
+            const rawValue = parseInt(e.target.value)
+            const v = Math.max(0, Math.min(1.25, rawValue / 100))
+            console.log('[TrackList] 🔊 VOLUME slider changed:', track.name, 'rawValue=', rawValue, 'volume=', v, 'track.volume=', track.volume, 'track.pan=', track.pan)
             updateTrack(track.id, { volume: v })
             onVolumeChange(track.id, v)
           }}
           onInput={e => {
-            console.log('[TrackList] 🔊 VOLUME input event:', track.name, 'value=', (e.target as HTMLInputElement).value)
+            const val = (e.target as HTMLInputElement).value
+            console.log('[TrackList] 🔊 VOLUME input event:', track.name, 'value=', val, 'track.volume=', track.volume, 'track.pan=', track.pan)
           }}
           onClick={e => e.stopPropagation()}
           title={`Volume: ${volToDb(track.volume)} dB`}
@@ -231,16 +233,18 @@ function TrackHeader({
           type="range" min={-100} max={100} step={1}
           className="track-pan-slider"
           id={`pan-${track.id}`}
-          value={Math.round(track.pan * 100)}
+          value={Math.round(Math.max(-1, Math.min(1, track.pan)) * 100)}
           onChange={e => {
             e.stopPropagation()
-            const v = parseInt(e.target.value) / 100
-            console.log('[TrackList] 🎚️ PAN slider changed:', track.name, 'value=', e.target.value, 'pan=', v)
+            const rawValue = parseInt(e.target.value)
+            const v = Math.max(-1, Math.min(1, rawValue / 100))
+            console.log('[TrackList] 🎚️ PAN slider changed:', track.name, 'rawValue=', rawValue, 'pan=', v, 'track.pan=', track.pan, 'track.volume=', track.volume)
             updateTrack(track.id, { pan: v })
             onPanChange(track.id, v)
           }}
           onInput={e => {
-            console.log('[TrackList] 🎚️ PAN input event:', track.name, 'value=', (e.target as HTMLInputElement).value)
+            const val = (e.target as HTMLInputElement).value
+            console.log('[TrackList] 🎚️ PAN input event:', track.name, 'value=', val, 'track.pan=', track.pan, 'track.volume=', track.volume)
           }}
           onClick={e => e.stopPropagation()}
           title={`Pan: ${panStr(track.pan)}`}
