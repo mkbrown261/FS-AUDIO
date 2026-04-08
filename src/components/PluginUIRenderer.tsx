@@ -1,13 +1,15 @@
 import React from 'react'
 import { Plugin } from '../store/projectStore'
-import { AnalogSynthUI } from './instruments/AnalogSynthUI'
-import { DrumSamplerUI } from './instruments/DrumSamplerUI'
 
 interface PluginUIRendererProps {
   plugin: Plugin
   trackId: string
   onUpdateParams: (params: Record<string, number | string>) => void
 }
+
+// Lazy load instrument UIs to avoid loading issues
+const AnalogSynthUI = React.lazy(() => import('./instruments/AnalogSynthUI').then(m => ({ default: m.AnalogSynthUI })))
+const DrumSamplerUI = React.lazy(() => import('./instruments/DrumSamplerUI').then(m => ({ default: m.DrumSamplerUI })))
 
 // Professional Knob Component
 function ProfessionalKnob({ 
@@ -592,13 +594,21 @@ function getPluginTheme(plugin: Plugin): { gradient: string, accent: string, ico
 
 // Generic plugin UI that works for ALL plugins
 export function PluginUIRenderer({ plugin, trackId, onUpdateParams }: PluginUIRendererProps) {
-  // Custom UI for instrument plugins
+  // Custom UI for instrument plugins with Suspense boundary
   if (plugin.type === 'fs_analog') {
-    return <AnalogSynthUI params={plugin.params} onUpdate={onUpdateParams} />
+    return (
+      <React.Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#fff' }}>Loading Synth...</div>}>
+        <AnalogSynthUI params={plugin.params} onUpdate={onUpdateParams} />
+      </React.Suspense>
+    )
   }
   
   if (plugin.type === 'fs_sampler') {
-    return <DrumSamplerUI params={plugin.params} onUpdate={onUpdateParams} />
+    return (
+      <React.Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#fff' }}>Loading Sampler...</div>}>
+        <DrumSamplerUI params={plugin.params} onUpdate={onUpdateParams} />
+      </React.Suspense>
+    )
   }
   
   const theme = getPluginTheme(plugin)
