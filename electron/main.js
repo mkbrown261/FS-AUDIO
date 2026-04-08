@@ -25,10 +25,37 @@ function createWindow() {
   })
 
   if (isDev) {
+    console.log('[Electron] Loading dev server at http://localhost:5173')
     mainWindow.loadURL('http://localhost:5173')
-    mainWindow.webContents.openDevTools({ mode: 'detach' })
+      .then(() => {
+        console.log('[Electron] Dev server loaded successfully')
+        mainWindow.webContents.openDevTools({ mode: 'detach' })
+      })
+      .catch(err => {
+        console.error('[Electron] Failed to load dev server:', err)
+        dialog.showErrorBox('Dev Server Not Running', 
+          'Could not connect to Vite dev server at http://localhost:5173\n\n' +
+          'Make sure the dev server is running:\n' +
+          'npm run dev\n\n' +
+          'Or run both together:\n' +
+          'npm run electron:dev')
+        app.quit()
+      })
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
+    const indexPath = path.join(__dirname, '../dist/index.html')
+    console.log('[Electron] Loading production build from:', indexPath)
+    if (!fs.existsSync(indexPath)) {
+      console.error('[Electron] Production build not found at:', indexPath)
+      dialog.showErrorBox('Build Not Found', 
+        'Could not find production build at:\n' + indexPath + '\n\n' +
+        'Please run: npm run build')
+      app.quit()
+      return
+    }
+    mainWindow.loadFile(indexPath)
+      .catch(err => {
+        console.error('[Electron] Failed to load production build:', err)
+      })
   }
 
   // Handle window close - check for unsaved changes
