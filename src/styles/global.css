@@ -503,14 +503,24 @@ html, body, #root {
 .fade-handle { position: absolute; top: 0; left: 0; bottom: 0; background: rgba(255,255,255,.07); }
 
 .playhead {
-  position: absolute; top: 0; bottom: 0; width: 1px;
+  position: absolute; top: 0; bottom: 0; width: 2px;
   background: #10b981;
   pointer-events: none; z-index: 20;
 }
 .playhead-head {
-  position: absolute; top: -4px; left: -5px; width: 0; height: 0;
-  border-left: 6px solid transparent; border-right: 6px solid transparent;
-  border-top: 8px solid #10b981;
+  position: absolute; top: -6px; left: -8px;
+  width: 18px; height: 16px;
+  cursor: ew-resize;
+  pointer-events: all;
+  display: flex; align-items: flex-start; justify-content: center;
+}
+.playhead-head::before {
+  content: '';
+  width: 0; height: 0;
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-top: 12px solid #10b981;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.3));
 }
 
 /* ─── Bottom Panel (Mixer / Piano Roll) ─────────────────────────────────────── */

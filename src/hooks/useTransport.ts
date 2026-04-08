@@ -163,10 +163,9 @@ export function useTransport(
         }
       }
     }
-    // Stop playback after saving clip
-    pause()
+    // Don't stop playback - just stop metronome
     onStopMetronome()
-  }, [onStopRecording, onRegisterAudioBuffer, pause, onStopMetronome, store])
+  }, [onStopRecording, onRegisterAudioBuffer, onStopMetronome, store])
 
   const stop = useCallback(async () => {
     // If recording, stop it and save the clip

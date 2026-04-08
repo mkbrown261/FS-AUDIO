@@ -86,28 +86,19 @@ export function MusicalTyping({ isOpen, onClose, onNoteOn, onNoteOff, onPlayNote
       // Always stop propagation — nothing below us in the capture chain
       // (App.tsx bubble-phase handler) should see this event while MT is open.
       e.stopImmediatePropagation()
-
-      // Allow browser native behaviour for a very small set of keys that we
-      // handle ourselves so the browser doesn't also act on them.
-      const key = e.key.toLowerCase()
+      e.preventDefault()
 
       // Shift+P → close the Musical Typing window
       if (e.shiftKey && (e.key === 'P' || e.key === 'p')) {
-        e.preventDefault()
         onClose()
         return
       }
 
       // Escape → also closes the window
       if (e.key === 'Escape') {
-        e.preventDefault()
         onClose()
         return
       }
-
-      // Suppress browser defaults for ALL keys we use (space, arrows, etc.)
-      // so nothing leaks through.
-      e.preventDefault()
     }
 
     // ── Bubble-phase note handler: does the actual music logic ───────────────

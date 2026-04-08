@@ -1099,7 +1099,26 @@ export function Timeline({
 
         {/* Playhead */}
         <div className="playhead" style={{ left: playheadX, top:0, bottom:0 }}>
-          <div className="playhead-head" />
+          <div 
+            className="playhead-head"
+            onMouseDown={(e) => {
+              if (e.button !== 0) return
+              e.stopPropagation()
+              const startX = e.clientX
+              const startBeat = store.currentTime * (store.bpm / 60)
+              const mv = (me: MouseEvent) => {
+                const dx = me.clientX - startX
+                const beatDelta = dx / pixelsPerBeat
+                onScrub(Math.max(0, startBeat + beatDelta))
+              }
+              const up = () => {
+                window.removeEventListener('mousemove', mv)
+                window.removeEventListener('mouseup', up)
+              }
+              window.addEventListener('mousemove', mv)
+              window.addEventListener('mouseup', up)
+            }}
+          />
         </div>
       </div>
 
