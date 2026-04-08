@@ -115,7 +115,12 @@ export function useAudioEngine() {
   const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
 
   const getCtx = useCallback((): AudioContext => {
-    if (!ctxRef.current) {
+    // If context doesn't exist OR is closed, create a new one
+    if (!ctxRef.current || ctxRef.current.state === 'closed') {
+      if (ctxRef.current && ctxRef.current.state === 'closed') {
+        console.warn('[getCtx] AudioContext was closed, creating new one')
+      }
+      
       ctxRef.current = new AudioContext({ sampleRate: 44100, latencyHint: 'interactive' })
       masterGainRef.current = ctxRef.current.createGain()
       masterGainRef.current.gain.value = 0.9
@@ -133,6 +138,8 @@ export function useAudioEngine() {
       masterGainRef.current.connect(masterLimiterRef.current)
       masterLimiterRef.current.connect(masterAnalyserRef.current)
       masterAnalyserRef.current.connect(ctxRef.current.destination)
+      
+      console.log('[getCtx] New AudioContext created, state:', ctxRef.current.state)
     }
     return ctxRef.current
   }, [])
