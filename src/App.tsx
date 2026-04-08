@@ -107,6 +107,11 @@ export default function App() {
     }
   }, [store.tracks, engine])
 
+  // ── Elite plugin param sync (live DSP update on every param change) ───────
+  useEffect(() => {
+    engine.applyElitePlugins()
+  }, [store.tracks, engine])
+
   // ── Mixer fader / pan callbacks ───────────────────────────────────────────
   const handleVolumeChange = useCallback((id: string, v: number) => engine.setTrackVolume(id, v), [engine])
   const handlePanChange = useCallback((id: string, v: number) => engine.setTrackPan(id, v), [engine])
@@ -745,7 +750,7 @@ export default function App() {
         )}
       </div>
 
-      <StatusBar />
+      <StatusBar getMasterLevel={engine.getMasterLevel} />
 
       <MusicalTyping
         isOpen={showMusicalTyping}

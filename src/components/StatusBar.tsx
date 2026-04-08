@@ -15,7 +15,92 @@ const BIT_OPTIONS = [
   { value: '32', label: '32-bit float' },
 ]
 
-export function StatusBar() {
+interface StatusBarProps {
+  getMasterLevel?: () => [number, number]
+}
+
+// ── Realtime LUFS approximation from RMS window ──────────────────────────────
+// A simple but fast K-weighted approximation suitable for a meter display.
+// True integrated LUFS requires minutes of audio; we compute 400ms momentary.
+function linToLufs(rms: number): number {
+  if (rms < 1e-6) return -70
+  return -0.691 + 10 * Math.log10(Math.max(1e-10, rms * rms))
+}
+
+// ── LUFS Meter component ──────────────────────────────────────────────────────
+function LufsMeter({ getMasterLevel }: { getMasterLevel: () => [number, number] }) {
+  const [lufs, setLufs] = useState(-70)
+  const [peak, setPeak] = useState(-Infinity)
+  const [peakHold, setPeakHold] = useState(-Infinity)
+  const peakHoldRef = useRef(-Infinity)
+  const peakTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const rmsHistRef = useRef<number[]>([])
+  const rafRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    const tick = () => {
+      const [lLin, rLin] = getMasterLevel()
+      const combined = Math.max(lLin, rLin)
+
+      // Rolling 400ms RMS (assuming ~60fps → 24 frames)
+      rmsHistRef.current.push(combined)
+      if (rmsHistRef.current.length > 24) rmsHistRef.current.shift()
+      const rms = Math.sqrt(rmsHistRef.current.reduce((s, v) => s + v * v, 0) / rmsHistRef.current.length)
+
+      const momentaryLufs = linToLufs(rms)
+      setLufs(momentaryLufs)
+
+      // Peak dBFS
+      const peakDb = combined > 0 ? 20 * Math.log10(combined) : -70
+      setPeak(peakDb)
+
+      // Peak hold for 2s
+      if (peakDb > peakHoldRef.current) {
+        peakHoldRef.current = peakDb
+        setPeakHold(peakDb)
+        if (peakTimerRef.current) clearTimeout(peakTimerRef.current)
+        peakTimerRef.current = setTimeout(() => {
+          peakHoldRef.current = -Infinity
+          setPeakHold(-Infinity)
+        }, 2000)
+      }
+
+      rafRef.current = requestAnimationFrame(tick)
+    }
+    rafRef.current = requestAnimationFrame(tick)
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      if (peakTimerRef.current) clearTimeout(peakTimerRef.current)
+    }
+  }, [getMasterLevel])
+
+  // Color based on LUFS
+  const lufsNorm = Math.max(0, Math.min(1, (lufs + 60) / 60)) // -60..0 → 0..1
+  const meterColor = lufs > -3 ? '#ef4444' : lufs > -9 ? '#f59e0b' : lufs > -18 ? '#10b981' : '#3b82f6'
+  const peakColor = peakHold > -1 ? '#ef4444' : peakHold > -6 ? '#f59e0b' : '#10b981'
+
+  const fmtLufs = (v: number) => isFinite(v) ? (v > -10 ? v.toFixed(1) : v.toFixed(0)) : '-∞'
+  const fmtDb   = (v: number) => isFinite(v) && v > -70 ? (v >= 0 ? `+${v.toFixed(1)}` : v.toFixed(1)) : '-∞'
+
+  return (
+    <div className="status-lufs-wrap" title={`Momentary LUFS: ${fmtLufs(lufs)} | Peak: ${fmtDb(peak)} dBFS | Hold: ${fmtDb(peakHold)} dBFS`}>
+      <span className="status-label">LUFS</span>
+      {/* Meter bar */}
+      <div className="status-lufs-bar-bg">
+        <div
+          className="status-lufs-bar-fill"
+          style={{ width: `${Math.round(lufsNorm * 100)}%`, background: meterColor }}
+        />
+      </div>
+      <span className="status-lufs-val" style={{ color: meterColor }}>{fmtLufs(lufs)}</span>
+      <div className="status-divider" />
+      <span className="status-label">PK</span>
+      <span className="status-lufs-val" style={{ color: peakColor, minWidth: 36 }}>{fmtDb(peakHold)}</span>
+    </div>
+  )
+}
+
+export function StatusBar({ getMasterLevel }: StatusBarProps) {
   const { bpm, sampleRate, bitDepth, bufferSize, isPlaying, isRecording, name, isDirty, setSampleRate, setBitDepth } = useProjectStore()
   const [cpu, setCpu] = useState(0)
   const rafRef = useRef<number | null>(null)
@@ -74,6 +159,15 @@ export function StatusBar() {
           <div className="status-divider" />
         </>
       )}
+
+      {/* LUFS Meter — shown when a getMasterLevel function is provided */}
+      {getMasterLevel && (
+        <>
+          <div className="status-divider" />
+          <LufsMeter getMasterLevel={getMasterLevel} />
+        </>
+      )}
+
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
         <span className="status-label">CPU</span>
         <div className="cpu-bar-wrap">

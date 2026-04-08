@@ -1813,3 +1813,136 @@ html, body, #root {
 .midi-refresh-btn { padding: 5px 10px; border-radius: 5px; border: 1px solid var(--border); background: rgba(255,255,255,.05); color: var(--text-s); cursor: pointer; font-size: 12px; }
 .midi-refresh-btn:hover { border-color: var(--border-h); color: var(--text-p); }
 .midi-status { font-size: 10px; color: var(--green); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ELITE PLUGIN SUITE — FS-Saturn, FS-Pressure, FS-Spacetime, FS-Transient
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Plugin Add Menu — section labels */
+.plugin-add-section-label {
+  font-size: 9px; font-weight: 800; letter-spacing: 1.2px;
+  color: var(--text-m); padding: 6px 12px 3px;
+  text-transform: uppercase; border-top: 1px solid rgba(255,255,255,.06);
+}
+.plugin-add-section-label:first-child { border-top: none; }
+.plugin-add-section-elite { color: #f97316; }
+.plugin-add-elite { background: rgba(249,115,22,.04) !important; }
+.plugin-add-elite:hover { background: rgba(249,115,22,.12) !important; }
+
+/* Mode buttons (shared) */
+.plugin-mode-group { display: flex; align-items: center; gap: 3px; margin-top: 4px; flex-wrap: wrap; }
+.plugin-mode-label  { font-size: 8px; color: var(--text-m); letter-spacing: .5px; margin-left: 4px; }
+.plugin-mode-btn {
+  font-size: 8px; font-weight: 700; padding: 2px 6px; border-radius: 3px;
+  border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04);
+  color: var(--text-m); cursor: pointer; letter-spacing: .3px;
+}
+.plugin-mode-btn:hover { border-color: rgba(255,255,255,.25); color: var(--text-p); }
+.plugin-mode-btn.active { border-color: var(--accent); background: rgba(168,85,247,.18); color: var(--text-p); }
+
+/* Step buttons (Pressure ratios, attacks, colors) */
+.plugin-step-row   { display: flex; gap: 12px; margin-top: 6px; flex-wrap: wrap; }
+.plugin-step-group { display: flex; align-items: center; gap: 3px; }
+.plugin-step-label { font-size: 8px; font-weight: 700; color: var(--text-m); letter-spacing: .5px; margin-right: 3px; white-space: nowrap; }
+.plugin-step-btn {
+  font-size: 8px; font-weight: 600; padding: 2px 5px; border-radius: 3px;
+  border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.04);
+  color: var(--text-m); cursor: pointer;
+}
+.plugin-step-btn:hover { border-color: rgba(255,255,255,.2); color: var(--text-s); }
+.plugin-step-btn.active { border-color: #22d3ee; background: rgba(34,211,238,.15); color: #22d3ee; }
+
+/* Section title inside plugin body */
+.plugin-section-title {
+  font-size: 9px; font-weight: 800; letter-spacing: 1px;
+  padding: 2px 0 4px; text-transform: uppercase;
+}
+
+/* FS-Saturn multiband layout */
+.plugin-saturn-wrap  { display: flex; flex-direction: column; gap: 4px; }
+.plugin-saturn-band  { display: flex; flex-direction: column; }
+.plugin-saturn-band-label { font-size: 9px; font-weight: 800; letter-spacing: .8px; margin-bottom: 2px; }
+.plugin-saturn-divider { height: 1px; background: rgba(255,255,255,.06); margin: 4px 0; }
+
+/* FS-Pressure layout */
+.plugin-pressure-wrap { display: flex; flex-direction: column; gap: 4px; }
+
+/* FS-Spacetime layout */
+.plugin-spacetime-wrap { display: flex; flex-direction: column; gap: 2px; }
+
+/* FS-Transient layout */
+.plugin-transient-wrap { display: flex; flex-direction: column; gap: 6px; }
+
+/* ── LUFS Meter (StatusBar) ─────────────────────────────────────────────────── */
+.status-lufs-wrap {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.status-lufs-bar-bg {
+  width: 56px;
+  height: 6px;
+  background: rgba(255,255,255,.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.status-lufs-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width .05s linear, background .2s;
+}
+.status-lufs-val {
+  font-size: 9px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-width: 28px;
+  letter-spacing: -.02em;
+}
+
+/* ── Export Modal LUFS grid ──────────────────────────────────────────────────── */
+.export-lufs-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.export-lufs-btn {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.05);
+  color: var(--text-m);
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.export-lufs-btn:hover { background: rgba(168,85,247,.15); color: var(--text-p); border-color: rgba(168,85,247,.4); }
+.export-lufs-btn.active { background: rgba(168,85,247,.25); border-color: var(--accent); color: #e0b4ff; }
+
+.export-custom-lufs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: rgba(255,255,255,.04);
+  border-radius: 4px;
+}
+.export-lufs-val {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  min-width: 64px;
+  text-align: right;
+}
+.export-lufs-hint {
+  font-size: 9px;
+  color: var(--text-s);
+  margin-top: 6px;
+  padding: 4px 8px;
+  background: rgba(168,85,247,.06);
+  border-radius: 3px;
+  border-left: 2px solid var(--accent);
+}

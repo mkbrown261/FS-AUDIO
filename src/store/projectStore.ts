@@ -11,7 +11,7 @@ export interface MidiNote {
 export interface Plugin {
   id: string
   name: string
-  type: 'eq' | 'compressor' | 'reverb' | 'delay' | 'limiter' | 'chorus' | 'distortion' | 'vst'
+  type: 'eq' | 'compressor' | 'reverb' | 'delay' | 'limiter' | 'chorus' | 'distortion' | 'vst' | 'saturation' | 'bus_compressor' | 'spacetime' | 'transient'
   enabled: boolean
   params: Record<string, number>
   vstPath?: string

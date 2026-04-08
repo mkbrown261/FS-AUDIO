@@ -1,17 +1,22 @@
 /**
- * FS-AUDIO Built-In Plugin Rack
+ * FS-AUDIO Built-In Plugin Rack — Elite Edition
  * All plugins are implemented 100% with Web Audio API — no external dependencies.
  * Plugin architecture is WAM2-compatible (Web Audio Modules 2.0 design patterns).
  *
- * Included plugins:
- *  1. FS-EQ3     — 3-band parametric EQ
- *  2. FS-Comp    — Dynamics compressor
- *  3. FS-Limiter — Brick-wall limiter
- *  4. FS-Reverb  — Algorithmic plate reverb (synthetic IR)
- *  5. FS-Delay   — Stereo delay with feedback
- *  6. FS-Chorus  — Modulated delay chorus
+ * Classic plugins:
+ *  1. FS-EQ3        — 3-band parametric EQ
+ *  2. FS-Comp       — Dynamics compressor
+ *  3. FS-Limiter    — Brick-wall limiter
+ *  4. FS-Reverb     — Algorithmic plate reverb (synthetic IR)
+ *  5. FS-Delay      — Stereo delay with feedback
+ *  6. FS-Chorus     — Modulated delay chorus
  *  7. FS-Bitcrusher — Lo-fi bit depth reducer
- *  8. FS-PitchShift — Simple pitch transposer (semitones)
+ *
+ * Elite Plugin Suite (new):
+ *  8. FS-Saturn     — Multiband harmonic saturation (FabFilter Saturn inspired)
+ *  9. FS-Pressure   — Vintage bus compressor, SSL G-Bus / Neve 33609 character
+ * 10. FS-Spacetime  — Shimmer reverb + tempo-sync ping-pong delay (Valhalla/Echoboy)
+ * 11. FS-Transient  — Attack/sustain transient designer (SPL Transient Designer)
  */
 
 import React, { useState, useCallback } from 'react'
@@ -145,6 +150,74 @@ export const PLUGIN_DEFAULTS: Record<string, { params: Record<string, number>; n
     type: 'distortion',
     params: { bits: 16, downsample: 1, wet: 0.5 },
   },
+
+  // ── Elite Plugin Suite ──────────────────────────────────────────────────────
+  saturation: {
+    name: 'FS-Saturn',
+    type: 'saturation',
+    params: {
+      // Low band
+      lowDrive: 0, lowFreq: 250, lowMode: 0,   // mode: 0=tape, 1=tube, 2=clip, 3=fuzz
+      // Mid band
+      midDrive: 0, midFreq: 3000, midMode: 1,
+      // High band
+      highDrive: 0, highMode: 2,
+      // Global
+      mix: 0.5, output: 0,
+    },
+  },
+
+  bus_compressor: {
+    name: 'FS-Pressure',
+    type: 'bus_compressor',
+    params: {
+      threshold: -12,
+      ratio: 4,         // 1.5 / 2 / 4 / 10 discrete steps mapped 0-3
+      attack: 0.001,    // 0.001 / 0.003 / 0.01 / 0.03 / 0.1 / 0.3 ms → mapped
+      release: 0.1,     // auto = -1
+      makeup: 0,
+      // Color: 0 = clean, 1 = SSL (punchy), 2 = Neve (warm)
+      color: 1,
+      mix: 1.0,         // parallel mix (NY compression)
+      autoGain: 1,      // auto makeup
+    },
+  },
+
+  spacetime: {
+    name: 'FS-Spacetime',
+    type: 'spacetime',
+    params: {
+      // Shimmer Reverb
+      revWet: 0.3,
+      revSize: 3.5,
+      revDamping: 0.4,
+      revPredelay: 0.02,
+      shimmer: 0.3,     // shimmer pitch-up amount (0-1)
+      shimmerPitch: 12, // semitones (octave up by default)
+      // Ping-Pong Delay
+      dlyWet: 0.2,
+      dlyTime: 0.375,   // quarter note at 120bpm = 0.5s
+      dlyFeedback: 0.4,
+      dlySpread: 0.8,   // ping-pong width
+      // BPM sync: 0=free, 1=1/4, 2=1/8, 3=1/2, 4=1/16
+      dlySync: 1,
+    },
+  },
+
+  transient: {
+    name: 'FS-Transient',
+    type: 'transient',
+    params: {
+      attack: 0,        // -24 to +24 dB — punch the transient
+      sustain: 0,       // -24 to +24 dB — shape the tail
+      gain: 0,          // output gain
+      // Mode: 0 = drum (fast), 1 = general, 2 = smooth
+      mode: 1,
+      // Sensitivity (detection threshold)
+      sensitivity: 0.5,
+      clipProtect: 1,   // enable automatic output clip protection
+    },
+  },
 }
 
 // ── Per-plugin UI ─────────────────────────────────────────────────────────────
@@ -240,6 +313,191 @@ function DistortionEditor({ plugin, onChange }: PluginEditorProps) {
   )
 }
 
+// ── FS-Saturn — Multiband Harmonic Saturation ─────────────────────────────────
+const SAT_MODES = ['TAPE', 'TUBE', 'CLIP', 'FUZZ']
+
+function SaturnEditor({ plugin, onChange }: PluginEditorProps) {
+  const p = plugin.params
+  const modeBtn = (band: string, modeKey: string) => (
+    <div className="plugin-mode-group">
+      {SAT_MODES.map((m, i) => (
+        <button
+          key={m}
+          className={`plugin-mode-btn ${Math.round(p[modeKey] ?? 0) === i ? 'active' : ''}`}
+          onClick={() => onChange({ ...p, [modeKey]: i })}
+        >{m}</button>
+      ))}
+      <span className="plugin-mode-label">{band}</span>
+    </div>
+  )
+  return (
+    <div className="plugin-saturn-wrap">
+      <div className="plugin-saturn-band">
+        <div className="plugin-saturn-band-label" style={{ color: '#f59e0b' }}>LOW</div>
+        <div className="plugin-knobs-row">
+          <Knob label="DRIVE" value={p.lowDrive ?? 0} min={0} max={10} step={0.1} onChange={v => onChange({ ...p, lowDrive: v })} />
+          <Knob label="FREQ" value={p.lowFreq ?? 250} min={50} max={800} step={10} unit=" Hz" onChange={v => onChange({ ...p, lowFreq: v })} />
+        </div>
+        {modeBtn('MODE', 'lowMode')}
+      </div>
+      <div className="plugin-saturn-divider" />
+      <div className="plugin-saturn-band">
+        <div className="plugin-saturn-band-label" style={{ color: '#10b981' }}>MID</div>
+        <div className="plugin-knobs-row">
+          <Knob label="DRIVE" value={p.midDrive ?? 0} min={0} max={10} step={0.1} onChange={v => onChange({ ...p, midDrive: v })} />
+          <Knob label="FREQ" value={p.midFreq ?? 3000} min={800} max={8000} step={100} unit=" Hz" onChange={v => onChange({ ...p, midFreq: v })} />
+        </div>
+        {modeBtn('MODE', 'midMode')}
+      </div>
+      <div className="plugin-saturn-divider" />
+      <div className="plugin-saturn-band">
+        <div className="plugin-saturn-band-label" style={{ color: '#06b6d4' }}>HIGH</div>
+        <div className="plugin-knobs-row">
+          <Knob label="DRIVE" value={p.highDrive ?? 0} min={0} max={10} step={0.1} onChange={v => onChange({ ...p, highDrive: v })} />
+        </div>
+        {modeBtn('MODE', 'highMode')}
+      </div>
+      <div className="plugin-saturn-divider" />
+      <div className="plugin-knobs-row">
+        <Knob label="MIX" value={p.mix ?? 0.5} min={0} max={1} onChange={v => onChange({ ...p, mix: v })} />
+        <Knob label="OUTPUT" value={p.output ?? 0} min={-12} max={12} unit=" dB" onChange={v => onChange({ ...p, output: v })} />
+      </div>
+    </div>
+  )
+}
+
+// ── FS-Pressure — Vintage Bus Compressor ──────────────────────────────────────
+const PRESSURE_RATIOS  = ['1.5', '2', '4', '10']
+const PRESSURE_ATTACKS = ['0.1', '0.3', '1', '3', '10', '30']
+const PRESSURE_COLORS  = ['CLEAN', 'SSL', 'NEVE']
+
+function PressureEditor({ plugin, onChange }: PluginEditorProps) {
+  const p = plugin.params
+  return (
+    <div className="plugin-pressure-wrap">
+      <div className="plugin-knobs-row">
+        <Knob label="THRESH"  value={p.threshold ?? -12} min={-40} max={0}   unit=" dB" onChange={v => onChange({ ...p, threshold: v })} />
+        <Knob label="MAKEUP"  value={p.makeup ?? 0}      min={0}   max={20}  unit=" dB" onChange={v => onChange({ ...p, makeup: v })} />
+        <Knob label="MIX"     value={p.mix ?? 1}         min={0}   max={1}   onChange={v => onChange({ ...p, mix: v })} />
+      </div>
+      <div className="plugin-step-row">
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">RATIO</span>
+          {PRESSURE_RATIOS.map((r, i) => (
+            <button key={r} className={`plugin-step-btn ${Math.round(p.ratio ?? 1) === i ? 'active' : ''}`}
+              onClick={() => onChange({ ...p, ratio: i })}>{r}:1</button>
+          ))}
+        </div>
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">ATTACK ms</span>
+          {PRESSURE_ATTACKS.map((a, i) => (
+            <button key={a} className={`plugin-step-btn ${Math.round((p.attack ?? 2) * 10) === i ? 'active' : ''}`}
+              onClick={() => onChange({ ...p, attack: i / 10 })}>{a}</button>
+          ))}
+        </div>
+      </div>
+      <div className="plugin-step-row">
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">RELEASE</span>
+          <Knob label="ms" value={(p.release ?? 0.1) * 1000} min={50} max={1200} step={10} unit=" ms"
+            onChange={v => onChange({ ...p, release: v / 1000 })} />
+          <button
+            className={`plugin-step-btn ${p.release === -1 ? 'active' : ''}`}
+            onClick={() => onChange({ ...p, release: -1 })}>AUTO</button>
+        </div>
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">COLOR</span>
+          {PRESSURE_COLORS.map((c, i) => (
+            <button key={c}
+              className={`plugin-step-btn ${Math.round(p.color ?? 1) === i ? 'active' : ''}`}
+              onClick={() => onChange({ ...p, color: i })}>{c}</button>
+          ))}
+        </div>
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">AUTO-GAIN</span>
+          <button
+            className={`plugin-step-btn ${p.autoGain ? 'active' : ''}`}
+            onClick={() => onChange({ ...p, autoGain: p.autoGain ? 0 : 1 })}>
+            {p.autoGain ? 'ON' : 'OFF'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── FS-Spacetime — Shimmer Reverb + Ping-Pong Delay ───────────────────────────
+const SYNC_LABELS = ['FREE', '1/4', '1/8', '1/2', '1/16']
+
+function SpacetimeEditor({ plugin, onChange }: PluginEditorProps) {
+  const p = plugin.params
+  return (
+    <div className="plugin-spacetime-wrap">
+      {/* Shimmer Reverb section */}
+      <div className="plugin-section-title" style={{ color: '#a855f7' }}>✦ SHIMMER REVERB</div>
+      <div className="plugin-knobs-row">
+        <Knob label="WET"      value={p.revWet ?? 0.3}       min={0}   max={1}   onChange={v => onChange({ ...p, revWet: v })} />
+        <Knob label="SIZE"     value={p.revSize ?? 3.5}       min={0.1} max={12}  step={0.1} unit=" s" onChange={v => onChange({ ...p, revSize: v })} />
+        <Knob label="DAMP"     value={p.revDamping ?? 0.4}    min={0}   max={1}   onChange={v => onChange({ ...p, revDamping: v })} />
+        <Knob label="PRE-DLY"  value={(p.revPredelay ?? 0.02) * 1000} min={0} max={100} step={1} unit=" ms" onChange={v => onChange({ ...p, revPredelay: v / 1000 })} />
+        <Knob label="SHIMMER"  value={p.shimmer ?? 0.3}       min={0}   max={1}   onChange={v => onChange({ ...p, shimmer: v })} />
+        <Knob label="SHIM +st" value={p.shimmerPitch ?? 12}   min={1}   max={24}  step={1}  onChange={v => onChange({ ...p, shimmerPitch: v })} />
+      </div>
+      {/* Ping-Pong Delay section */}
+      <div className="plugin-section-title" style={{ color: '#3b82f6', marginTop: 8 }}>⬡ PING-PONG DELAY</div>
+      <div className="plugin-knobs-row">
+        <Knob label="WET"    value={p.dlyWet ?? 0.2}      min={0}    max={1}    onChange={v => onChange({ ...p, dlyWet: v })} />
+        <Knob label="TIME"   value={(p.dlyTime ?? 0.375) * 1000} min={10} max={2000} step={1} unit=" ms" onChange={v => onChange({ ...p, dlyTime: v / 1000 })} />
+        <Knob label="FDBK"   value={p.dlyFeedback ?? 0.4} min={0}    max={0.95} step={0.01} onChange={v => onChange({ ...p, dlyFeedback: v })} />
+        <Knob label="SPREAD" value={p.dlySpread ?? 0.8}   min={0}    max={1}    onChange={v => onChange({ ...p, dlySpread: v })} />
+      </div>
+      <div className="plugin-step-row">
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">BPM SYNC</span>
+          {SYNC_LABELS.map((s, i) => (
+            <button key={s} className={`plugin-step-btn ${Math.round(p.dlySync ?? 1) === i ? 'active' : ''}`}
+              onClick={() => onChange({ ...p, dlySync: i })}>{s}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── FS-Transient — Attack/Sustain Transient Designer ──────────────────────────
+const TRANSIENT_MODES = ['DRUM', 'GENERAL', 'SMOOTH']
+
+function TransientEditor({ plugin, onChange }: PluginEditorProps) {
+  const p = plugin.params
+  return (
+    <div className="plugin-transient-wrap">
+      <div className="plugin-knobs-row">
+        <Knob label="ATTACK"  value={p.attack ?? 0}       min={-24} max={24} unit=" dB" onChange={v => onChange({ ...p, attack: v })} />
+        <Knob label="SUSTAIN" value={p.sustain ?? 0}      min={-24} max={24} unit=" dB" onChange={v => onChange({ ...p, sustain: v })} />
+        <Knob label="GAIN"    value={p.gain ?? 0}         min={-12} max={12} unit=" dB" onChange={v => onChange({ ...p, gain: v })} />
+        <Knob label="SENSE"   value={p.sensitivity ?? 0.5} min={0}  max={1}  onChange={v => onChange({ ...p, sensitivity: v })} />
+      </div>
+      <div className="plugin-step-row">
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">MODE</span>
+          {TRANSIENT_MODES.map((m, i) => (
+            <button key={m} className={`plugin-step-btn ${Math.round(p.mode ?? 1) === i ? 'active' : ''}`}
+              onClick={() => onChange({ ...p, mode: i })}>{m}</button>
+          ))}
+        </div>
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">CLIP PROTECT</span>
+          <button
+            className={`plugin-step-btn ${p.clipProtect ? 'active' : ''}`}
+            onClick={() => onChange({ ...p, clipProtect: p.clipProtect ? 0 : 1 })}>
+            {p.clipProtect ? 'ON' : 'OFF'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Plugin Slot ───────────────────────────────────────────────────────────────
 interface PluginSlotProps {
   trackId: string
@@ -257,13 +515,18 @@ function PluginSlot({ trackId, plugin, slotIndex }: PluginSlotProps) {
 
   function renderEditor() {
     switch (plugin.type) {
-      case 'eq': return <EQEditor plugin={plugin} onChange={handleChange} />
-      case 'compressor': return <CompressorEditor plugin={plugin} onChange={handleChange} />
-      case 'limiter': return <LimiterEditor plugin={plugin} onChange={handleChange} />
-      case 'reverb': return <ReverbEditor plugin={plugin} onChange={handleChange} />
-      case 'delay': return <DelayEditor plugin={plugin} onChange={handleChange} />
-      case 'chorus': return <ChorusEditor plugin={plugin} onChange={handleChange} />
-      case 'distortion': return <DistortionEditor plugin={plugin} onChange={handleChange} />
+      case 'eq':           return <EQEditor plugin={plugin} onChange={handleChange} />
+      case 'compressor':   return <CompressorEditor plugin={plugin} onChange={handleChange} />
+      case 'limiter':      return <LimiterEditor plugin={plugin} onChange={handleChange} />
+      case 'reverb':       return <ReverbEditor plugin={plugin} onChange={handleChange} />
+      case 'delay':        return <DelayEditor plugin={plugin} onChange={handleChange} />
+      case 'chorus':       return <ChorusEditor plugin={plugin} onChange={handleChange} />
+      case 'distortion':   return <DistortionEditor plugin={plugin} onChange={handleChange} />
+      // Elite Suite
+      case 'saturation':   return <SaturnEditor plugin={plugin} onChange={handleChange} />
+      case 'bus_compressor': return <PressureEditor plugin={plugin} onChange={handleChange} />
+      case 'spacetime':    return <SpacetimeEditor plugin={plugin} onChange={handleChange} />
+      case 'transient':    return <TransientEditor plugin={plugin} onChange={handleChange} />
       default: return null
     }
   }
@@ -272,6 +535,9 @@ function PluginSlot({ trackId, plugin, slotIndex }: PluginSlotProps) {
     eq: '#06b6d4', compressor: '#10b981', limiter: '#ef4444',
     reverb: '#a855f7', delay: '#3b82f6', chorus: '#ec4899',
     distortion: '#f59e0b',
+    // Elite
+    saturation: '#f97316', bus_compressor: '#22d3ee',
+    spacetime: '#c084fc', transient: '#4ade80',
   }
   const color = typeColors[plugin.type] ?? '#6b7280'
 
@@ -307,8 +573,12 @@ interface PluginRackProps {
   track: Track
 }
 
+const CLASSIC_PLUGINS = ['eq','compressor','limiter','reverb','delay','chorus','distortion']
+const ELITE_PLUGINS   = ['saturation','bus_compressor','spacetime','transient']
+
 const PLUGIN_MENU = Object.entries(PLUGIN_DEFAULTS).map(([key, def]) => ({
   key, name: def.name, type: def.type,
+  elite: ELITE_PLUGINS.includes(key),
 }))
 
 export function PluginRack({ track }: PluginRackProps) {
@@ -339,13 +609,17 @@ export function PluginRack({ track }: PluginRackProps) {
 
       {showAdd && (
         <div className="plugin-add-menu">
-          {PLUGIN_MENU.map(p => (
-            <button
-              key={p.key}
-              className="plugin-add-option"
-              onClick={() => addNewPlugin(p.key)}
-            >
+          <div className="plugin-add-section-label">CLASSIC</div>
+          {PLUGIN_MENU.filter(p => !p.elite).map(p => (
+            <button key={p.key} className="plugin-add-option" onClick={() => addNewPlugin(p.key)}>
               <span className="plugin-add-type">{p.type.toUpperCase()}</span>
+              {p.name}
+            </button>
+          ))}
+          <div className="plugin-add-section-label plugin-add-section-elite">★ ELITE SUITE</div>
+          {PLUGIN_MENU.filter(p => p.elite).map(p => (
+            <button key={p.key} className="plugin-add-option plugin-add-elite" onClick={() => addNewPlugin(p.key)}>
+              <span className="plugin-add-type" style={{ color: '#f97316' }}>{p.type.replace('_',' ').toUpperCase()}</span>
               {p.name}
             </button>
           ))}

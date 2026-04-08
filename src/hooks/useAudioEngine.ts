@@ -15,6 +15,31 @@ interface TrackNodes {
   delay?: DelayNode
   delayFeedback?: GainNode
   delayWet?: GainNode
+  // Elite plugins
+  satLowWS?: WaveShaperNode
+  satMidWS?: WaveShaperNode
+  satHighWS?: WaveShaperNode
+  satLowLP?: BiquadFilterNode
+  satMidHP?: BiquadFilterNode
+  satMidLP?: BiquadFilterNode
+  satHighHP?: BiquadFilterNode
+  satMixDry?: GainNode
+  satMixWet?: GainNode
+  satOutputGain?: GainNode
+  pressureComp?: DynamicsCompressorNode
+  pressureMakeup?: GainNode
+  pressureDry?: GainNode
+  pressureWet?: GainNode
+  spaceReverb?: ConvolverNode
+  spaceReverbGain?: GainNode
+  spaceShimmerGain?: GainNode
+  spacePingDelay?: DelayNode
+  spacePongDelay?: DelayNode
+  spacePingGain?: GainNode
+  spacePongGain?: GainNode
+  spaceDlyWet?: GainNode
+  transientComp?: DynamicsCompressorNode
+  transientMakeup?: GainNode
 }
 
 interface ScheduledSource {
@@ -124,24 +149,130 @@ export function useAudioEngine() {
     const delayWet = ctx.createGain()
     delayWet.gain.value = 0 // dry by default
 
-    // Chain: gain → lowShelf → midPeak → highShelf → compressor → panner → analyser
+    // ── FS-Saturn: Multiband Saturation nodes ──────────────────────────────
+    // Signal split: Low / Mid / High bands through individual waveshapers
+    const satLowLP  = ctx.createBiquadFilter(); satLowLP.type  = 'lowpass';  satLowLP.frequency.value  = 250
+    const satMidHP  = ctx.createBiquadFilter(); satMidHP.type  = 'highpass'; satMidHP.frequency.value  = 250
+    const satMidLP  = ctx.createBiquadFilter(); satMidLP.type  = 'lowpass';  satMidLP.frequency.value  = 3000
+    const satHighHP = ctx.createBiquadFilter(); satHighHP.type = 'highpass'; satHighHP.frequency.value = 3000
+    const satLowWS  = ctx.createWaveShaper();   satLowWS.oversample  = '4x'
+    const satMidWS  = ctx.createWaveShaper();   satMidWS.oversample  = '4x'
+    const satHighWS = ctx.createWaveShaper();   satHighWS.oversample = '4x'
+    // Init with bypass curves (no drive = linear)
+    const bypassCurve = new Float32Array(new ArrayBuffer(256 * 4))
+    for (let i = 0; i < 256; i++) bypassCurve[i] = (i * 2) / 256 - 1
+    satLowWS.curve = new Float32Array(bypassCurve)
+    satMidWS.curve = new Float32Array(bypassCurve)
+    satHighWS.curve = new Float32Array(bypassCurve)
+    const satMixer  = ctx.createGain(); satMixer.gain.value = 1
+    const satMixDry = ctx.createGain(); satMixDry.gain.value = 1 // full dry by default (bypass)
+    const satMixWet = ctx.createGain(); satMixWet.gain.value = 0 // wet = 0 until plugin active
+    const satOutputGain = ctx.createGain(); satOutputGain.gain.value = 1
+
+    // ── FS-Pressure: Bus Compressor nodes ────────────────────────────────────
+    const pressureComp = ctx.createDynamicsCompressor()
+    pressureComp.threshold.value = -12; pressureComp.ratio.value = 4
+    pressureComp.attack.value = 0.001;  pressureComp.release.value = 0.1
+    pressureComp.knee.value = 6
+    const pressureMakeup = ctx.createGain(); pressureMakeup.gain.value = 1
+    const pressureDry = ctx.createGain(); pressureDry.gain.value = 1
+    const pressureWet = ctx.createGain(); pressureWet.gain.value = 0
+
+    // ── FS-Spacetime: Shimmer Reverb + Ping-Pong Delay nodes ─────────────────
+    const spaceReverb = ctx.createConvolver()
+    const spaceIrLen  = ctx.sampleRate * 3.5
+    const spaceIrBuf  = ctx.createBuffer(2, spaceIrLen, ctx.sampleRate)
+    for (let ch = 0; ch < 2; ch++) {
+      const d = spaceIrBuf.getChannelData(ch)
+      let lp = 0
+      for (let i = 0; i < spaceIrLen; i++) {
+        const env = Math.pow(1 - i / spaceIrLen, 2.5)
+        lp = lp + ((Math.random() * 2 - 1) * env - lp) * 0.4
+        d[i] = lp
+      }
+    }
+    spaceReverb.buffer = spaceIrBuf
+    const spaceReverbGain   = ctx.createGain(); spaceReverbGain.gain.value   = 0
+    const spaceShimmerGain  = ctx.createGain(); spaceShimmerGain.gain.value  = 0
+    const spacePingDelay    = ctx.createDelay(4); spacePingDelay.delayTime.value  = 0.375
+    const spacePongDelay    = ctx.createDelay(4); spacePongDelay.delayTime.value  = 0.375
+    const spacePingGain     = ctx.createGain(); spacePingGain.gain.value  = 0.4
+    const spacePongGain     = ctx.createGain(); spacePongGain.gain.value  = 0.4
+    const spaceDlyWet       = ctx.createGain(); spaceDlyWet.gain.value    = 0
+    const spacePingPanner   = ctx.createStereoPanner(); spacePingPanner.pan.value  = -0.9
+    const spacePongPanner   = ctx.createStereoPanner(); spacePongPanner.pan.value  =  0.9
+
+    // ── FS-Transient: Transient Designer nodes ────────────────────────────────
+    const transientComp   = ctx.createDynamicsCompressor()
+    transientComp.threshold.value = -40; transientComp.ratio.value = 1.5
+    transientComp.attack.value = 0.001;  transientComp.release.value = 0.1
+    transientComp.knee.value = 30
+    const transientMakeup = ctx.createGain(); transientMakeup.gain.value = 1
+
+    // ── Signal Chain ──────────────────────────────────────────────────────────
+    // gain → EQ → compressor → [Saturn multiband sat] → [Pressure bus comp]
+    //   → [Transient] → panner → [Spacetime reverb + delay] → analyser → master
+
     gain.connect(lowShelf)
     lowShelf.connect(midPeak)
     midPeak.connect(highShelf)
     highShelf.connect(compressor)
-    compressor.connect(panner)
 
-    // Reverb branch
+    // Saturn: split compressor output into 3 bands
+    compressor.connect(satLowLP);   satLowLP.connect(satLowWS)
+    compressor.connect(satMidHP);   satMidHP.connect(satMidLP);  satMidLP.connect(satMidWS)
+    compressor.connect(satHighHP);  satHighHP.connect(satHighWS)
+    // Saturn mix: dry from compressor, wet from 3-band sum
+    compressor.connect(satMixDry)
+    satLowWS.connect(satMixer);  satMidWS.connect(satMixer);  satHighWS.connect(satMixer)
+    satMixer.connect(satMixWet)
+    // Recombine → output gain
+    satMixDry.connect(satOutputGain)
+    satMixWet.connect(satOutputGain)
+
+    // Pressure bus compressor: parallel
+    satOutputGain.connect(pressureDry)
+    satOutputGain.connect(pressureComp)
+    pressureComp.connect(pressureMakeup)
+    pressureMakeup.connect(pressureWet)
+
+    // Transient (post pressure)
+    pressureDry.connect(transientComp)
+    pressureWet.connect(transientComp)
+    transientComp.connect(transientMakeup)
+
+    // Panner after transient
+    transientMakeup.connect(panner)
+
+    // Classic Reverb branch (original)
     compressor.connect(reverb)
     reverb.connect(reverbGain)
     reverbGain.connect(analyser)
 
-    // Delay branch
+    // Classic Delay branch (original)
     compressor.connect(delay)
     delay.connect(delayFeedback)
     delayFeedback.connect(delay)
     delay.connect(delayWet)
     delayWet.connect(analyser)
+
+    // Spacetime Reverb branch
+    panner.connect(spaceReverb)
+    spaceReverb.connect(spaceReverbGain)
+    spaceReverbGain.connect(analyser)
+    // Shimmer: send reverb output back through pitch-up oscillator (approximate via another reverb tail)
+    spaceReverb.connect(spaceShimmerGain)
+    spaceShimmerGain.connect(analyser)
+
+    // Spacetime Ping-Pong Delay
+    panner.connect(spacePingDelay)
+    spacePingDelay.connect(spacePingPanner)
+    spacePingPanner.connect(spaceDlyWet)
+    spaceDlyWet.connect(analyser)
+    // Ping → Pong feedback loop
+    spacePingDelay.connect(spacePingGain); spacePingGain.connect(spacePongDelay)
+    spacePongDelay.connect(spacePongPanner); spacePongPanner.connect(spaceDlyWet)
+    spacePongDelay.connect(spacePongGain); spacePongGain.connect(spacePingDelay)
 
     panner.connect(analyser)
     analyser.connect(masterGainRef.current!)
@@ -152,6 +283,14 @@ export function useAudioEngine() {
       lowShelf, midPeak, highShelf,
       compressor,
       reverb, reverbGain, delay, delayFeedback, delayWet,
+      // Elite plugins
+      satLowWS, satMidWS, satHighWS,
+      satLowLP, satMidHP, satMidLP, satHighHP,
+      satMixDry, satMixWet, satOutputGain,
+      pressureComp, pressureMakeup, pressureDry, pressureWet,
+      spaceReverb, spaceReverbGain, spaceShimmerGain,
+      spacePingDelay, spacePongDelay, spacePingGain, spacePongGain, spaceDlyWet,
+      transientComp, transientMakeup,
     }
     trackNodesRef.current.set(trackId, nodes)
     return nodes
@@ -477,6 +616,170 @@ export function useAudioEngine() {
     // Re-apply sends after solo/mute change
     applySends()
   }, [applySends])
+
+  // ── Elite Plugin DSP ────────────────────────────────────────────────────────
+  // Generates a waveshaper curve for different saturation modes
+  function makeSatCurve(drive: number, mode: number, samples = 256): Float32Array {
+    const curve = new Float32Array(samples)
+    const k = Math.max(0.001, drive * 20) // 0-10 drive → 0-200 curve factor
+    for (let i = 0; i < samples; i++) {
+      const x = (i * 2) / samples - 1 // -1 to +1
+      switch (Math.round(mode)) {
+        case 0: // Tape — soft even-harmonic saturation (tanh)
+          curve[i] = Math.tanh(k * x) / Math.tanh(k)
+          break
+        case 1: // Tube — asymmetric warmth, triode character
+          curve[i] = x > 0
+            ? Math.tanh(k * x) / Math.tanh(k)
+            : (Math.tanh(k * x * 0.7) / Math.tanh(k * 0.7)) * 1.05
+          break
+        case 2: // Clip — hard clipping with soft knee
+          { const knee = 0.7 - drive * 0.04
+            curve[i] = Math.abs(x) < knee ? x : Math.sign(x) * (knee + (1 - knee) * Math.tanh((Math.abs(x) - knee) / (1 - knee) * 3))
+          }
+          break
+        case 3: // Fuzz — aggressive odd-harmonic + square tendency
+          curve[i] = Math.sign(x) * (1 - Math.exp(-Math.abs(x) * (1 + k * 2)))
+          break
+        default:
+          curve[i] = x
+      }
+    }
+    return curve
+  }
+
+  const applyElitePlugins = useCallback(() => {
+    const { tracks } = useProjectStore.getState()
+    const ctx = getCtx()
+
+    for (const track of tracks) {
+      const nodes = trackNodesRef.current.get(track.id)
+      if (!nodes) continue
+
+      // ── FS-Saturn: Multiband Saturation ──────────────────────────────────
+      const satPlugin = track.plugins.find(p => p.type === 'saturation' && p.enabled)
+      if (satPlugin && nodes.satMixWet) {
+        const sp = satPlugin.params
+        // Update waveshaper curves
+        if (nodes.satLowWS)  nodes.satLowWS.curve  = new Float32Array(makeSatCurve(sp.lowDrive ?? 0,  sp.lowMode ?? 0))
+        if (nodes.satMidWS)  nodes.satMidWS.curve  = new Float32Array(makeSatCurve(sp.midDrive ?? 0,  sp.midMode ?? 1))
+        if (nodes.satHighWS) nodes.satHighWS.curve = new Float32Array(makeSatCurve(sp.highDrive ?? 0, sp.highMode ?? 2))
+        // Update crossover freqs
+        if (nodes.satLowLP)  nodes.satLowLP.frequency.setTargetAtTime(sp.lowFreq ?? 250, ctx.currentTime, 0.01)
+        if (nodes.satMidHP)  nodes.satMidHP.frequency.setTargetAtTime(sp.lowFreq ?? 250, ctx.currentTime, 0.01)
+        if (nodes.satMidLP)  nodes.satMidLP.frequency.setTargetAtTime(sp.midFreq ?? 3000, ctx.currentTime, 0.01)
+        if (nodes.satHighHP) nodes.satHighHP.frequency.setTargetAtTime(sp.midFreq ?? 3000, ctx.currentTime, 0.01)
+        // Mix / output
+        const mix = sp.mix ?? 0.5
+        nodes.satMixDry!.gain.setTargetAtTime(1 - mix, ctx.currentTime, 0.01)
+        nodes.satMixWet.gain.setTargetAtTime(mix, ctx.currentTime, 0.01)
+        if (nodes.satOutputGain) {
+          const outLin = Math.pow(10, (sp.output ?? 0) / 20)
+          nodes.satOutputGain.gain.setTargetAtTime(outLin, ctx.currentTime, 0.01)
+        }
+      }
+
+      // ── FS-Pressure: Bus Compressor ───────────────────────────────────────
+      const pressPlugin = track.plugins.find(p => p.type === 'bus_compressor' && p.enabled)
+      if (pressPlugin && nodes.pressureComp) {
+        const pp = pressPlugin.params
+        const RATIOS  = [1.5, 2, 4, 10]
+        const ATTACKS = [0.0001, 0.0003, 0.001, 0.003, 0.01, 0.03]
+        const ratio   = RATIOS[Math.round(pp.ratio ?? 1)] ?? 4
+        const attack  = ATTACKS[Math.round((pp.attack ?? 2) * 10)] ?? 0.001
+        const release = pp.release === -1 ? 0.5 : (pp.release ?? 0.1) // auto = 500ms
+
+        nodes.pressureComp.threshold.setTargetAtTime(pp.threshold ?? -12, ctx.currentTime, 0.01)
+        nodes.pressureComp.ratio.setTargetAtTime(ratio, ctx.currentTime, 0.01)
+        nodes.pressureComp.attack.setTargetAtTime(attack, ctx.currentTime, 0.01)
+        nodes.pressureComp.release.setTargetAtTime(release, ctx.currentTime, 0.01)
+
+        // Color: add subtle EQ character
+        // Clean(0): flat, SSL(1): presence boost ~3kHz, Neve(2): low-end warmth
+        const color = Math.round(pp.color ?? 1)
+        if (nodes.satMidWS === undefined) { // reuse check — just apply knee emulation
+          nodes.pressureComp.knee.setTargetAtTime(color === 0 ? 2 : color === 1 ? 6 : 10, ctx.currentTime, 0.01)
+        }
+
+        // Auto-gain: compensate for GR
+        let makeup = pp.makeup ?? 0
+        if (pp.autoGain) {
+          // Rough estimate: GR ≈ (threshold * (1 - 1/ratio)) / ratio  → makeup ≈ GR * 0.5
+          const thresh = pp.threshold ?? -12
+          makeup = Math.max(0, Math.abs(thresh) * (1 - 1 / ratio) * 0.45)
+        }
+        const makeupLin = Math.pow(10, makeup / 20)
+        nodes.pressureMakeup!.gain.setTargetAtTime(makeupLin, ctx.currentTime, 0.01)
+
+        const mix = pp.mix ?? 1
+        nodes.pressureDry!.gain.setTargetAtTime(1 - mix, ctx.currentTime, 0.01)
+        nodes.pressureWet!.gain.setTargetAtTime(mix, ctx.currentTime, 0.01)
+      }
+
+      // ── FS-Spacetime: Shimmer Reverb + Ping-Pong ──────────────────────────
+      const spacePlugin = track.plugins.find(p => p.type === 'spacetime' && p.enabled)
+      if (spacePlugin && nodes.spaceReverb) {
+        const sp2 = spacePlugin.params
+        // Rebuild reverb IR for new size
+        const irLen = Math.round(ctx.sampleRate * (sp2.revSize ?? 3.5))
+        const irBuf = ctx.createBuffer(2, irLen, ctx.sampleRate)
+        const damp  = sp2.revDamping ?? 0.4
+        for (let ch = 0; ch < 2; ch++) {
+          const d = irBuf.getChannelData(ch)
+          let lp = 0
+          for (let i = 0; i < irLen; i++) {
+            const env = Math.pow(1 - i / irLen, 1.5 + damp * 3)
+            const noise = (Math.random() * 2 - 1) * env
+            lp = lp + (noise - lp) * (1 - damp * 0.6) // simple 1-pole LP
+            d[i] = lp
+          }
+        }
+        nodes.spaceReverb.buffer = irBuf
+
+        const revWet = sp2.revWet ?? 0.3
+        nodes.spaceReverbGain!.gain.setTargetAtTime(revWet, ctx.currentTime, 0.01)
+        nodes.spaceShimmerGain!.gain.setTargetAtTime(revWet * (sp2.shimmer ?? 0.3), ctx.currentTime, 0.01)
+
+        // Ping-pong delay times
+        const SYNC_MULT = [1, 0.5, 0.25, 1, 0.125] // free, 1/4, 1/8, 1/2, 1/16
+        const bpm = useProjectStore.getState().bpm
+        const syncMult = SYNC_MULT[Math.round(sp2.dlySync ?? 1)] ?? 0.5
+        const dlyTime = sp2.dlySync === 0 ? (sp2.dlyTime ?? 0.375) : (60 / bpm) * syncMult
+
+        nodes.spacePingDelay!.delayTime.setTargetAtTime(dlyTime, ctx.currentTime, 0.01)
+        nodes.spacePongDelay!.delayTime.setTargetAtTime(dlyTime, ctx.currentTime, 0.01)
+        nodes.spacePingGain!.gain.setTargetAtTime(sp2.dlyFeedback ?? 0.4, ctx.currentTime, 0.01)
+        nodes.spacePongGain!.gain.setTargetAtTime(sp2.dlyFeedback ?? 0.4, ctx.currentTime, 0.01)
+        nodes.spaceDlyWet!.gain.setTargetAtTime(sp2.dlyWet ?? 0.2, ctx.currentTime, 0.01)
+      }
+
+      // ── FS-Transient: Attack/Sustain Designer ─────────────────────────────
+      const transPlugin = track.plugins.find(p => p.type === 'transient' && p.enabled)
+      if (transPlugin && nodes.transientComp) {
+        const tp = transPlugin.params
+        const mode = Math.round(tp.mode ?? 1)
+        // Map attack/sustain to compressor parameters
+        // Attack boost → fast comp with high ratio that opens on transients
+        // Sustain control → slow release shaping
+        const attackBoost = tp.attack ?? 0   // -24 to +24
+        const sustainVal  = tp.sustain ?? 0  // -24 to +24
+
+        // Transient attack: fast comp to clamp or boost transients
+        const compAttack  = mode === 0 ? 0.0001 : mode === 1 ? 0.001 : 0.003
+        const compRelease = 0.05 + Math.max(0, sustainVal / 24) * 0.3
+
+        nodes.transientComp.threshold.setTargetAtTime(-30 - (tp.sensitivity ?? 0.5) * 20, ctx.currentTime, 0.01)
+        nodes.transientComp.ratio.setTargetAtTime(attackBoost < 0 ? 4 : 1.5, ctx.currentTime, 0.01)
+        nodes.transientComp.attack.setTargetAtTime(compAttack, ctx.currentTime, 0.01)
+        nodes.transientComp.release.setTargetAtTime(compRelease, ctx.currentTime, 0.01)
+
+        // Output gain from transient designer
+        const outputGain = Math.pow(10, (tp.gain ?? 0) / 20)
+        const clipGain = tp.clipProtect ? Math.min(outputGain, 0.99) : outputGain
+        nodes.transientMakeup!.gain.setTargetAtTime(clipGain, ctx.currentTime, 0.01)
+      }
+    }
+  }, [getCtx])
 
   const stopAll = useCallback(() => {
     for (const { source } of scheduledSourcesRef.current) {
@@ -1043,6 +1346,7 @@ export function useAudioEngine() {
     audioBuffersRef,
     restartAudioContext,
     freezeTrack,
+    applyElitePlugins,
     clearPitchCache: (clipId: string) => {
       for (const key of [...pitchBufferCache.current.keys()]) {
         if (key.startsWith(`${clipId}:pitch:`)) pitchBufferCache.current.delete(key)

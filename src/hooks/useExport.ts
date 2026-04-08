@@ -17,6 +17,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { useProjectStore } from '../store/projectStore'
 import { encodeAudioBufferToMp3 } from '../utils/mp3Encoder'
+import { measureLufs, computeLufsNormGain, LUFS_TARGETS } from '../utils/lufs'
 
 export interface ExportOptions {
   /** 'project' = 0 to end of last clip; 'loop' = loopStart to loopEnd */
@@ -24,6 +25,8 @@ export interface ExportOptions {
   bitDepth: 16 | 24 | 32
   sampleRate: 44100 | 48000
   normalize: boolean
+  /** LUFS target — if set overrides peak normalize */
+  lufsTarget?: number | null
   filename?: string
   /** 'wav' (default) or 'mp3' */
   format?: 'wav' | 'mp3'
@@ -34,6 +37,9 @@ export interface ExportOptions {
   /** Which track IDs to export when mode = 'stems'; undefined = all */
   stemTrackIds?: string[]
 }
+
+// Re-export LUFS utilities for use by UI components
+export { measureLufs, computeLufsNormGain, LUFS_TARGETS }
 
 export interface ExportProgress {
   phase: 'idle' | 'rendering' | 'encoding' | 'done' | 'error'
@@ -283,20 +289,33 @@ export function useExport(audioBuffersRef: React.MutableRefObject<Map<string, Au
       let leftData  = rendered.getChannelData(0)
       let rightData = rendered.numberOfChannels > 1 ? rendered.getChannelData(1) : leftData
 
-      // Normalize if requested
-      if (opts.normalize) {
-        let peak = 0
-        for (let i = 0; i < leftData.length; i++) {
-          if (Math.abs(leftData[i])  > peak) peak = Math.abs(leftData[i])
-          if (Math.abs(rightData[i]) > peak) peak = Math.abs(rightData[i])
+      // Normalize — LUFS target takes priority over peak normalize
+      if (opts.normalize || (opts.lufsTarget != null)) {
+        let scale = 1
+        if (opts.lufsTarget != null) {
+          // LUFS-based normalization using ITU-R BS.1770-4
+          const tempCtxForLufs = new OfflineAudioContext(2, Math.max(rendered.length, 1), sr)
+          const tempBuf = tempCtxForLufs.createBuffer(rendered.numberOfChannels, rendered.length, sr)
+          for (let ch = 0; ch < rendered.numberOfChannels; ch++) tempBuf.copyToChannel(rendered.getChannelData(ch), ch)
+          const gainDb = computeLufsNormGain(tempBuf, opts.lufsTarget)
+          // Clamp: never gain by more than +20 dB (very quiet material) to avoid distortion
+          const clampedDb = Math.min(20, gainDb)
+          scale = Math.pow(10, clampedDb / 20)
+        } else {
+          // Peak normalize to -0.2 dBFS
+          let peak = 0
+          for (let i = 0; i < leftData.length; i++) {
+            if (Math.abs(leftData[i])  > peak) peak = Math.abs(leftData[i])
+            if (Math.abs(rightData[i]) > peak) peak = Math.abs(rightData[i])
+          }
+          if (peak > 0 && peak < 0.999) scale = 0.98 / peak
         }
-        if (peak > 0 && peak < 0.999) {
-          const scale = 0.98 / peak
+        if (scale !== 1 && scale > 0) {
           const normL = new Float32Array(leftData.length)
           const normR = new Float32Array(rightData.length)
           for (let i = 0; i < leftData.length; i++) {
-            normL[i] = leftData[i]  * scale
-            normR[i] = rightData[i] * scale
+            normL[i] = Math.max(-1, Math.min(1, leftData[i]  * scale))
+            normR[i] = Math.max(-1, Math.min(1, rightData[i] * scale))
           }
           leftData  = normL
           rightData = normR
@@ -456,19 +475,28 @@ export function useExport(audioBuffersRef: React.MutableRefObject<Map<string, Au
       let leftData  = rendered.getChannelData(0)
       let rightData = rendered.numberOfChannels > 1 ? rendered.getChannelData(1) : leftData
 
-      if (opts.normalize) {
-        let peak = 0
-        for (let i = 0; i < leftData.length; i++) {
-          if (Math.abs(leftData[i])  > peak) peak = Math.abs(leftData[i])
-          if (Math.abs(rightData[i]) > peak) peak = Math.abs(rightData[i])
+      if (opts.normalize || (opts.lufsTarget != null)) {
+        let scale = 1
+        if (opts.lufsTarget != null) {
+          const tempCtxForLufs = new OfflineAudioContext(2, Math.max(rendered.length, 1), sr)
+          const tempBuf = tempCtxForLufs.createBuffer(rendered.numberOfChannels, rendered.length, sr)
+          for (let ch = 0; ch < rendered.numberOfChannels; ch++) tempBuf.copyToChannel(rendered.getChannelData(ch), ch)
+          const gainDb = computeLufsNormGain(tempBuf, opts.lufsTarget)
+          scale = Math.pow(10, Math.min(20, gainDb) / 20)
+        } else {
+          let peak = 0
+          for (let i = 0; i < leftData.length; i++) {
+            if (Math.abs(leftData[i])  > peak) peak = Math.abs(leftData[i])
+            if (Math.abs(rightData[i]) > peak) peak = Math.abs(rightData[i])
+          }
+          if (peak > 0 && peak < 0.999) scale = 0.98 / peak
         }
-        if (peak > 0 && peak < 0.999) {
-          const scale = 0.98 / peak
+        if (scale !== 1 && scale > 0) {
           const normL = new Float32Array(leftData.length)
           const normR = new Float32Array(rightData.length)
           for (let i = 0; i < leftData.length; i++) {
-            normL[i] = leftData[i] * scale
-            normR[i] = rightData[i] * scale
+            normL[i] = Math.max(-1, Math.min(1, leftData[i] * scale))
+            normR[i] = Math.max(-1, Math.min(1, rightData[i] * scale))
           }
           leftData = normL; rightData = normR
         }

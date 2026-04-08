@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useProjectStore } from '../store/projectStore'
-import { ExportOptions, ExportProgress } from '../hooks/useExport'
+import { ExportOptions, ExportProgress, LUFS_TARGETS } from '../hooks/useExport'
 
 interface ExportModalProps {
   isOpen: boolean
@@ -9,17 +9,31 @@ interface ExportModalProps {
   progress: ExportProgress
 }
 
+const LUFS_PRESETS = [
+  { key: 'none',        label: 'Peak −0.2 dBFS', value: null     },
+  { key: 'spotify',     label: 'Spotify −14',    value: -14       },
+  { key: 'appleMusic',  label: 'Apple −16',      value: -16       },
+  { key: 'youtube',     label: 'YouTube −14',    value: -14       },
+  { key: 'soundcloud',  label: 'SoundCloud −14', value: -14       },
+  { key: 'tidal',       label: 'Tidal −14',      value: -14       },
+  { key: 'amazon',      label: 'Amazon −14',     value: -14       },
+  { key: 'ebu_r128',    label: 'EBU R128 −23',   value: -23       },
+  { key: 'custom',      label: 'Custom LUFS',    value: 'custom' as const },
+] as const
+
 export function ExportModal({ isOpen, onClose, onBounce, progress }: ExportModalProps) {
   const { name, loopStart, loopEnd, bpm, bitDepth: projectBD, sampleRate: projectSR, isLooping, tracks } = useProjectStore()
 
-  const [range, setRange]       = useState<'project' | 'loop'>('project')
-  const [mode, setMode]         = useState<'mix' | 'stems'>('mix')
-  const [format, setFormat]     = useState<'wav' | 'mp3'>('wav')
-  const [bitDepth, setBitDepth] = useState<16 | 24 | 32>(projectBD as 16 | 24 | 32)
-  const [mp3BitRate, setMp3BR]  = useState<128 | 192 | 256 | 320>(192)
-  const [sampleRate, setSR]     = useState<44100 | 48000>(44100)
-  const [normalize, setNorm]    = useState(false)
-  const [filename, setFilename] = useState(name.replace(/[^a-z0-9_\- ]/gi, '_') + '_bounce')
+  const [range, setRange]         = useState<'project' | 'loop'>('project')
+  const [mode, setMode]           = useState<'mix' | 'stems'>('mix')
+  const [format, setFormat]       = useState<'wav' | 'mp3'>('wav')
+  const [bitDepth, setBitDepth]   = useState<16 | 24 | 32>(projectBD as 16 | 24 | 32)
+  const [mp3BitRate, setMp3BR]    = useState<128 | 192 | 256 | 320>(192)
+  const [sampleRate, setSR]       = useState<44100 | 48000>(44100)
+  // Normalize / LUFS
+  const [normalizeMode, setNormalizeMode] = useState<string>('none')
+  const [customLufs, setCustomLufs]       = useState<number>(-14)
+  const [filename, setFilename]           = useState(name.replace(/[^a-z0-9_\- ]/gi, '_') + '_bounce')
   // Stem selection
   const audioTracks = tracks.filter(t => t.type !== 'master' && t.clips.some(c => c.audioUrl))
   const [selectedStems, setSelectedStems] = useState<Set<string>>(() => new Set(audioTracks.map(t => t.id)))
@@ -27,7 +41,6 @@ export function ExportModal({ isOpen, onClose, onBounce, progress }: ExportModal
   if (!isOpen) return null
 
   const loopDurSec = (loopEnd - loopStart) * (60 / bpm)
-  // Find last clip beat
   let maxBeat = 0
   for (const t of tracks) for (const c of t.clips) { const e = c.startBeat + c.durationBeats; if (e > maxBeat) maxBeat = e }
   const projectDurSec = maxBeat * (60 / bpm)
@@ -38,9 +51,20 @@ export function ExportModal({ isOpen, onClose, onBounce, progress }: ExportModal
 
   function fmtSec(s: number) {
     const m = Math.floor(s / 60)
-    const sec = (s % 60).toFixed(1)
-    return `${m}:${String(Math.floor(s % 60)).padStart(2,'0')}.${(s % 1).toFixed(1).slice(2)}`
+    return `${m}:${String(Math.floor(s % 60)).padStart(2, '0')}.${(s % 1).toFixed(1).slice(2)}`
   }
+
+  // Resolve LUFS target from selection
+  function resolveLufsTarget(): number | null {
+    if (normalizeMode === 'none') return null
+    if (normalizeMode === 'custom') return customLufs
+    const preset = LUFS_PRESETS.find(p => p.key === normalizeMode)
+    if (!preset || preset.value === null || preset.value === 'custom') return null
+    return preset.value as number
+  }
+
+  const lufsTarget = resolveLufsTarget()
+  const normalize = normalizeMode !== 'none'
 
   return (
     <>
@@ -54,7 +78,7 @@ export function ExportModal({ isOpen, onClose, onBounce, progress }: ExportModal
             <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style={{ marginRight: 6 }}>
               <path d="M7 1v8M4 6l3 3 3-3M2 11h10" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
-            Export / Bounce to WAV
+            Export / Bounce
           </div>
           <button className="export-close-btn" onClick={onClose} disabled={busy} title="Close">✕</button>
         </div>
@@ -127,21 +151,54 @@ export function ExportModal({ isOpen, onClose, onBounce, progress }: ExportModal
             </div>
           </div>
 
-          {/* Format */}
+          {/* File Format */}
           <div className="export-section">
-            <div className="export-section-label">Format</div>
+            <div className="export-section-label">File Format</div>
             <div className="export-format-row">
+              {/* Format WAV/MP3 */}
               <div className="export-param">
-                <label>Bit Depth</label>
+                <label>Container</label>
                 <div className="export-btn-group">
-                  {([16, 24, 32] as const).map(b => (
-                    <button key={b} className={`export-fmt-btn ${bitDepth === b ? 'active' : ''}`}
-                      onClick={() => setBitDepth(b)}>
-                      {b}-bit{b === 32 ? ' float' : ''}
+                  {(['wav', 'mp3'] as const).map(f => (
+                    <button key={f} className={`export-fmt-btn ${format === f ? 'active' : ''}`}
+                      onClick={() => setFormat(f)}>
+                      {f.toUpperCase()}
                     </button>
                   ))}
                 </div>
               </div>
+
+              {/* Bit depth (WAV only) */}
+              {format === 'wav' && (
+                <div className="export-param">
+                  <label>Bit Depth</label>
+                  <div className="export-btn-group">
+                    {([16, 24, 32] as const).map(b => (
+                      <button key={b} className={`export-fmt-btn ${bitDepth === b ? 'active' : ''}`}
+                        onClick={() => setBitDepth(b)}>
+                        {b}-bit{b === 32 ? ' float' : ''}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* MP3 bitrate */}
+              {format === 'mp3' && (
+                <div className="export-param">
+                  <label>MP3 Bitrate</label>
+                  <div className="export-btn-group">
+                    {([128, 192, 256, 320] as const).map(br => (
+                      <button key={br} className={`export-fmt-btn ${mp3BitRate === br ? 'active' : ''}`}
+                        onClick={() => setMp3BR(br)}>
+                        {br}k
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Sample rate */}
               <div className="export-param">
                 <label>Sample Rate</label>
                 <div className="export-btn-group">
@@ -156,14 +213,47 @@ export function ExportModal({ isOpen, onClose, onBounce, progress }: ExportModal
             </div>
           </div>
 
-          {/* Options */}
+          {/* Loudness / Normalize — LUFS targets */}
           <div className="export-section">
-            <div className="export-section-label">Options</div>
-            <label className="export-checkbox">
-              <input type="checkbox" checked={normalize} onChange={e => setNorm(e.target.checked)} />
-              <span className="export-check-box" />
-              Normalize to -0.2 dBFS
-            </label>
+            <div className="export-section-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              Loudness Normalization
+              <span style={{ fontSize: 9, color: 'var(--text-s)', fontWeight: 400, marginLeft: 2 }}>ITU-R BS.1770-4</span>
+            </div>
+            <div className="export-lufs-grid">
+              {LUFS_PRESETS.map(preset => (
+                <button
+                  key={preset.key}
+                  className={`export-lufs-btn ${normalizeMode === preset.key ? 'active' : ''}`}
+                  onClick={() => setNormalizeMode(preset.key)}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+            {normalizeMode === 'custom' && (
+              <div className="export-custom-lufs">
+                <label style={{ fontSize: 10, color: 'var(--text-m)', marginRight: 8 }}>Target LUFS:</label>
+                <input
+                  type="range"
+                  min={-40}
+                  max={-6}
+                  step={0.5}
+                  value={customLufs}
+                  onChange={e => setCustomLufs(parseFloat(e.target.value))}
+                  style={{ flex: 1 }}
+                />
+                <span className="export-lufs-val">{customLufs.toFixed(1)} LUFS</span>
+              </div>
+            )}
+            {normalizeMode !== 'none' && (
+              <div className="export-lufs-hint">
+                {normalizeMode === 'none'
+                  ? 'No normalization'
+                  : normalizeMode === 'custom'
+                  ? `Normalize to ${customLufs.toFixed(1)} LUFS integrated`
+                  : `Normalize to ${lufsTarget?.toFixed(0)} LUFS — True Peak ≤ −1 dBTP`}
+              </div>
+            )}
           </div>
 
           {/* Filename */}
@@ -177,7 +267,7 @@ export function ExportModal({ isOpen, onClose, onBounce, progress }: ExportModal
                 placeholder="bounce"
                 disabled={busy}
               />
-              <span className="export-ext">.wav</span>
+              <span className="export-ext">.{format}</span>
             </div>
           </div>
 
@@ -185,7 +275,7 @@ export function ExportModal({ isOpen, onClose, onBounce, progress }: ExportModal
           {busy && (
             <div className="export-progress-wrap">
               <div className="export-progress-label">
-                {progress.phase === 'rendering' ? '⚙ Rendering offline...' : '💾 Encoding WAV...'}
+                {progress.phase === 'rendering' ? '⚙ Rendering offline...' : `💾 Encoding ${format.toUpperCase()}...`}
               </div>
               <div className="export-progress-bar">
                 <div className="export-progress-fill" style={{ width: `${Math.round(progress.progress * 100)}%` }} />
@@ -195,7 +285,7 @@ export function ExportModal({ isOpen, onClose, onBounce, progress }: ExportModal
 
           {done && (
             <div className="export-success">
-              {mode === 'stems' ? `✓ Stems exported (${selectedStems.size} track${selectedStems.size !== 1 ? 's' : ''}) — check your Downloads folder` : '✓ Bounce complete — check your Downloads folder'}
+              {mode === 'stems' ? `✓ Stems exported (${selectedStems.size} track${selectedStems.size !== 1 ? 's' : ''}) — check your Downloads folder` : `✓ Bounce complete — check your Downloads folder`}
             </div>
           )}
 
@@ -217,6 +307,7 @@ export function ExportModal({ isOpen, onClose, onBounce, progress }: ExportModal
               bitDepth,
               sampleRate,
               normalize,
+              lufsTarget: lufsTarget ?? undefined,
               format,
               mp3BitRate,
               filename: filename.trim() ? `${filename.trim()}.${format}` : undefined,
@@ -224,7 +315,11 @@ export function ExportModal({ isOpen, onClose, onBounce, progress }: ExportModal
               stemTrackIds: mode === 'stems' ? [...selectedStems] : undefined,
             })}
           >
-            {busy ? '⚙ Bouncing...' : mode === 'stems' ? `⬇ Export ${selectedStems.size} Stem${selectedStems.size !== 1 ? 's' : ''}` : `⬇ Bounce to ${format.toUpperCase()}`}
+            {busy
+              ? '⚙ Bouncing...'
+              : mode === 'stems'
+              ? `⬇ Export ${selectedStems.size} Stem${selectedStems.size !== 1 ? 's' : ''}`
+              : `⬇ Bounce to ${format.toUpperCase()}`}
           </button>
         </div>
       </div>
