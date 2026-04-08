@@ -2,7 +2,7 @@
   "name": "flowstate-audio",
   "version": "1.0.0",
   "description": "Flowstate Audio — Professional standalone DAW application",
-  "main": "dist-electron/main.js",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
