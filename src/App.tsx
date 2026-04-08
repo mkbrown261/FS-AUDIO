@@ -56,9 +56,7 @@ export default function App() {
     let rafId: number
     const tick = () => {
       const levels = new Map<string, number>()
-      for (const t of store.tracks) {
-        levels.set(t.id, engine.getTrackLevel(t.id))
-      }
+      for (const t of store.tracks) levels.set(t.id, engine.getTrackLevel(t.id))
       setTrackLevels(new Map(levels))
       rafId = requestAnimationFrame(tick)
     }
@@ -66,22 +64,16 @@ export default function App() {
     return () => cancelAnimationFrame(rafId)
   }, [store.isPlaying, store.tracks, engine])
 
-  // ── Mic level RAF — active during recording ───────────────────────────────
+  // ── Mic level RAF ─────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!store.isRecording) {
-      setMicLevel(0)
-      return
-    }
+    if (!store.isRecording) { setMicLevel(0); return }
     let rafId: number
-    const tick = () => {
-      setMicLevel(engine.getMicLevel())
-      rafId = requestAnimationFrame(tick)
-    }
+    const tick = () => { setMicLevel(engine.getMicLevel()); rafId = requestAnimationFrame(tick) }
     rafId = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(rafId)
   }, [store.isRecording, engine])
 
-  // ── Live volume/pan sync — track state → audio engine ───────────────────
+  // ── Live volume/pan sync ──────────────────────────────────────────────────
   useEffect(() => {
     for (const t of store.tracks) {
       engine.setTrackVolume(t.id, t.muted ? 0 : t.volume)
@@ -90,28 +82,14 @@ export default function App() {
   }, [store.tracks, engine])
 
   // ── Mixer fader / pan callbacks ───────────────────────────────────────────
-  const handleVolumeChange = useCallback((id: string, v: number) => {
-    engine.setTrackVolume(id, v)
-  }, [engine])
-
-  const handlePanChange = useCallback((id: string, v: number) => {
-    engine.setTrackPan(id, v)
-  }, [engine])
-
-  // ── Inspector EQ callback ─────────────────────────────────────────────────
-  const handleSetTrackVolume = useCallback((id: string, volume: number) => {
-    engine.setTrackVolume(id, volume)
-  }, [engine])
-
-  const handleSetTrackPan = useCallback((id: string, pan: number) => {
-    engine.setTrackPan(id, pan)
-  }, [engine])
-
+  const handleVolumeChange = useCallback((id: string, v: number) => engine.setTrackVolume(id, v), [engine])
+  const handlePanChange = useCallback((id: string, v: number) => engine.setTrackPan(id, v), [engine])
+  const handleSetTrackVolume = useCallback((id: string, volume: number) => engine.setTrackVolume(id, volume), [engine])
+  const handleSetTrackPan = useCallback((id: string, pan: number) => engine.setTrackPan(id, pan), [engine])
   const handleSetTrackCompressor = useCallback((id: string, threshold: number, ratio: number, attack: number, release: number) => {
     engine.setTrackCompressor(id, threshold, ratio, attack, release)
   }, [engine])
 
-  // ARM button: if currently recording on this track, stop and save. Otherwise toggle arm.
   const handleArmClick = useCallback(async (trackId: string) => {
     const st = useProjectStore.getState()
     if (st.isRecording) {
@@ -133,29 +111,16 @@ export default function App() {
     engine.setTrackEQ(id, l, m, h)
   }, [engine])
 
-  // ── Audio file import (drag-and-drop onto track lanes) ───────────────────
+  // ── Audio file import ─────────────────────────────────────────────────────
   const handleImportAudio = useCallback(async (trackId: string, file: File, startBeat: number) => {
     try {
       const arrayBuffer = await file.arrayBuffer()
       const ctx = engine.getCtx()
       const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
-
-      const channel = audioBuffer.getChannelData(0)
-      const blockSize = Math.floor(channel.length / 200)
-      const peaks: number[] = []
-      for (let i = 0; i < 200; i++) {
-        let max = 0
-        for (let j = 0; j < blockSize; j++) {
-          const v = Math.abs(channel[i * blockSize + j] ?? 0)
-          if (v > max) max = v
-        }
-        peaks.push(max)
-      }
-
+      const peaks = engine.generateWaveformPeaks(audioBuffer)
       const blob = new Blob([arrayBuffer], { type: file.type })
       const audioUrl = URL.createObjectURL(blob)
       engine.registerAudioBuffer(audioUrl, audioBuffer)
-
       const durationBeats = (audioBuffer.duration / 60) * store.bpm
       store.addClip({
         id: `clip-import-${Date.now()}`,
@@ -166,6 +131,7 @@ export default function App() {
         type: 'audio',
         audioUrl,
         gain: 1, fadeIn: 0, fadeOut: 0,
+        fadeInCurve: 'exp', fadeOutCurve: 'exp',
         looped: false, muted: false, aiGenerated: false,
         waveformPeaks: peaks,
       })
@@ -180,31 +146,16 @@ export default function App() {
       const arrayBuffer = await file.arrayBuffer()
       const ctx = engine.getCtx()
       const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
-
-      const channel = audioBuffer.getChannelData(0)
-      const blockSize = Math.floor(channel.length / 200)
-      const peaks: number[] = []
-      for (let i = 0; i < 200; i++) {
-        let max = 0
-        for (let j = 0; j < blockSize; j++) {
-          const v = Math.abs(channel[i * blockSize + j] ?? 0)
-          if (v > max) max = v
-        }
-        peaks.push(max)
-      }
-
+      const peaks = engine.generateWaveformPeaks(audioBuffer)
       const blob = new Blob([arrayBuffer], { type: file.type })
       const audioUrl = URL.createObjectURL(blob)
       engine.registerAudioBuffer(audioUrl, audioBuffer)
-
       store.addTrack('audio')
-
       setTimeout(() => {
         const currentTracks = useProjectStore.getState().tracks
         const nonMaster = currentTracks.filter(t => t.type !== 'master')
         const newTrack = nonMaster[nonMaster.length - 1]
         if (!newTrack) return
-
         const durationBeats = (audioBuffer.duration / 60) * useProjectStore.getState().bpm
         useProjectStore.getState().addClip({
           id: `clip-drop-${Date.now()}`,
@@ -212,9 +163,9 @@ export default function App() {
           startBeat: 0,
           durationBeats: Math.max(1, durationBeats),
           name: file.name.replace(/\.[^.]+$/, ''),
-          type: 'audio',
-          audioUrl,
+          type: 'audio', audioUrl,
           gain: 1, fadeIn: 0, fadeOut: 0,
+          fadeInCurve: 'exp', fadeOutCurve: 'exp',
           looped: false, muted: false, aiGenerated: false,
           waveformPeaks: peaks,
         })
@@ -249,6 +200,28 @@ export default function App() {
         return
       }
 
+      // ── Tool shortcuts (no modifier, not in piano roll) ────────────────
+      if (!meta && !e.shiftKey && !inPianoRoll) {
+        switch (e.key.toLowerCase()) {
+          case 'v': e.preventDefault(); store.setActiveTool('pointer'); return
+          case 'q': e.preventDefault(); store.setActiveTool('marquee'); return
+          case 'c': if (!meta) { e.preventDefault(); store.setActiveTool('scissors'); return } break
+          case 'f': e.preventDefault(); store.setActiveTool('fade'); return
+          case 'g': if (!meta) { e.preventDefault()
+            // G key: if clips selected → glue them; otherwise toggle loop / tool
+            const st = useProjectStore.getState()
+            if (st.selectedClipIds.length >= 2) {
+              st.saveSnapshot()
+              st.glueClips(st.selectedClipIds)
+            } else {
+              store.setActiveTool('glue')
+            }
+            return
+          } break
+          case 'u': e.preventDefault(); store.setActiveTool('mute'); return
+        }
+      }
+
       switch (e.code) {
         // ── Transport ────────────────────────────────────────────────────
         case 'Space':
@@ -268,11 +241,10 @@ export default function App() {
           if (meta) { e.preventDefault(); e.shiftKey ? store.redo() : store.undo() }
           break
 
-        // ── Editing (not in piano roll) ──────────────────────────────────
+        // ── Select all ───────────────────────────────────────────────────
         case 'KeyA':
           if (meta && !inPianoRoll) {
             e.preventDefault()
-            // Select all clips
             const allIds: string[] = []
             useProjectStore.getState().tracks.forEach(t => t.clips.forEach(c => allIds.push(c.id)))
             if (allIds.length > 0) {
@@ -281,25 +253,30 @@ export default function App() {
             }
           }
           break
+
+        // ── Duplicate ────────────────────────────────────────────────────
         case 'KeyD':
           if (meta && !inPianoRoll) {
             e.preventDefault()
             const ids = useProjectStore.getState().selectedClipIds
-            if (ids.length > 0) store.duplicateClip(ids[0])
+            if (ids.length > 0) { store.saveSnapshot(); store.duplicateClip(ids[0]) }
           }
           break
+
+        // ── Save / Split ─────────────────────────────────────────────────
         case 'KeyS':
           if (meta) {
             e.preventDefault()
-            // Cmd+S = save (no-op for now)
+            // Cmd+S = save (no-op, project-file save TBD)
           } else if (!inPianoRoll) {
-            // S = split selected clip at playhead
+            // S = split selected clip at playhead (also scissors tool click does this)
             const st = useProjectStore.getState()
             const currentBeatNow = st.currentTime * (st.bpm / 60)
             for (const clipId of st.selectedClipIds) {
               for (const track of st.tracks) {
                 const clip = track.clips.find(c => c.id === clipId)
                 if (clip && currentBeatNow > clip.startBeat && currentBeatNow < clip.startBeat + clip.durationBeats) {
+                  st.saveSnapshot()
                   store.splitClipAtBeat(clipId, currentBeatNow)
                   break
                 }
@@ -307,6 +284,22 @@ export default function App() {
             }
           }
           break
+
+        // ── Copy / Paste ─────────────────────────────────────────────────
+        case 'KeyC':
+          if (meta && !inPianoRoll) {
+            e.preventDefault()
+            const st = useProjectStore.getState()
+            if (st.selectedClipIds.length > 0) {
+              for (const track of st.tracks) {
+                const clip = track.clips.find(c => c.id === st.selectedClipIds[0])
+                if (clip) { store.setClipboardClip(clip); break }
+              }
+            }
+          }
+          break
+
+        // ── Mute (M) ─────────────────────────────────────────────────────
         case 'KeyM':
           if (!inPianoRoll) {
             const ids = useProjectStore.getState().selectedClipIds
@@ -321,24 +314,57 @@ export default function App() {
             }
           }
           break
-        case 'KeyG':
-          if (!meta) store.toggleLoop()
+
+        // ── Fade shortcuts ───────────────────────────────────────────────
+        case 'BracketLeft':
+          // [ = set fade-in on selected clips
+          if (!inPianoRoll) {
+            e.preventDefault()
+            const st = useProjectStore.getState()
+            for (const id of st.selectedClipIds) store.setClipFadeIn(id, e.shiftKey ? 2 : 1)
+          }
           break
+        case 'BracketRight':
+          // ] = set fade-out on selected clips
+          if (!inPianoRoll) {
+            e.preventDefault()
+            const st = useProjectStore.getState()
+            for (const id of st.selectedClipIds) store.setClipFadeOut(id, e.shiftKey ? 2 : 1)
+          }
+          break
+        case 'Backslash':
+          // \ = remove fades from selected clips
+          if (!inPianoRoll) {
+            e.preventDefault()
+            const st = useProjectStore.getState()
+            for (const id of st.selectedClipIds) {
+              store.setClipFadeIn(id, 0)
+              store.setClipFadeOut(id, 0)
+            }
+          }
+          break
+
+        // ── Loop ─────────────────────────────────────────────────────────
         case 'KeyL':
           if (!meta) store.toggleLoop()
           break
+
+        // ── Metronome ────────────────────────────────────────────────────
         case 'KeyK':
           if (!meta) store.toggleMetronome()
           break
+
+        // ── Inspector ────────────────────────────────────────────────────
         case 'KeyI':
           if (!meta) store.setInspectorOpen(!store.inspectorOpen)
           break
+
+        // ── Tracklist collapse ───────────────────────────────────────────
         case 'KeyT':
-          if (!meta) {
-            // Toggle tracklist: collapse to 40px or expand back to saved width
-            setTracklistWidth(w => w > 40 ? 40 : 220)
-          }
+          if (!meta) setTracklistWidth(w => w > 40 ? 40 : 220)
           break
+
+        // ── Clawbot panel ────────────────────────────────────────────────
         case 'KeyB':
           if (!meta) store.setShowClawbot(!store.showClawbot)
           break
@@ -347,19 +373,21 @@ export default function App() {
         case 'Backspace':
         case 'Delete':
           if (!inPianoRoll) {
+            store.saveSnapshot()
             store.selectedClipIds.forEach(id => store.removeClip(id))
             store.deselectAll()
           }
           break
         case 'Escape':
           store.deselectAll()
+          store.setActiveTool('pointer') // ESC resets to pointer
           break
 
-        // ── Navigation (playhead) ────────────────────────────────────────
+        // ── Playhead navigation ──────────────────────────────────────────
         case 'ArrowLeft': {
           e.preventDefault()
           const st = useProjectStore.getState()
-          const beatsBack = meta ? 4 : 1
+          const beatsBack = meta ? 4 : e.shiftKey ? 0.25 : 1
           const newBeat = Math.max(0, st.currentTime * (st.bpm / 60) - beatsBack)
           transport.seekToBeat(newBeat)
           break
@@ -367,7 +395,7 @@ export default function App() {
         case 'ArrowRight': {
           e.preventDefault()
           const st = useProjectStore.getState()
-          const beatsFwd = meta ? 4 : 1
+          const beatsFwd = meta ? 4 : e.shiftKey ? 0.25 : 1
           const newBeat = st.currentTime * (st.bpm / 60) + beatsFwd
           transport.seekToBeat(newBeat)
           break
@@ -386,7 +414,6 @@ export default function App() {
         case 'Numpad0':
           if (!meta) {
             e.preventDefault()
-            // Zoom to fit: find rightmost clip end beat
             const st = useProjectStore.getState()
             let maxBeat = 16
             for (const t of st.tracks) {
@@ -395,10 +422,26 @@ export default function App() {
                 if (end > maxBeat) maxBeat = end
               }
             }
-            // Available width: rough estimate
             const availW = window.innerWidth - inspectorWidth - tracklistWidth - (store.showClawbot ? clawbotWidth : 0)
-            const fitZoom = (availW / (maxBeat * 40))
+            const fitZoom = availW / (maxBeat * 40)
             store.setZoom(Math.max(0.1, Math.min(6, fitZoom)))
+          }
+          break
+
+        // ── Normalize gain on selected clips ─────────────────────────────
+        case 'KeyN':
+          if (meta && !inPianoRoll) {
+            e.preventDefault()
+            const st = useProjectStore.getState()
+            for (const id of st.selectedClipIds) {
+              for (const track of st.tracks) {
+                const clip = track.clips.find(c => c.id === id)
+                if (clip?.audioUrl) {
+                  const normGain = engine.normalizeClipGain(clip.audioUrl)
+                  store.updateClip(id, { gain: normGain })
+                }
+              }
+            }
           }
           break
       }
@@ -406,9 +449,8 @@ export default function App() {
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transport, store, inspectorWidth, tracklistWidth, clawbotWidth])
+  }, [transport, store, inspectorWidth, tracklistWidth, clawbotWidth, engine])
 
-  // ── Playhead position for timeline ───────────────────────────────────────
   const currentBeat = store.currentTime * (store.bpm / 60)
   const playheadX = currentBeat * store.pixelsPerBeat - store.scrollLeft
 
@@ -425,7 +467,7 @@ export default function App() {
       <div className="main-area">
         {/* Inspector */}
         {store.inspectorOpen && (
-          <div style={{ display: 'flex', flexShrink: 0, width: inspectorWidth }}>
+          <div style={{ display:'flex', flexShrink:0, width: inspectorWidth }}>
             <InspectorPanel
               onSetTrackEQ={handleSetTrackEQ}
               onSetTrackVolume={handleSetTrackVolume}
@@ -437,7 +479,7 @@ export default function App() {
         )}
 
         {/* Track list */}
-        <div style={{ display: 'flex', flexShrink: 0, width: tracklistWidth }}>
+        <div style={{ display:'flex', flexShrink:0, width: tracklistWidth }}>
           <TrackList
             width={tracklistWidth}
             onVolumeChange={handleVolumeChange}
@@ -470,7 +512,7 @@ export default function App() {
 
         {/* Clawbot */}
         {store.showClawbot && (
-          <div style={{ display: 'flex', flexShrink: 0, width: clawbotWidth }}>
+          <div style={{ display:'flex', flexShrink:0, width: clawbotWidth }}>
             <PanelResizer direction="left" onDrag={d => setClawbotWidth(w => Math.max(200, Math.min(480, w + d)))} />
             <ClawbotPanel />
           </div>

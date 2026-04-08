@@ -122,6 +122,7 @@ export function useTransport(
           type: 'audio',
           audioUrl,
           gain: 1, fadeIn: 0, fadeOut: 0,
+          fadeInCurve: 'exp', fadeOutCurve: 'exp',
           looped: false, muted: false, aiGenerated: false,
           waveformPeaks: peaks,
         }

@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState } from 'react'
-import { useProjectStore } from '../store/projectStore'
+import { useProjectStore, EditTool } from '../store/projectStore'
 import { CustomSelect } from './CustomSelect'
 
 interface ToolbarProps {
@@ -20,9 +20,100 @@ const KEYS = [
 ]
 
 const SNAP_VALUES = ['off','1','1/2','1/4','1/8','1/16','1/32']
-
 const KEY_OPTIONS = KEYS.map(k => ({ value: k, label: k }))
 const SNAP_OPTIONS = SNAP_VALUES.map(v => ({ value: v, label: v === 'off' ? 'Free' : v }))
+
+// Tool definitions
+interface ToolDef {
+  id: EditTool
+  icon: React.ReactNode
+  label: string
+  shortcut: string
+}
+
+const TOOLS: ToolDef[] = [
+  {
+    id: 'pointer',
+    label: 'Pointer (V)',
+    shortcut: 'V',
+    icon: (
+      <svg width="12" height="12" viewBox="0 0 12 12">
+        <polygon points="1,1 1,10 4,7.5 5.5,11 7,10.5 5.5,6.5 9,6.5" fill="currentColor" />
+      </svg>
+    ),
+  },
+  {
+    id: 'marquee',
+    label: 'Marquee / Selection (Q)',
+    shortcut: 'Q',
+    icon: (
+      <svg width="12" height="12" viewBox="0 0 12 12">
+        <rect x="1" y="1" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="2,1.5" />
+      </svg>
+    ),
+  },
+  {
+    id: 'scissors',
+    label: 'Scissors / Cut (C)',
+    shortcut: 'C',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 13 13">
+        <circle cx="3" cy="4" r="2" stroke="currentColor" strokeWidth="1.2" fill="none" />
+        <circle cx="3" cy="9" r="2" stroke="currentColor" strokeWidth="1.2" fill="none" />
+        <line x1="4.7" y1="5.3" x2="12" y2="1" stroke="currentColor" strokeWidth="1.2" />
+        <line x1="4.7" y1="7.7" x2="12" y2="12" stroke="currentColor" strokeWidth="1.2" />
+      </svg>
+    ),
+  },
+  {
+    id: 'fade',
+    label: 'Fade Tool (F)',
+    shortcut: 'F',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 13 13">
+        <polygon points="1,13 1,1 13,13" fill="currentColor" opacity="0.6" />
+        <line x1="1" y1="1" x2="13" y2="13" stroke="currentColor" strokeWidth="1.5" />
+      </svg>
+    ),
+  },
+  {
+    id: 'glue',
+    label: 'Glue / Join (G)',
+    shortcut: 'G',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 13 13">
+        <rect x="1" y="4" width="4" height="5" rx="1" fill="currentColor" opacity="0.7" />
+        <rect x="8" y="4" width="4" height="5" rx="1" fill="currentColor" opacity="0.7" />
+        <line x1="5" y1="6.5" x2="8" y2="6.5" stroke="currentColor" strokeWidth="1.5" />
+      </svg>
+    ),
+  },
+  {
+    id: 'mute',
+    label: 'Mute Tool (U)',
+    shortcut: 'U',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 13 13">
+        <polygon points="1,4 4,4 7,1 7,12 4,9 1,9" fill="currentColor" opacity="0.7" />
+        <line x1="9" y1="4" x2="13" y2="9" stroke="currentColor" strokeWidth="1.5" />
+        <line x1="13" y1="4" x2="9" y2="9" stroke="currentColor" strokeWidth="1.5" />
+      </svg>
+    ),
+  },
+  {
+    id: 'zoom',
+    label: 'Zoom Tool (Z)',
+    shortcut: 'Z',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 13 13">
+        <circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.4" fill="none" />
+        <line x1="8.5" y1="8.5" x2="12" y2="12" stroke="currentColor" strokeWidth="1.5" />
+        <line x1="3.5" y1="5.5" x2="7.5" y2="5.5" stroke="currentColor" strokeWidth="1.2" />
+        <line x1="5.5" y1="3.5" x2="5.5" y2="7.5" stroke="currentColor" strokeWidth="1.2" />
+      </svg>
+    ),
+  },
+]
 
 function beatsToSMPTE(beat: number, bpm: number, ts: [number,number]): string {
   const beatsPerBar = ts[0]
@@ -47,13 +138,13 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
     toggleLoop, toggleMetronome, showClawbot, setShowClawbot,
     setZoom, zoom, countIn, snapEnabled, snapValue,
     setSnapEnabled, setSnapValue, inspectorOpen, setInspectorOpen,
-    tracks,
+    tracks, activeTool, setActiveTool,
   } = useProjectStore()
 
   const bpmRef = useRef<HTMLInputElement>(null)
   const currentBeat = currentTime * (bpm / 60)
 
-  // ── Tap tempo ────────────────────────────────────────────────────────────────
+  // ── Tap tempo ─────────────────────────────────────────────────────────────
   const tapTimestampsRef = useRef<number[]>([])
   const tapResetTimerRef = useRef<number | null>(null)
   const [tapActive, setTapActive] = useState(false)
@@ -61,34 +152,17 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
   const handleTapTempo = useCallback(() => {
     const now = performance.now()
     const taps = tapTimestampsRef.current
-
-    // Reset if gap > 3 seconds
-    if (taps.length > 0 && now - taps[taps.length - 1] > 3000) {
-      tapTimestampsRef.current = []
-    }
-
+    if (taps.length > 0 && now - taps[taps.length - 1] > 3000) tapTimestampsRef.current = []
     tapTimestampsRef.current = [...tapTimestampsRef.current, now].slice(-8)
     setTapActive(true)
-
-    // Clear previous reset timer
-    if (tapResetTimerRef.current !== null) {
-      window.clearTimeout(tapResetTimerRef.current)
-    }
-    tapResetTimerRef.current = window.setTimeout(() => {
-      setTapActive(false)
-    }, 3100)
-
+    if (tapResetTimerRef.current !== null) window.clearTimeout(tapResetTimerRef.current)
+    tapResetTimerRef.current = window.setTimeout(() => setTapActive(false), 3100)
     const ts = tapTimestampsRef.current
     if (ts.length >= 2) {
-      let totalInterval = 0
-      for (let i = 1; i < ts.length; i++) {
-        totalInterval += ts[i] - ts[i - 1]
-      }
-      const avgIntervalMs = totalInterval / (ts.length - 1)
-      const tapBpm = Math.round((60000 / avgIntervalMs) * 10) / 10
-      if (tapBpm >= 20 && tapBpm <= 300) {
-        setBpm(tapBpm)
-      }
+      let total = 0
+      for (let i = 1; i < ts.length; i++) total += ts[i] - ts[i - 1]
+      const tapBpm = Math.round((60000 / (total / (ts.length - 1))) * 10) / 10
+      if (tapBpm >= 20 && tapBpm <= 300) setBpm(tapBpm)
     }
   }, [setBpm])
 
@@ -103,8 +177,6 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
   }, [bpm, setBpm])
 
   const aiLabel = aiLevel === 0 ? 'Manual' : aiLevel === 100 ? 'Full AI' : `AI ${aiLevel}%`
-
-  // Issue 6: check if any track is armed
   const anyArmed = tracks.some(t => t.armed)
 
   return (
@@ -112,9 +184,7 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
       {/* Brand */}
       <div className="toolbar-brand">
         <img
-          src="/assets/fs-icon.png"
-          alt="FS Audio"
-          className="brand-icon"
+          src="/assets/fs-icon.png" alt="FS Audio" className="brand-icon"
           onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
         />
         <span className="brand-name">FLOWSTATE</span>
@@ -122,13 +192,27 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
 
       <div className="toolbar-sep" />
 
+      {/* ── Tool Palette ─────────────────────────────────────────────────── */}
+      <div className="tool-palette" role="toolbar" aria-label="Edit Tools">
+        {TOOLS.map(tool => (
+          <button
+            key={tool.id}
+            className={`tbt tool-btn ${activeTool === tool.id ? 'active tool-active' : ''}`}
+            title={tool.label}
+            onClick={() => setActiveTool(tool.id)}
+          >
+            {tool.icon}
+          </button>
+        ))}
+      </div>
+
+      <div className="toolbar-sep" />
+
       {/* Transport */}
       <div className="transport">
-        {/* Go to Start */}
-        <button className="tbt" onClick={onToStart} title="Return to Start">
+        <button className="tbt" onClick={onToStart} title="Return to Start (Enter)">
           <svg width="11" height="11" viewBox="0 0 11 11"><rect x="0" y="0" width="2" height="11" fill="currentColor"/><polygon points="11,0 2,5.5 11,11" fill="currentColor"/></svg>
         </button>
-        {/* Play / Pause toggle */}
         <button
           className={`tbt tbt-play ${isPlaying ? 'active' : ''}`}
           onClick={isPlaying ? onPause : onPlay}
@@ -139,11 +223,9 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
             : <svg width="11" height="13" viewBox="0 0 11 13"><polygon points="0,0 11,6.5 0,13" fill="currentColor"/></svg>
           }
         </button>
-        {/* Stop */}
-        <button className="tbt" onClick={onStop} title="Stop">
+        <button className="tbt" onClick={onStop} title="Stop (Space / Enter)">
           <svg width="11" height="11" viewBox="0 0 11 11"><rect x="0" y="0" width="11" height="11" fill="currentColor"/></svg>
         </button>
-        {/* Record — armed-ready indicator */}
         <button
           className={`tbt tbt-rec ${isRecording ? 'rec-active' : ''} ${anyArmed && !isRecording ? 'armed-ready' : ''}`}
           onClick={onRecord}
@@ -151,33 +233,20 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
         >
           <svg width="11" height="11" viewBox="0 0 11 11"><circle cx="5.5" cy="5.5" r="5" fill="currentColor"/></svg>
         </button>
-        {/* Loop */}
-        <button
-          className={`tbt ${isLooping ? 'active' : ''}`}
-          onClick={toggleLoop}
-          title="Loop (L)"
-        >
+        <button className={`tbt ${isLooping ? 'active' : ''}`} onClick={toggleLoop} title="Loop (L)">
           <svg width="13" height="11" viewBox="0 0 13 11"><path d="M1 4 Q1 1 4 1 L9 1 L9 0 L12 2.5 L9 5 L9 4 L4 4 Q3 4 3 5 L3 7 Q3 9 4 9 L10 9 Q12 9 12 7" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/></svg>
         </button>
-        {/* Metronome */}
-        <button
-          className={`tbt ${metronomeEnabled ? 'active' : ''}`}
-          onClick={toggleMetronome}
-          title="Metronome (K)"
-        >
+        <button className={`tbt ${metronomeEnabled ? 'active' : ''}`} onClick={toggleMetronome} title="Metronome (K)">
           <svg width="9" height="13" viewBox="0 0 9 13"><polygon points="4.5,0 9,13 0,13" stroke="currentColor" strokeWidth="1" fill="none"/><line x1="4.5" y1="13" x2="7" y2="5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
         </button>
-        {/* Tap Tempo */}
         <button
           className={`tbt tbt-tap ${tapActive ? 'tapped' : ''}`}
           onClick={handleTapTempo}
-          title="Tap Tempo — click to the beat to set BPM"
-        >
-          TAP
-        </button>
+          title="Tap Tempo"
+        >TAP</button>
       </div>
 
-      {/* LCD — count-in overlay or normal time */}
+      {/* LCD */}
       <div className="lcd-display">
         {countIn > 0 ? (
           <>
@@ -199,13 +268,8 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
         <label className="param-label">BPM</label>
         <div className="bpm-lcd">
           <input
-            ref={bpmRef}
-            className="bpm-input"
-            type="number"
-            min={20} max={300} step={0.1}
-            value={bpm.toFixed(1)}
-            onChange={handleBpmChange}
-            onWheel={handleBpmWheel}
+            ref={bpmRef} className="bpm-input" type="number" min={20} max={300} step={0.1}
+            value={bpm.toFixed(1)} onChange={handleBpmChange} onWheel={handleBpmWheel}
             title="BPM (scroll to fine-tune)"
           />
           <span className="bpm-lcd-label">bpm</span>
@@ -215,12 +279,7 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
       {/* Key */}
       <div className="key-wrap">
         <label className="param-label">Key</label>
-        <CustomSelect
-          value={key}
-          options={KEY_OPTIONS}
-          onChange={setKey}
-          width={110}
-        />
+        <CustomSelect value={key} options={KEY_OPTIONS} onChange={setKey} width={110} />
       </div>
 
       {/* Time sig */}
@@ -246,21 +305,15 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
             <line x1="8.5" y1="5.5" x2="11" y2="5.5" stroke="currentColor" strokeWidth="1.5"/>
           </svg>
         </button>
-        <CustomSelect
-          value={snapValue}
-          options={SNAP_OPTIONS}
-          onChange={setSnapValue}
-          disabled={!snapEnabled}
-          width={70}
-        />
+        <CustomSelect value={snapValue} options={SNAP_OPTIONS} onChange={setSnapValue} disabled={!snapEnabled} width={70} />
       </div>
 
       {/* Zoom */}
       <div className="zoom-wrap">
         <label className="param-label">Zoom</label>
-        <button className="tbt" onClick={() => setZoom(Math.max(0.25, zoom - 0.25))} title="Zoom Out (Cmd+-)">−</button>
+        <button className="tbt" onClick={() => setZoom(Math.max(0.25, zoom - 0.25))} title="Zoom Out (−)">−</button>
         <span className="param-label" style={{ minWidth: 38, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
-        <button className="tbt" onClick={() => setZoom(Math.min(6, zoom + 0.25))} title="Zoom In (Cmd++)">+</button>
+        <button className="tbt" onClick={() => setZoom(Math.min(6, zoom + 0.25))} title="Zoom In (+)">+</button>
       </div>
 
       <div className="toolbar-sep" />
@@ -268,11 +321,8 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
       {/* AI Slider */}
       <div className="ai-slider-wrap">
         <span className="param-label">Manual</span>
-        <input
-          type="range" min={0} max={100} value={aiLevel}
-          className="ai-slider"
-          onChange={e => setAiLevel(parseInt(e.target.value))}
-          title="AI Involvement"
+        <input type="range" min={0} max={100} value={aiLevel} className="ai-slider"
+          onChange={e => setAiLevel(parseInt(e.target.value))} title="AI Involvement"
         />
         <span className="param-label">AI</span>
         <span className="ai-badge">{aiLabel}</span>
@@ -280,25 +330,19 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
 
       <div className="toolbar-sep" />
 
-      {/* Inspector toggle */}
-      <button
-        className={`tbt ${inspectorOpen ? 'active' : ''}`}
-        onClick={() => setInspectorOpen(!inspectorOpen)}
-        title="Inspector (I)"
-      >
+      {/* Inspector */}
+      <button className={`tbt ${inspectorOpen ? 'active' : ''}`} onClick={() => setInspectorOpen(!inspectorOpen)} title="Inspector (I)">
         <svg width="11" height="11" viewBox="0 0 11 11"><rect x="0" y="0" width="4" height="11" fill="currentColor" rx="1"/><rect x="6" y="0" width="5" height="2" fill="currentColor" rx="1"/><rect x="6" y="4" width="5" height="2" fill="currentColor" rx="1"/><rect x="6" y="8" width="3" height="2" fill="currentColor" rx="1"/></svg>
       </button>
 
-      {/* Clawbot toggle */}
+      {/* Clawbot */}
       <button
         className={`tbt tbt-clawbot clawbot-toggle ${showClawbot ? 'active' : ''}`}
         onClick={() => setShowClawbot(!showClawbot)}
-        title="Clawbot AI Panel"
+        title="Clawbot AI Panel (B)"
       >
         <img
-          src="/assets/clawbot-mascot.png"
-          alt="Clawbot"
-          className="mascot-sm"
+          src="/assets/clawbot-mascot.png" alt="Clawbot" className="mascot-sm"
           onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
         />
       </button>

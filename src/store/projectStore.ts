@@ -37,11 +37,15 @@ export interface Clip {
   gain: number         // 0-2 (1 = unity)
   fadeIn: number       // beats
   fadeOut: number      // beats
+  fadeInCurve: 'linear' | 'exp' | 's-curve'  // fade curve type
+  fadeOutCurve: 'linear' | 'exp' | 's-curve'
   looped: boolean
   muted: boolean
   color?: string
   aiGenerated: boolean
   waveformPeaks?: number[]
+  // Crossfade: if set, this clip overlaps with the previous clip by this many beats
+  crossfadeBeats?: number
 }
 
 export interface Track {
@@ -74,6 +78,9 @@ export interface AutomationLane {
   param: string
   points: AutomationPoint[]
 }
+
+// Tool modes — matching Logic Pro's toolbox
+export type EditTool = 'pointer' | 'scissors' | 'glue' | 'fade' | 'zoom' | 'mute' | 'marquee' | 'pencil'
 
 export interface ProjectState {
   // Project metadata
@@ -111,6 +118,9 @@ export interface ProjectState {
   showClawbot: boolean
   activePianoRollClipId: string | null
   activePanel: 'mixer' | 'piano-roll' | 'plugins'
+
+  // Tool mode
+  activeTool: EditTool
 
   // Tracks
   tracks: Track[]
@@ -192,6 +202,16 @@ interface Actions {
   splitClipAtBeat: (clipId: string, beat: number) => void
   duplicateClip: (id: string) => void
 
+  // Fade actions
+  setClipFadeIn: (clipId: string, fadeBeats: number) => void
+  setClipFadeOut: (clipId: string, fadeBeats: number) => void
+  setClipCrossfade: (clipId: string, xfadeBeats: number) => void
+  applyFadeInToSelected: () => void
+  applyFadeOutToSelected: () => void
+
+  // Glue (join adjacent clips)
+  glueClips: (clipIds: string[]) => void
+
   addPlugin: (trackId: string, plugin: Plugin) => void
   removePlugin: (trackId: string, pluginId: string) => void
   updatePlugin: (trackId: string, pluginId: string, params: Record<string, number>) => void
@@ -216,6 +236,7 @@ interface Actions {
   setShowPianoRoll: (v: boolean, clipId?: string) => void
   setShowClawbot: (v: boolean) => void
   setActivePanel: (v: ProjectState['activePanel']) => void
+  setActiveTool: (tool: EditTool) => void
 
   setAiLevel: (v: number) => void
   setClawflowActive: (v: boolean) => void
@@ -266,6 +287,7 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
   showClawbot: false,
   activePianoRollClipId: null,
   activePanel: 'mixer',
+  activeTool: 'pointer',
 
   tracks: defaultTracks(),
   automationLanes: [],
@@ -369,8 +391,14 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
       const clip = track.clips.find(c => c.id === clipId)
       if (!clip) continue
       if (beat <= clip.startBeat || beat >= clip.startBeat + clip.durationBeats) break
-      const left: Clip = { ...clip, id: `${clip.id}-L`, durationBeats: beat - clip.startBeat }
-      const right: Clip = { ...clip, id: `${clip.id}-R`, startBeat: beat, durationBeats: clip.startBeat + clip.durationBeats - beat }
+      const splitOffset = beat - clip.startBeat
+      const left: Clip = { ...clip, id: `${clip.id}-L`, durationBeats: splitOffset, fadeOut: 0, crossfadeBeats: 0 }
+      const right: Clip = {
+        ...clip, id: `${clip.id}-R`,
+        startBeat: beat,
+        durationBeats: clip.startBeat + clip.durationBeats - beat,
+        fadeIn: 0, crossfadeBeats: 0,
+      }
       updated = st.tracks.map(t => t.id === track.id
         ? { ...t, clips: [...t.clips.filter(c => c.id !== clipId), left, right] }
         : t)
@@ -387,6 +415,81 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
       return { ...t, clips: [...t.clips, copy] }
     })
     return { tracks, isDirty: true }
+  }),
+
+  // ── Fade actions ───────────────────────────────────────────────────────────
+  setClipFadeIn: (clipId, fadeBeats) => set(st => ({
+    tracks: st.tracks.map(t => ({
+      ...t,
+      clips: t.clips.map(c => c.id === clipId
+        ? { ...c, fadeIn: Math.max(0, Math.min(fadeBeats, c.durationBeats * 0.9)) }
+        : c),
+    })),
+    isDirty: true,
+  })),
+
+  setClipFadeOut: (clipId, fadeBeats) => set(st => ({
+    tracks: st.tracks.map(t => ({
+      ...t,
+      clips: t.clips.map(c => c.id === clipId
+        ? { ...c, fadeOut: Math.max(0, Math.min(fadeBeats, c.durationBeats * 0.9)) }
+        : c),
+    })),
+    isDirty: true,
+  })),
+
+  setClipCrossfade: (clipId, xfadeBeats) => set(st => ({
+    tracks: st.tracks.map(t => ({
+      ...t,
+      clips: t.clips.map(c => c.id === clipId
+        ? { ...c, crossfadeBeats: Math.max(0, xfadeBeats) }
+        : c),
+    })),
+    isDirty: true,
+  })),
+
+  applyFadeInToSelected: () => {
+    const st = get()
+    for (const id of st.selectedClipIds) {
+      get().setClipFadeIn(id, 1) // default 1 beat
+    }
+  },
+
+  applyFadeOutToSelected: () => {
+    const st = get()
+    for (const id of st.selectedClipIds) {
+      get().setClipFadeOut(id, 1)
+    }
+  },
+
+  // ── Glue adjacent clips ───────────────────────────────────────────────────
+  glueClips: (clipIds) => set(st => {
+    if (clipIds.length < 2) return st
+    // Find track and clips
+    for (const track of st.tracks) {
+      const clips = track.clips.filter(c => clipIds.includes(c.id))
+      if (clips.length < 2) continue
+      const sorted = [...clips].sort((a, b) => a.startBeat - b.startBeat)
+      const first = sorted[0]
+      const last = sorted[sorted.length - 1]
+      const totalDuration = (last.startBeat + last.durationBeats) - first.startBeat
+      const glued: Clip = {
+        ...first,
+        id: `clip-glue-${Date.now()}`,
+        durationBeats: totalDuration,
+        name: first.name + ' (glued)',
+        fadeIn: first.fadeIn,
+        fadeOut: last.fadeOut,
+      }
+      const updated = track.clips.filter(c => !clipIds.includes(c.id))
+      updated.push(glued)
+      return {
+        tracks: st.tracks.map(t => t.id === track.id ? { ...t, clips: updated } : t),
+        selectedClipIds: [glued.id],
+        isDirty: true,
+      }
+    }
+    return st
   }),
 
   // ── Plugin actions ─────────────────────────────────────────────────────────
@@ -438,6 +541,7 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
   setShowPianoRoll: (v, clipId) => set({ showPianoRoll: v, activePianoRollClipId: clipId ?? null, activePanel: v ? 'piano-roll' : 'mixer' }),
   setShowClawbot: (v) => set({ showClawbot: v }),
   setActivePanel: (v) => set({ activePanel: v }),
+  setActiveTool: (tool) => set({ activeTool: tool }),
 
   // ── AI ─────────────────────────────────────────────────────────────────────
   setAiLevel: (v) => set({ aiLevel: v }),

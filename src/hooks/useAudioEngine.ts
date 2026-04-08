@@ -7,6 +7,11 @@ interface TrackNodes {
   analyser: AnalyserNode
   eq: BiquadFilterNode[]
   compressor: DynamicsCompressorNode
+  reverb?: ConvolverNode
+  reverbGain?: GainNode
+  delay?: DelayNode
+  delayFeedback?: GainNode
+  delayWet?: GainNode
 }
 
 interface ScheduledSource {
@@ -18,6 +23,7 @@ export function useAudioEngine() {
   const ctxRef = useRef<AudioContext | null>(null)
   const masterGainRef = useRef<GainNode | null>(null)
   const masterAnalyserRef = useRef<AnalyserNode | null>(null)
+  const masterLimiterRef = useRef<DynamicsCompressorNode | null>(null)
   const trackNodesRef = useRef<Map<string, TrackNodes>>(new Map())
   const scheduledSourcesRef = useRef<ScheduledSource[]>([])
   const metronomeIntervalRef = useRef<number | null>(null)
@@ -37,7 +43,17 @@ export function useAudioEngine() {
       masterGainRef.current.gain.value = 0.9
       masterAnalyserRef.current = ctxRef.current.createAnalyser()
       masterAnalyserRef.current.fftSize = 2048
-      masterGainRef.current.connect(masterAnalyserRef.current)
+
+      // Master limiter (brick wall at 0 dBFS)
+      masterLimiterRef.current = ctxRef.current.createDynamicsCompressor()
+      masterLimiterRef.current.threshold.value = -1
+      masterLimiterRef.current.knee.value = 0
+      masterLimiterRef.current.ratio.value = 20
+      masterLimiterRef.current.attack.value = 0.001
+      masterLimiterRef.current.release.value = 0.1
+
+      masterGainRef.current.connect(masterLimiterRef.current)
+      masterLimiterRef.current.connect(masterAnalyserRef.current)
       masterAnalyserRef.current.connect(ctxRef.current.destination)
     }
     return ctxRef.current
@@ -80,15 +96,55 @@ export function useAudioEngine() {
     highShelf.frequency.value = 3200
     highShelf.gain.value = 0
 
+    // ── Reverb (convolver + impulse) ──────────────────────────────────────
+    const reverb = ctx.createConvolver()
+    const reverbGain = ctx.createGain()
+    reverbGain.gain.value = 0 // dry by default
+    // Generate a simple synthetic reverb impulse
+    const irLength = ctx.sampleRate * 2.5
+    const irBuffer = ctx.createBuffer(2, irLength, ctx.sampleRate)
+    for (let ch = 0; ch < 2; ch++) {
+      const data = irBuffer.getChannelData(ch)
+      for (let i = 0; i < irLength; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / irLength, 2.5)
+      }
+    }
+    reverb.buffer = irBuffer
+
+    // ── Delay ────────────────────────────────────────────────────────────
+    const delay = ctx.createDelay(5.0)
+    delay.delayTime.value = 0.25
+    const delayFeedback = ctx.createGain()
+    delayFeedback.gain.value = 0.3
+    const delayWet = ctx.createGain()
+    delayWet.gain.value = 0 // dry by default
+
+    // Chain: gain → lowShelf → midPeak → highShelf → compressor → panner → analyser
     gain.connect(lowShelf)
     lowShelf.connect(midPeak)
     midPeak.connect(highShelf)
     highShelf.connect(compressor)
     compressor.connect(panner)
+
+    // Reverb branch
+    compressor.connect(reverb)
+    reverb.connect(reverbGain)
+    reverbGain.connect(analyser)
+
+    // Delay branch
+    compressor.connect(delay)
+    delay.connect(delayFeedback)
+    delayFeedback.connect(delay)
+    delay.connect(delayWet)
+    delayWet.connect(analyser)
+
     panner.connect(analyser)
     analyser.connect(masterGainRef.current!)
 
-    const nodes: TrackNodes = { gain, panner, analyser, eq: [lowShelf, midPeak, highShelf], compressor }
+    const nodes: TrackNodes = {
+      gain, panner, analyser, eq: [lowShelf, midPeak, highShelf], compressor,
+      reverb, reverbGain, delay, delayFeedback, delayWet,
+    }
     trackNodesRef.current.set(trackId, nodes)
     return nodes
   }, [getCtx])
@@ -101,7 +157,6 @@ export function useAudioEngine() {
   const loadAudioBuffer = useCallback(async (url: string): Promise<AudioBuffer | null> => {
     const cached = audioBuffersRef.current.get(url)
     if (cached) return cached
-    // Only fetch http/https URLs — rec: and blob: keys must be pre-registered via registerAudioBuffer
     if (!url.startsWith('http')) {
       console.warn('loadAudioBuffer: no cached buffer for key:', url)
       return null
@@ -119,16 +174,66 @@ export function useAudioEngine() {
     }
   }, [getCtx])
 
+  // ── Apply fade ramps to a clip gain node ──────────────────────────────────
+  const applyFadeRamps = useCallback((
+    clipGain: GainNode,
+    clip: Clip,
+    bpm: number,
+    clipOffsetSec: number,
+    scheduledAtCtxTime: number,
+    playDuration: number,
+  ) => {
+    const ctx = getCtx()
+    const beatDur = 60 / bpm
+    const fadeInSec = (clip.fadeIn ?? 0) * beatDur
+    const fadeOutSec = (clip.fadeOut ?? 0) * beatDur
+    const curve = clip.fadeInCurve ?? 'exp'
+
+    const now = ctx.currentTime
+    const startTime = scheduledAtCtxTime
+    const endTime = startTime + playDuration
+
+    // Initial gain = 0 if fade-in, else gain value
+    if (fadeInSec > 0) {
+      const fadeInStartSec = Math.max(0, fadeInSec - clipOffsetSec)
+      clipGain.gain.setValueAtTime(0.0001, startTime)
+      if (curve === 'linear') {
+        clipGain.gain.linearRampToValueAtTime(clip.gain, startTime + fadeInStartSec)
+      } else if (curve === 's-curve') {
+        // S-curve: set halfway through at sqrt(gain)
+        clipGain.gain.setValueAtTime(0.0001, startTime)
+        clipGain.gain.linearRampToValueAtTime(clip.gain * 0.5, startTime + fadeInStartSec / 2)
+        clipGain.gain.linearRampToValueAtTime(clip.gain, startTime + fadeInStartSec)
+      } else {
+        // Exponential (Logic Pro default)
+        clipGain.gain.exponentialRampToValueAtTime(clip.gain, startTime + fadeInStartSec)
+      }
+    } else {
+      clipGain.gain.setValueAtTime(clip.gain, startTime)
+    }
+
+    // Fade out
+    if (fadeOutSec > 0) {
+      const fadeOutStart = endTime - fadeOutSec
+      if (fadeOutStart > startTime) {
+        clipGain.gain.setValueAtTime(clip.gain, Math.max(now, fadeOutStart))
+        if (curve === 'linear') {
+          clipGain.gain.linearRampToValueAtTime(0.0001, endTime)
+        } else {
+          clipGain.gain.exponentialRampToValueAtTime(0.0001, endTime)
+        }
+      }
+    }
+  }, [getCtx])
+
   const playClip = useCallback(async (
     audioUrl: string,
     trackId: string,
-    clipStartBeat: number,
-    clipDurationBeats: number,
+    clip: Clip,
     bpm: number,
     playheadBeat: number,
     volume: number,
     pan: number,
-    gain: number = 1,
   ) => {
     const ctx = getCtx()
     const nodes = getTrackNodes(trackId, volume, pan)
@@ -136,8 +241,8 @@ export function useAudioEngine() {
     if (!buffer) return null
 
     const beatDuration = 60 / bpm
-    const clipStartSec = clipStartBeat * beatDuration
-    const clipDurSec = clipDurationBeats * beatDuration
+    const clipStartSec = clip.startBeat * beatDuration
+    const clipDurSec = clip.durationBeats * beatDuration
     const playheadSec = playheadBeat * beatDuration
     const clipOffset = Math.max(0, playheadSec - clipStartSec)
     if (clipOffset >= clipDurSec) return null
@@ -145,20 +250,28 @@ export function useAudioEngine() {
     const source = ctx.createBufferSource()
     source.buffer = buffer
     source.playbackRate.value = 1
+    if (clip.looped) source.loop = true
 
     const clipGain = ctx.createGain()
-    clipGain.gain.value = gain
+    clipGain.gain.value = clip.gain
     source.connect(clipGain)
     clipGain.connect(nodes.gain)
 
     const when = Math.max(0, clipStartSec - playheadSec)
-    source.start(ctx.currentTime + when, clipOffset, clipDurSec - clipOffset)
-    scheduledSourcesRef.current.push({ source, clipId: '' })
+    const scheduledAt = ctx.currentTime + when
+    const playDuration = clipDurSec - clipOffset
+
+    source.start(scheduledAt, clipOffset, clip.looped ? undefined : playDuration)
+
+    // Apply fade ramps
+    applyFadeRamps(clipGain, clip, bpm, clipOffset, scheduledAt, playDuration)
+
+    scheduledSourcesRef.current.push({ source, clipId: clip.id })
     source.onended = () => {
       scheduledSourcesRef.current = scheduledSourcesRef.current.filter(s => s.source !== source)
     }
     return source
-  }, [getCtx, getTrackNodes, loadAudioBuffer])
+  }, [getCtx, getTrackNodes, loadAudioBuffer, applyFadeRamps])
 
   const startPlayback = useCallback(async (fromBeat: number) => {
     const ctx = getCtx()
@@ -174,7 +287,7 @@ export function useAudioEngine() {
         if (!clip.audioUrl || clip.muted) continue
         const clipEndBeat = clip.startBeat + clip.durationBeats
         if (clipEndBeat <= fromBeat) continue
-        await playClip(clip.audioUrl, track.id, clip.startBeat, clip.durationBeats, bpm, fromBeat, track.volume, track.pan, clip.gain)
+        await playClip(clip.audioUrl, track.id, clip, bpm, fromBeat, track.volume, track.pan)
       }
     }
   }, [getCtx, getTrackNodes, playClip])
@@ -227,7 +340,6 @@ export function useAudioEngine() {
       mediaStreamRef.current = stream
       recordedChunksRef.current = []
 
-      // Also pipe mic into AudioContext for monitoring (optional)
       const ctx = getCtx()
       if (ctx.state === 'suspended') await ctx.resume()
 
@@ -237,7 +349,6 @@ export function useAudioEngine() {
         ? 'audio/webm'
         : 'audio/ogg'
 
-      // Pipe mic into AudioContext for live level monitoring
       const micSource = ctx.createMediaStreamSource(stream)
       const micAnalyser = ctx.createAnalyser()
       micAnalyser.fftSize = 512
@@ -254,7 +365,7 @@ export function useAudioEngine() {
         }
       }
 
-      recorder.start(100) // collect in 100ms chunks
+      recorder.start(100)
     } catch (err: any) {
       const msg = err?.name === 'NotAllowedError'
         ? 'Microphone access denied. Please allow microphone access in your browser settings.'
@@ -272,13 +383,11 @@ export function useAudioEngine() {
       }
 
       recorder.onstop = async () => {
-        // Disconnect mic analyser
         try { micSourceRef.current?.disconnect() } catch {}
         try { micAnalyserRef.current?.disconnect() } catch {}
         micSourceRef.current = null
         micAnalyserRef.current = null
 
-        // Stop all mic tracks
         mediaStreamRef.current?.getTracks().forEach(t => t.stop())
         mediaStreamRef.current = null
 
@@ -374,6 +483,21 @@ export function useAudioEngine() {
     nodes.compressor.release.value = release
   }, [])
 
+  // ── Reverb / Delay control ────────────────────────────────────────────────
+  const setTrackReverb = useCallback((trackId: string, wet: number) => {
+    const nodes = trackNodesRef.current.get(trackId)
+    if (!nodes?.reverbGain) return
+    nodes.reverbGain.gain.value = Math.max(0, Math.min(1, wet))
+  }, [])
+
+  const setTrackDelay = useCallback((trackId: string, wet: number, time: number, feedback: number) => {
+    const nodes = trackNodesRef.current.get(trackId)
+    if (!nodes?.delayWet || !nodes.delay || !nodes.delayFeedback) return
+    nodes.delayWet.gain.value = Math.max(0, Math.min(1, wet))
+    nodes.delay.delayTime.value = Math.max(0, Math.min(4, time))
+    nodes.delayFeedback.gain.value = Math.max(0, Math.min(0.98, feedback))
+  }, [])
+
   const generateWaveformPeaks = useCallback((buffer: AudioBuffer, numPeaks = 200): number[] => {
     const channel = buffer.getChannelData(0)
     const blockSize = Math.floor(channel.length / numPeaks)
@@ -389,12 +513,21 @@ export function useAudioEngine() {
     return peaks
   }, [])
 
+  // Normalize a clip's gain based on peak amplitude
+  const normalizeClipGain = useCallback((audioUrl: string): number => {
+    const buffer = audioBuffersRef.current.get(audioUrl)
+    if (!buffer) return 1
+    const channel = buffer.getChannelData(0)
+    let peak = 0
+    for (const v of channel) if (Math.abs(v) > peak) peak = Math.abs(v)
+    return peak > 0 ? Math.min(2, 0.9 / peak) : 1
+  }, [])
+
   // ── Play a preview note (piano roll key click) ────────────────────────────
-  // Held notes for Musical Typing (pitch -> {osc, gain})
   const heldNotesRef = useRef<Map<number, { osc: OscillatorNode; gain: GainNode }>>(new Map())
 
   const noteOn = useCallback((pitch: number, velocity = 100) => {
-    if (heldNotesRef.current.has(pitch)) return // already playing
+    if (heldNotesRef.current.has(pitch)) return
     const ctx = getCtx()
     if (ctx.state === 'suspended') ctx.resume()
     const freq = 440 * Math.pow(2, (pitch - 69) / 12)
@@ -406,7 +539,7 @@ export function useAudioEngine() {
     gain.connect(masterGainRef.current ?? ctx.destination)
     const vol = (velocity / 127) * 0.4
     gain.gain.setValueAtTime(0, ctx.currentTime)
-    gain.gain.linearRampToValueAtTime(vol, ctx.currentTime + 0.005) // 5ms attack
+    gain.gain.linearRampToValueAtTime(vol, ctx.currentTime + 0.005)
     osc.start(ctx.currentTime)
     heldNotesRef.current.set(pitch, { osc, gain })
   }, [getCtx])
@@ -418,7 +551,7 @@ export function useAudioEngine() {
     const { osc, gain } = held
     gain.gain.cancelScheduledValues(ctx.currentTime)
     gain.gain.setValueAtTime(gain.gain.value, ctx.currentTime)
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08) // 80ms release
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08)
     try { osc.stop(ctx.currentTime + 0.09) } catch {}
     heldNotesRef.current.delete(pitch)
   }, [getCtx])
@@ -457,12 +590,16 @@ export function useAudioEngine() {
     getMasterLevel,
     setTrackEQ,
     setTrackCompressor,
+    setTrackReverb,
+    setTrackDelay,
     setTrackVolume,
     setTrackPan,
     setMasterVolume,
     loadAudioBuffer,
     registerAudioBuffer,
     generateWaveformPeaks,
+    normalizeClipGain,
+    applyFadeRamps,
     noteOn,
     noteOff,
     allNotesOff,

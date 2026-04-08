@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react'
 import { useProjectStore, Track, Plugin } from '../store/projectStore'
+import { PluginRack } from './plugins/BuiltInPlugins'
 
 function volToDb(v: number): string {
   if (v <= 0.001) return '-∞ dB'
@@ -351,21 +352,9 @@ export function InspectorPanel({ onSetTrackEQ, onSetTrackVolume, onSetTrackPan, 
         </div>
       </div>
 
-      {/* Plugin inserts */}
-      <div className="inspector-section">
-        <div className="inspector-section-title">Inserts</div>
-        <div className="plugin-slots">
-          {[0,1,2,3].map(i => (
-            <PluginSlot
-              key={i}
-              plugin={track!.plugins[i]}
-              trackId={track!.id}
-              index={i}
-              onSetEQ={(l, m, h) => onSetTrackEQ(track!.id, l, m, h)}
-              onSetCompressor={(th, ra, at, re) => onSetTrackCompressor(track!.id, th, ra, at, re)}
-            />
-          ))}
-        </div>
+      {/* Plugin Rack — full-featured with built-in plugins */}
+      <div className="inspector-section" style={{ padding: 0 }}>
+        <PluginRack track={track!} />
       </div>
 
       {/* Sends (stub) */}
