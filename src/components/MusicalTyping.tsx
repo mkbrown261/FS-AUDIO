@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react'
 
 // ── Note layout for 2 octaves starting at C4 ─────────────────────────────────
 // White keys: A S D F G H J K L  → C4 D4 E4 F4 G4 A4 B4 C5 D5
-// Black keys: W E   R T Y   U I O P → C#4 D#4 F#4 G#4 A#4 C#5 D#5 F#5 G#5
+// Black keys: W E   R T Y   U I   → C#4 D#4 F#4 G#4 A#4 C#5 D#5
 
 const WHITE_KEY_MAP: Record<string, number> = {
   a: 60, // C4
@@ -17,15 +17,15 @@ const WHITE_KEY_MAP: Record<string, number> = {
 }
 
 const BLACK_KEY_MAP: Record<string, number> = {
-  w: 61, // C#4
-  e: 63, // D#4
-  r: 66, // F#4
-  t: 68, // G#4
-  y: 70, // A#4
-  u: 73, // C#5
-  i: 75, // D#5
-  o: 78, // F#5 (actually 77, but spec says 78)
-  p: 80, // G#5
+  w: 61,  // C#4
+  e: 63,  // D#4
+  r: 66,  // F#4
+  t: 68,  // G#4
+  y: 70,  // A#4
+  u: 73,  // C#5
+  i: 75,  // D#5
+  o: 78,  // F#5
+  p: 80,  // G#5
 }
 
 const NOTE_KEY_MAP: Record<string, number> = { ...WHITE_KEY_MAP, ...BLACK_KEY_MAP }
@@ -44,15 +44,6 @@ const WHITE_KEYS = [
 ]
 
 // Black keys with pixel offset from left (each white key is 28px wide)
-// C#4 between C4(0) and D4(1): left = 0*28 + 19 = 19
-// D#4 between D4(1) and E4(2): left = 1*28 + 19 = 47
-// F#4 between F4(3) and G4(4): left = 3*28 + 19 = 103
-// G#4 between G4(4) and A4(5): left = 4*28 + 19 = 131
-// A#4 between A4(5) and B4(6): left = 5*28 + 19 = 159
-// C#5 between C5(7) and D5(8): left = 7*28 + 19 = 215
-// D#5 after D5(8): left = 8*28 + 19 = 243  (note: no E5 white key shown, so D#5 shown)
-// F#5, G#5: shown after the 9 white keys – but we only render 9 white keys.
-// We'll add 2 more implied positions for visual context:
 const BLACK_KEYS = [
   { pitch: 61, label: 'C#4', key: 'W', left: 19 },
   { pitch: 63, label: 'D#4', key: 'E', left: 47 },
@@ -68,7 +59,7 @@ interface MusicalTypingProps {
   onClose: () => void
   onNoteOn: (pitch: number, velocity: number) => void
   onNoteOff: (pitch: number) => void
-  onPlayNote: (pitch: number, durationSec?: number) => void // for mouse clicks (auto-release)
+  onPlayNote: (pitch: number, durationSec?: number) => void
 }
 
 export function MusicalTyping({ isOpen, onClose, onNoteOn, onNoteOff, onPlayNote }: MusicalTypingProps) {
@@ -82,21 +73,50 @@ export function MusicalTyping({ isOpen, onClose, onNoteOn, onNoteOff, onPlayNote
   // Track which physical keys are currently held (to avoid repeat on keydown)
   const heldKeys = useRef<Set<string>>(new Set())
 
-  const isInputFocused = useCallback(() => {
-    const el = document.activeElement
-    return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement
-  }, [])
-
+  // ─── EXCLUSIVE KEYBOARD CAPTURE ───────────────────────────────────────────
+  // We register on the CAPTURE phase (useCapture = true) so our handler fires
+  // BEFORE any bubble-phase listener in App.tsx. For every key event we
+  // call stopImmediatePropagation() to prevent App shortcuts from firing.
+  // The ONLY exception is Shift+P which closes the window (same shortcut as open).
   useEffect(() => {
     if (!isOpen) return
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (isInputFocused()) return
+    // ── Capture-phase blocker: intercepts ALL keyboard events first ──────────
+    const captureBlocker = (e: KeyboardEvent) => {
+      // Always stop propagation — nothing below us in the capture chain
+      // (App.tsx bubble-phase handler) should see this event while MT is open.
+      e.stopImmediatePropagation()
 
+      // Allow browser native behaviour for a very small set of keys that we
+      // handle ourselves so the browser doesn't also act on them.
       const key = e.key.toLowerCase()
 
-      // Prevent browser defaults for handled keys
-      if (key === 'tab') e.preventDefault()
+      // Shift+P → close the Musical Typing window
+      if (e.shiftKey && (e.key === 'P' || e.key === 'p')) {
+        e.preventDefault()
+        onClose()
+        return
+      }
+
+      // Escape → also closes the window
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onClose()
+        return
+      }
+
+      // Suppress browser defaults for ALL keys we use (space, arrows, etc.)
+      // so nothing leaks through.
+      e.preventDefault()
+    }
+
+    // ── Bubble-phase note handler: does the actual music logic ───────────────
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase()
+
+      // Already handled by captureBlocker — but double-check close shortcuts
+      if (e.shiftKey && (e.key === 'P' || e.key === 'p')) return
+      if (e.key === 'Escape') return
 
       // Skip repeat events for note keys
       if (heldKeys.current.has(key)) return
@@ -158,8 +178,6 @@ export function MusicalTyping({ isOpen, onClose, onNoteOn, onNoteOff, onPlayNote
     }
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (isInputFocused()) return
-
       const key = e.key.toLowerCase()
       heldKeys.current.delete(key)
 
@@ -181,13 +199,27 @@ export function MusicalTyping({ isOpen, onClose, onNoteOn, onNoteOff, onPlayNote
       }
     }
 
-    document.addEventListener('keydown', handleKeyDown)
-    document.addEventListener('keyup', handleKeyUp)
+    // CAPTURE phase = true → fires before any bubble-phase handler
+    document.addEventListener('keydown', captureBlocker, true)
+    document.addEventListener('keydown', handleKeyDown, false)
+    document.addEventListener('keyup', handleKeyUp, false)
+
     return () => {
-      document.removeEventListener('keydown', handleKeyDown)
-      document.removeEventListener('keyup', handleKeyUp)
+      document.removeEventListener('keydown', captureBlocker, true)
+      document.removeEventListener('keydown', handleKeyDown, false)
+      document.removeEventListener('keyup', handleKeyUp, false)
+      // Release any held keys / notes when closing
+      heldKeys.current.clear()
     }
-  }, [isOpen, octaveOffset, velocity, sustain, onNoteOn, onNoteOff, isInputFocused])
+  }, [isOpen, octaveOffset, velocity, sustain, onNoteOn, onNoteOff, onClose])
+
+  // When the window closes, clear active notes display
+  useEffect(() => {
+    if (!isOpen) {
+      setActiveNotes(new Set())
+      heldKeys.current.clear()
+    }
+  }, [isOpen])
 
   if (!isOpen) return null
 
@@ -203,92 +235,103 @@ export function MusicalTyping({ isOpen, onClose, onNoteOn, onNoteOff, onPlayNote
   }))
 
   return (
-    <div className="musical-typing">
-      {/* Title bar */}
-      <div className="mt-titlebar">
-        <span>Musical Typing</span>
-        <button
-          onClick={onClose}
-          style={{
-            background: 'transparent', border: 'none', color: 'var(--text-m)',
-            cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: '0 2px',
-          }}
-          title="Close"
-        >✕</button>
-      </div>
+    <>
+      {/* ── Semi-transparent backdrop to visually indicate modal focus ─────── */}
+      <div
+        className="mt-backdrop"
+        onClick={onClose}
+        aria-label="Close Musical Typing"
+      />
 
-      {/* Status row */}
-      <div className="mt-status">
-        <div>Oct: <span>{4 + octaveOffset}</span></div>
-        <div>Vel: <span>{velocity}</span></div>
-        <div>Sus: <span style={{ color: sustain ? 'var(--green)' : undefined }}>{sustain ? 'ON' : 'OFF'}</span></div>
-        <div>Bend: <span>{pitchBend}</span></div>
-        <div>Mod: <span>{modulation}</span></div>
-      </div>
-
-      {/* Keyboard */}
-      <div className="mt-keyboard-wrap">
-        <div className="mt-piano">
-          {/* White keys */}
-          {displayedWhiteKeys.map(k => (
-            <div
-              key={k.key}
-              className={`mt-white-key${activeNotes.has(k.pitch) ? ' active' : ''}`}
-              onMouseDown={() => {
-                onNoteOn(k.pitch, velocity)
-                setActiveNotes(prev => new Set(prev).add(k.pitch))
-              }}
-              onMouseUp={() => {
-                setActiveNotes(prev => { const n = new Set(prev); n.delete(k.pitch); return n })
-                if (!sustain) onNoteOff(k.pitch)
-              }}
-              onMouseLeave={() => {
-                setActiveNotes(prev => { const n = new Set(prev); n.delete(k.pitch); return n })
-                if (!sustain) onNoteOff(k.pitch)
-              }}
-              title={`${k.label} (${k.key})`}
-            >
-              {k.label}
-            </div>
-          ))}
-
-          {/* Black keys — absolutely positioned */}
-          {displayedBlackKeys.map(k => (
-            <div
-              key={k.key}
-              className={`mt-black-key${activeNotes.has(k.pitch) ? ' active' : ''}`}
-              style={{ left: k.left }}
-              onMouseDown={e => {
-                e.stopPropagation()
-                onNoteOn(k.pitch, velocity)
-                setActiveNotes(prev => new Set(prev).add(k.pitch))
-              }}
-              onMouseUp={e => {
-                e.stopPropagation()
-                setActiveNotes(prev => { const n = new Set(prev); n.delete(k.pitch); return n })
-                if (!sustain) onNoteOff(k.pitch)
-              }}
-              onMouseLeave={() => {
-                setActiveNotes(prev => { const n = new Set(prev); n.delete(k.pitch); return n })
-                if (!sustain) onNoteOff(k.pitch)
-              }}
-              title={`${k.label} (${k.key})`}
-            >
-              {k.key}
-            </div>
-          ))}
+      <div className="musical-typing" role="dialog" aria-modal="true" aria-label="Musical Typing Keyboard">
+        {/* Title bar */}
+        <div className="mt-titlebar">
+          <span>🎹 Musical Typing</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 10, color: 'var(--text-m)', opacity: 0.8 }}>
+              Keyboard locked to piano
+            </span>
+            <button
+              onClick={onClose}
+              className="mt-close-btn"
+              title="Close (Shift+P or Esc)"
+            >✕</button>
+          </div>
         </div>
 
-        {/* Control hints */}
-        <div className="mt-hints">
-          <span className="mt-hint">Z/X — Oct ±</span>
-          <span className="mt-hint">C/V — Vel ±10</span>
-          <span className="mt-hint">Tab — Sustain</span>
-          <span className="mt-hint">1/2 — Pitch Bend</span>
-          <span className="mt-hint">3–8 — Mod</span>
-          <span className="mt-hint">Shift+P — Close</span>
+        {/* Status row */}
+        <div className="mt-status">
+          <div>Oct: <span>{4 + octaveOffset}</span></div>
+          <div>Vel: <span>{velocity}</span></div>
+          <div>Sus: <span style={{ color: sustain ? 'var(--green)' : undefined }}>{sustain ? 'ON' : 'OFF'}</span></div>
+          <div>Bend: <span>{pitchBend}</span></div>
+          <div>Mod: <span>{modulation}</span></div>
+        </div>
+
+        {/* Keyboard */}
+        <div className="mt-keyboard-wrap">
+          <div className="mt-piano">
+            {/* White keys */}
+            {displayedWhiteKeys.map(k => (
+              <div
+                key={k.key}
+                className={`mt-white-key${activeNotes.has(k.pitch) ? ' active' : ''}`}
+                onMouseDown={() => {
+                  onNoteOn(k.pitch, velocity)
+                  setActiveNotes(prev => new Set(prev).add(k.pitch))
+                }}
+                onMouseUp={() => {
+                  setActiveNotes(prev => { const n = new Set(prev); n.delete(k.pitch); return n })
+                  if (!sustain) onNoteOff(k.pitch)
+                }}
+                onMouseLeave={() => {
+                  setActiveNotes(prev => { const n = new Set(prev); n.delete(k.pitch); return n })
+                  if (!sustain) onNoteOff(k.pitch)
+                }}
+                title={`${k.label} (${k.key})`}
+              >
+                {k.label}
+              </div>
+            ))}
+
+            {/* Black keys — absolutely positioned */}
+            {displayedBlackKeys.map(k => (
+              <div
+                key={k.key}
+                className={`mt-black-key${activeNotes.has(k.pitch) ? ' active' : ''}`}
+                style={{ left: k.left }}
+                onMouseDown={e => {
+                  e.stopPropagation()
+                  onNoteOn(k.pitch, velocity)
+                  setActiveNotes(prev => new Set(prev).add(k.pitch))
+                }}
+                onMouseUp={e => {
+                  e.stopPropagation()
+                  setActiveNotes(prev => { const n = new Set(prev); n.delete(k.pitch); return n })
+                  if (!sustain) onNoteOff(k.pitch)
+                }}
+                onMouseLeave={() => {
+                  setActiveNotes(prev => { const n = new Set(prev); n.delete(k.pitch); return n })
+                  if (!sustain) onNoteOff(k.pitch)
+                }}
+                title={`${k.label} (${k.key})`}
+              >
+                {k.key}
+              </div>
+            ))}
+          </div>
+
+          {/* Control hints */}
+          <div className="mt-hints">
+            <span className="mt-hint">Z/X — Oct ±</span>
+            <span className="mt-hint">C/V — Vel ±10</span>
+            <span className="mt-hint">Tab — Sustain</span>
+            <span className="mt-hint">1/2 — Pitch Bend</span>
+            <span className="mt-hint">3–8 — Mod</span>
+            <span className="mt-hint"><strong>Shift+P or Esc — Close</strong></span>
+          </div>
         </div>
       </div>
-    </div>
+    </>
   )
 }

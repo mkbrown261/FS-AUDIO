@@ -185,8 +185,25 @@ export default function App() {
   }, [])
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  // NOTE: When Musical Typing is open, the MusicalTyping component registers a
+  // CAPTURE-phase listener that calls stopImmediatePropagation() on every
+  // keydown event, so this bubble-phase handler never fires.  We also check
+  // showMusicalTyping here as an extra safety net.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // ── GUARD: if Musical Typing is open, block ALL shortcuts here too ──
+      // (The capture-phase handler in MusicalTyping.tsx already stops most
+      //  events, but this covers any edge cases like events that bypass capture)
+      if (showMusicalTyping) {
+        // Only allow Shift+P to toggle the window off — everything else is blocked
+        if (e.shiftKey && (e.key === 'P' || e.key === 'p')) {
+          e.preventDefault()
+          setShowMusicalTyping(false)
+          engine.allNotesOff()
+        }
+        return
+      }
+
       const el = document.activeElement
       if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return
 
@@ -449,7 +466,7 @@ export default function App() {
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transport, store, inspectorWidth, tracklistWidth, clawbotWidth, engine])
+  }, [transport, store, inspectorWidth, tracklistWidth, clawbotWidth, engine, showMusicalTyping])
 
   const currentBeat = store.currentTime * (store.bpm / 60)
   const playheadX = currentBeat * store.pixelsPerBeat - store.scrollLeft
@@ -523,7 +540,10 @@ export default function App() {
 
       <MusicalTyping
         isOpen={showMusicalTyping}
-        onClose={() => { setShowMusicalTyping(false); engine.allNotesOff() }}
+        onClose={() => {
+          setShowMusicalTyping(false)
+          engine.allNotesOff()
+        }}
         onNoteOn={engine.noteOn}
         onNoteOff={engine.noteOff}
         onPlayNote={engine.playPreviewNote}
