@@ -734,6 +734,8 @@ export function Timeline({
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null)
   const [lassoBox, setLassoBox] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null)
   const recordStartBeatRef = useRef(0)
+  const userScrollingRef = useRef(false)
+  const scrollTimeoutRef = useRef<number>()
   useEffect(() => {
     if (isRecording) recordStartBeatRef.current = currentBeat
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -742,18 +744,42 @@ export function Timeline({
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    const handler = () => setScrollLeft(el.scrollLeft)
+    const handler = () => {
+      setScrollLeft(el.scrollLeft)
+      // Mark that user is scrolling
+      userScrollingRef.current = true
+      // Clear any existing timeout
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current)
+      // After 150ms of no scrolling, allow auto-scroll again
+      scrollTimeoutRef.current = window.setTimeout(() => {
+        userScrollingRef.current = false
+      }, 150)
+    }
     el.addEventListener('scroll', handler, { passive: true })
-    return () => el.removeEventListener('scroll', handler)
+    return () => {
+      el.removeEventListener('scroll', handler)
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current)
+    }
   }, [setScrollLeft])
 
-  // Auto-scroll playhead into view
+  // Auto-scroll playhead into view (only when NOT manually scrolling)
   useEffect(() => {
+    // Don't auto-scroll if user is currently scrolling
+    if (userScrollingRef.current) return
+    
     const el = scrollRef.current
     if (!el) return
     const viewW = el.clientWidth
     const absoluteX = playheadX + scrollLeft
-    if (absoluteX > scrollLeft + viewW - 80) el.scrollLeft = absoluteX - 60
+    
+    // Scroll right if playhead goes off right edge
+    if (absoluteX > scrollLeft + viewW - 80) {
+      el.scrollLeft = absoluteX - 60
+    }
+    // Scroll left if playhead goes off left edge
+    else if (absoluteX < scrollLeft + 80) {
+      el.scrollLeft = Math.max(0, absoluteX - 60)
+    }
   }, [playheadX, scrollLeft])
 
   function handleRulerMouseDown(e: React.MouseEvent) {

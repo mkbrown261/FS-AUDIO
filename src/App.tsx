@@ -379,6 +379,9 @@ export default function App() {
 
   // ── Warn before closing if unsaved ───────────────────────────────────────
   useEffect(() => {
+    // Expose function for Electron to check unsaved status
+    ;(window as any).__checkUnsaved = () => store.isDirty
+    
     const handler = (e: BeforeUnloadEvent) => {
       if (store.isDirty) {
         e.preventDefault()
@@ -386,7 +389,10 @@ export default function App() {
       }
     }
     window.addEventListener('beforeunload', handler)
-    return () => window.removeEventListener('beforeunload', handler)
+    return () => {
+      window.removeEventListener('beforeunload', handler)
+      delete (window as any).__checkUnsaved
+    }
   }, [store.isDirty])
 
   // ── Check ClawFlow status ─────────────────────────────────────────────────

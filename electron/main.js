@@ -31,6 +31,52 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
   }
 
+  // Handle window close - check for unsaved changes
+  let closeRequested = false
+  mainWindow.on('close', (e) => {
+    if (!closeRequested) {
+      e.preventDefault()
+      closeRequested = true
+      
+      // Ask renderer if there are unsaved changes
+      mainWindow.webContents.executeJavaScript('window.__checkUnsaved ? window.__checkUnsaved() : false')
+        .then(hasUnsavedChanges => {
+          if (hasUnsavedChanges) {
+            const choice = dialog.showMessageBoxSync(mainWindow, {
+              type: 'question',
+              buttons: ['Save', "Don't Save", 'Cancel'],
+              title: 'Confirm',
+              message: 'Do you want to save the changes you made?',
+              detail: 'Your changes will be lost if you don't save them.',
+              defaultId: 0,
+              cancelId: 2
+            })
+            
+            if (choice === 0) {
+              // Save
+              mainWindow.webContents.send('menu:action', 'save')
+              setTimeout(() => mainWindow.close(), 500)
+            } else if (choice === 1) {
+              // Don't save
+              closeRequested = false
+              mainWindow.destroy()
+            } else {
+              // Cancel
+              closeRequested = false
+            }
+          } else {
+            // No unsaved changes, just close
+            closeRequested = false
+            mainWindow.destroy()
+          }
+        })
+        .catch(() => {
+          closeRequested = false
+          mainWindow.destroy()
+        })
+    }
+  })
+
   mainWindow.on('closed', () => { mainWindow = null })
 }
 

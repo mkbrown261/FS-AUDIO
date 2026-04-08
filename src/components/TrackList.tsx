@@ -213,6 +213,7 @@ function TrackHeader({
           onChange={e => {
             e.stopPropagation()
             const v = parseInt(e.target.value) / 100
+            console.log('[TrackList] Volume slider changed:', track.name, 'volume=', v)
             updateTrack(track.id, { volume: v })
             onVolumeChange(track.id, v)
           }}
@@ -229,6 +230,7 @@ function TrackHeader({
           onChange={e => {
             e.stopPropagation()
             const v = parseInt(e.target.value) / 100
+            console.log('[TrackList] Pan slider changed:', track.name, 'pan=', v)
             updateTrack(track.id, { pan: v })
             onPanChange(track.id, v)
           }}
