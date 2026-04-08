@@ -19,13 +19,12 @@ const WHITE_KEY_MAP: Record<string, number> = {
 const BLACK_KEY_MAP: Record<string, number> = {
   w: 61,  // C#4
   e: 63,  // D#4
-  r: 66,  // F#4
-  t: 68,  // G#4
-  y: 70,  // A#4
-  u: 73,  // C#5
-  i: 75,  // D#5
-  o: 78,  // F#5
-  p: 80,  // G#5
+  t: 66,  // F#4
+  y: 68,  // G#4
+  u: 70,  // A#4
+  i: 73,  // C#5
+  o: 75,  // D#5
+  // R key reserved for record function
 }
 
 const NOTE_KEY_MAP: Record<string, number> = { ...WHITE_KEY_MAP, ...BLACK_KEY_MAP }
@@ -47,11 +46,11 @@ const WHITE_KEYS = [
 const BLACK_KEYS = [
   { pitch: 61, label: 'C#4', key: 'W', left: 19 },
   { pitch: 63, label: 'D#4', key: 'E', left: 47 },
-  { pitch: 66, label: 'F#4', key: 'R', left: 103 },
-  { pitch: 68, label: 'G#4', key: 'T', left: 131 },
-  { pitch: 70, label: 'A#4', key: 'Y', left: 159 },
-  { pitch: 73, label: 'C#5', key: 'U', left: 215 },
-  { pitch: 75, label: 'D#5', key: 'I', left: 243 },
+  { pitch: 66, label: 'F#4', key: 'T', left: 103 },
+  { pitch: 68, label: 'G#4', key: 'Y', left: 131 },
+  { pitch: 70, label: 'A#4', key: 'U', left: 159 },
+  { pitch: 73, label: 'C#5', key: 'I', left: 215 },
+  { pitch: 75, label: 'D#5', key: 'O', left: 243 },
 ]
 
 interface MusicalTypingProps {
@@ -79,10 +78,15 @@ export function MusicalTyping({ isOpen, onClose, onNoteOn, onNoteOff, onPlayNote
     if (!isOpen) return
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Stop propagation to prevent App.tsx shortcuts
-      e.stopPropagation()
-      
       const key = e.key.toLowerCase()
+      
+      // Allow R key to pass through for record function
+      if (key === 'r') {
+        return // Don't stop propagation, let App.tsx handle recording
+      }
+      
+      // Stop propagation to prevent App.tsx shortcuts (except R)
+      e.stopPropagation()
 
       // Shift+P → close the Musical Typing window
       if (e.shiftKey && (e.key === 'P' || e.key === 'p')) {

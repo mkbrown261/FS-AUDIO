@@ -970,6 +970,24 @@ export function Timeline({
       >
         {ticks}
 
+        {/* Loop region highlight in ruler (like Logic Pro) */}
+        {isLooping && (
+          <div
+            style={{
+              position: 'absolute',
+              left: loopStart * pixelsPerBeat,
+              width: Math.max(0, (loopEnd - loopStart) * pixelsPerBeat),
+              top: 0,
+              height: 28,
+              background: 'rgba(6, 182, 212, 0.25)',
+              borderLeft: '2px solid var(--cyan)',
+              borderRight: '2px solid var(--cyan)',
+              pointerEvents: 'none',
+              zIndex: 2,
+            }}
+          />
+        )}
+
         {/* ── Loop region — always rendered, dimmed when loop is off ──────── */}
         {(() => {
           const loopActive = isLooping
@@ -1030,12 +1048,10 @@ export function Timeline({
 
           return (
             <>
-              {/* Shaded region body — drag to move entire loop range */}
+              {/* Shaded region body — visual only, clicks pass through to ruler */}
               <div
                 className={`loop-region${loopActive ? ' loop-region-active' : ' loop-region-inactive'}`}
-                style={{ left: regionLeft, width: regionWidth, pointerEvents: 'auto', cursor: 'move' }}
-                onMouseDown={handleRegionDrag}
-                title="Drag to move loop region"
+                style={{ left: regionLeft, width: regionWidth, pointerEvents: 'none' }}
               >
                 {regionWidth > 48 && (
                   <span className="loop-region-label">
