@@ -706,8 +706,13 @@ export function useAudioEngine() {
   ) => {
     const ctx = getCtx()
     const nodes = getTrackNodes(trackId, volume, pan)
+    console.log('[playClip] Loading buffer for:', audioUrl)
     const buffer = await loadAudioBuffer(audioUrl)
-    if (!buffer) return null
+    if (!buffer) {
+      console.error('[playClip] Failed to load buffer for:', audioUrl)
+      return null
+    }
+    console.log('[playClip] Buffer loaded, duration:', buffer.duration, 'channels:', buffer.numberOfChannels)
 
     const beatDuration = 60 / bpm
     const clipStartSec = clip.startBeat * beatDuration
@@ -821,9 +826,11 @@ export function useAudioEngine() {
 
   const startPlayback = useCallback(async (fromBeat: number) => {
     const ctx = getCtx()
+    console.log('[startPlayback] fromBeat:', fromBeat, 'ctx.state:', ctx.state)
     if (ctx.state === 'suspended') await ctx.resume()
     const { tracks, bpm, isLooping, loopStart, loopEnd } = useProjectStore.getState()
     const anySolo = tracks.some(t => t.solo && t.type !== 'master')
+    console.log('[startPlayback] tracks:', tracks.length, 'bpm:', bpm, 'isLooping:', isLooping)
 
     for (const track of tracks) {
       if (track.type === 'master') continue
@@ -839,6 +846,8 @@ export function useAudioEngine() {
 
         // When looping, skip clips that start after loop end
         if (isLooping && clip.startBeat >= loopEnd) continue
+
+        console.log('[startPlayback] Scheduling clip:', clip.name, 'type:', clip.type, 'audioUrl:', clip.audioUrl, 'startBeat:', clip.startBeat)
 
         if (clip.type === 'midi' && clip.midiNotes?.length) {
           // MIDI clip — schedule notes through the Web Audio synth (respects loop)
@@ -1810,18 +1819,25 @@ export function useAudioEngine() {
   const noteOn = useCallback((pitch: number, velocity = 100) => {
     if (heldNotesRef.current.has(pitch)) return
     const ctx = getCtx()
-    if (ctx.state === 'suspended') ctx.resume()
+    console.log('[noteOn] pitch:', pitch, 'ctx.state:', ctx.state, 'masterGain:', masterGainRef.current?.gain.value)
+    if (ctx.state === 'suspended') {
+      console.log('[noteOn] Resuming suspended audio context')
+      ctx.resume()
+    }
     const freq = 440 * Math.pow(2, (pitch - 69) / 12)
     const osc = ctx.createOscillator()
     const gain = ctx.createGain()
     osc.type = 'triangle'
     osc.frequency.value = freq
     osc.connect(gain)
-    gain.connect(masterGainRef.current ?? ctx.destination)
+    const destination = masterGainRef.current ?? ctx.destination
+    console.log('[noteOn] Connecting to:', masterGainRef.current ? 'masterGain' : 'ctx.destination')
+    gain.connect(destination)
     const vol = (velocity / 127) * 0.4
     gain.gain.setValueAtTime(0, ctx.currentTime)
     gain.gain.linearRampToValueAtTime(vol, ctx.currentTime + 0.005)
     osc.start(ctx.currentTime)
+    console.log('[noteOn] Oscillator started at freq:', freq, 'vol:', vol)
     heldNotesRef.current.set(pitch, { osc, gain })
   }, [getCtx])
 
