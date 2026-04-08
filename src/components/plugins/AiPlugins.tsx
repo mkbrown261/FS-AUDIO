@@ -2053,10 +2053,10 @@ Format: JSON only: {"score":75,"emotion":"Tense","fix":"Add more low end, sub fr
 // ─────────────────────────────────────────────────────────────────────────────
 // 11. FS-GHOST — AI Phantom Harmonic Sculptor  [CLAWFLOW GATED]
 //     Listens to mic/system audio in real time, runs FFT to identify the
-//     fundamental + partial series, then uses Claude to design "phantom"
-//     overtone layers that didn't exist in the source.  Those ghost
-//     partials are synthesised directly via OscillatorNode and injected
-//     into the monitor output, making sounds richer or stranger on demand.
+//     fundamental + partial series, then uses Claw AI (via FlowState hub)
+//     to design "phantom" overtone layers that didn't exist in the source.
+//     Those ghost partials are synthesised directly via OscillatorNode and
+//     injected into the monitor output, making sounds richer or stranger.
 //     The AI layer also picks "harmonic DNA" — a unique harmonic fingerprint
 //     string like "flat-7th dominant + inverted 9th" — that you can lock.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2156,7 +2156,7 @@ export function GhostEditor({ plugin, onChange }: { plugin: any; onChange: (p: R
 
   useEffect(() => () => { cancelAnimationFrame(rafRef.current); stopGhosts() }, [stopGhosts])
 
-  // Ask Claude to design the ghost harmonic DNA
+  // Ask Claw AI to design the ghost harmonic DNA
   async function designGhosts() {
     if (!fundamental) { setStatus('err'); return }
     setStatus('loading')
@@ -2321,11 +2321,11 @@ Make the partials genuinely interesting, not just basic overtones. Be creative a
 // ─────────────────────────────────────────────────────────────────────────────
 // 12. FS-PROPHET — AI Future-Caster  [CLAWFLOW GATED]
 //     Analyzes the spectral / harmonic / rhythmic fingerprint of the first
-//     N bars of the selected clip, then asks Claude to "predict" what the
-//     continuation should sound like — describing timbre, notes, rhythm,
-//     dynamics.  The description drives a pure-WebAudio synthesis engine
-//     (additive + noise + amplitude-shaped grains) to build an actual audio
-//     continuation clip placed right after the original on the timeline.
+//     N bars of the selected clip, then asks Claw AI (via FlowState hub)
+//     to "predict" what the continuation should sound like — describing
+//     timbre, notes, rhythm, dynamics. The description drives a pure-WebAudio
+//     synthesis engine (additive + noise + amplitude-shaped grains) to build
+//     an actual audio continuation clip placed after the original on timeline.
 // ─────────────────────────────────────────────────────────────────────────────
 export function ProphetEditor({ plugin, onChange }: { plugin: any; onChange: (p: Record<string, number>) => void }) {
   const p = plugin.params
@@ -2618,10 +2618,10 @@ Create ${predictBars * 4} beats worth of synthesis parameters. Partials can be s
 // 13. FS-VOID — Anti-Sound Negative Space Engine  [CLAWFLOW GATED]
 //     Scans all active tracks' plug-in chains and frequency footprints to
 //     map the psychoacoustic "negative space" of the mix — the exact gaps,
-//     holes and unoccupied spectral shelves.  Claude analyses the gap map
-//     and prescribes a complementary texture (sub layer, air shimmer,
-//     mid-fill, stereo ghost pad…).  The prescription is then synthesised
-//     live via an AdditiveEngine and dropped as a new clip, filling the void.
+//     holes and unoccupied spectral shelves. Claw AI (via FlowState hub)
+//     analyses the gap map and prescribes a complementary texture (sub layer,
+//     air shimmer, mid-fill, stereo ghost pad…). The prescription is then
+//     synthesised live via an AdditiveEngine and dropped as new clip, filling void.
 // ─────────────────────────────────────────────────────────────────────────────
 export function VoidEditor({ plugin, onChange }: { plugin: any; onChange: (p: Record<string, number>) => void }) {
   const p = plugin.params
@@ -2937,11 +2937,11 @@ Focus on GAPS: if Bass is empty, create bass content. If Air is empty, add shimm
 // 14. FS-ALCHEMY — Real-Time Material Transformer  [CLAWFLOW GATED]
 //     The most unhinged plugin: treats sound like physical matter.
 //     Spectral analysis maps your audio to a material state (gas/liquid/solid/plasma).
-//     Claude then devises a "transmutation formula" — a precise ordered chain
-//     of 4-8 DSP transforms (granular scatter, spectral freeze, convolution,
-//     harmonic fold, bitcrush, reverse envelope, etc.) applied in sequence.
-//     Each step of the formula morphs the material state toward a target
-//     substance chosen by the user ("obsidian", "fog", "mercury", "starfire").
+//     Claw AI (via FlowState hub) then devises a "transmutation formula" —
+//     a precise ordered chain of 4-8 DSP transforms (granular scatter, spectral
+//     freeze, convolution, harmonic fold, bitcrush, reverse envelope, etc.)
+//     applied in sequence. Each step morphs the material state toward a target
+//     substance chosen by user ("obsidian", "fog", "mercury", "starfire").
 //     Result is rendered as a new clip on the timeline.
 // ─────────────────────────────────────────────────────────────────────────────
 export function AlchemyEditor({ plugin, onChange }: { plugin: any; onChange: (p: Record<string, number>) => void }) {
