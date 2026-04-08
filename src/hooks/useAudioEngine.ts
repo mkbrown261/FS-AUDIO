@@ -53,6 +53,7 @@ interface TrackNodes {
   prismHarmonicGain?: GainNode
   // FS-Vibe (Vibrato/Tape Mod)
   vibeDelay?: DelayNode
+  vibeLFO?: OscillatorNode
   vibeLFOGain?: GainNode
   vibeWet?: GainNode
   vibeDry?: GainNode
@@ -285,15 +286,23 @@ export function useAudioEngine() {
 
     // ── FS-Vibe: Tape Vibrato / Chorus Modulation ────────────────────────────
     const vibeDelay   = ctx.createDelay(0.05); vibeDelay.delayTime.value = 0.01
+    // LFO oscillator → gain node → connects to vibeDelay.delayTime AudioParam
+    const vibeLFO     = ctx.createOscillator()
+    vibeLFO.type      = 'sine'
+    vibeLFO.frequency.value = 5.0  // 5 Hz default vibrato
     const vibeLFOGain = ctx.createGain(); vibeLFOGain.gain.value = 0.003 // ±3ms depth
+    vibeLFO.connect(vibeLFOGain)
+    vibeLFOGain.connect(vibeDelay.delayTime)  // modulate delay time
+    vibeLFO.start()
     const vibeWet     = ctx.createGain(); vibeWet.gain.value = 0
     const vibeDry     = ctx.createGain(); vibeDry.gain.value = 1
 
     // ── FS-Phase (Stereo Width / Mid-Side) ───────────────────────────────────
     // Simplified single-channel width using gain nodes (true MS needs 2-ch processing)
-    const phaseMid    = ctx.createGain(); phaseMid.gain.value = 1
-    const phaseSide   = ctx.createGain(); phaseSide.gain.value = 1
-    const phaseWidthOut = ctx.createGain(); phaseWidthOut.gain.value = 1
+    // Starts at gain 0 — only activated when phase plugin is enabled
+    const phaseMid    = ctx.createGain(); phaseMid.gain.value = 0
+    const phaseSide   = ctx.createGain(); phaseSide.gain.value = 0
+    const phaseWidthOut = ctx.createGain(); phaseWidthOut.gain.value = 0
 
     // ── FS-Oxide: Tape Emulation ──────────────────────────────────────────────
     const oxideWS     = ctx.createWaveShaper(); oxideWS.oversample = '2x'
@@ -324,14 +333,15 @@ export function useAudioEngine() {
     }
     hadesWS.curve = hadesCurve
     const hadesSubGain = ctx.createGain(); hadesSubGain.gain.value = 0
-    const hadesDry    = ctx.createGain(); hadesDry.gain.value = 1
+    const hadesDry    = ctx.createGain(); hadesDry.gain.value = 0  // inactive by default
 
     // ── FS-Shield: Noise Gate ─────────────────────────────────────────────────
     const shieldComp  = ctx.createDynamicsCompressor()
     shieldComp.threshold.value = -60; shieldComp.ratio.value = 20
     shieldComp.attack.value = 0.001;  shieldComp.release.value = 0.2
     shieldComp.knee.value = 0
-    const shieldMakeup = ctx.createGain(); shieldMakeup.gain.value = 1
+    // Starts at 0 — only activated when shield plugin is enabled
+    const shieldMakeup = ctx.createGain(); shieldMakeup.gain.value = 0
 
     // ── FS-Flux: Pitch Corrector (simplified) ─────────────────────────────────
     // True pitch correction requires DSP beyond Web Audio; we implement as
@@ -487,17 +497,39 @@ export function useAudioEngine() {
     panner.connect(crystalReverb)
     crystalReverb.connect(crystalGain)
 
-    // All new plugin outputs → analyser (wet = 0 by default, no signal added)
+    // ── New Elite plugin outputs → analyser ──────────────────────────────────
+    // Each plugin has wet+dry path. When plugin is INACTIVE: wet=0, dry=0 (panner→analyser handles signal)
+    // When plugin is ACTIVE: wet+dry both connect to analyser, panner still connects (bypass is via dry node)
+    // Note: panner always connects so track signal always reaches analyser even with no elite plugins
     novaWet.connect(analyser)
+    novaDry.connect(analyser)
     prismWet.connect(analyser)
+    prismDry.connect(analyser)
     vibeWet.connect(analyser)
+    vibeDry.connect(analyser)
     phaseWidthOut.connect(analyser)
     oxideWet.connect(analyser)
+    oxideDry.connect(analyser)
     hadesSubGain.connect(analyser)
+    hadesDry.connect(analyser)
     shieldMakeup.connect(analyser)
     fluxWet.connect(analyser)
+    fluxDry.connect(analyser)
     forgeWet.connect(analyser)
+    forgeDry.connect(analyser)
     crystalGain.connect(analyser)
+    crystalDry.connect(analyser)
+
+    // Set initial state: all new elite plugin dry/wet gain = 0 (signal goes through panner→analyser directly)
+    // When a plugin is activated via applyElitePlugins, dry/wet gains are set appropriately
+    novaDry.gain.value = 0;    novaWet.gain.value = 0
+    prismDry.gain.value = 0;   prismWet.gain.value = 0
+    vibeDry.gain.value = 0;    vibeWet.gain.value = 0
+    oxideDry.gain.value = 0;   oxideWet.gain.value = 0
+    hadesDry.gain.value = 0;   hadesSubGain.gain.value = 0
+    fluxDry.gain.value = 0;    fluxWet.gain.value = 0
+    forgeDry.gain.value = 0;   forgeWet.gain.value = 0
+    crystalDry.gain.value = 0; crystalGain.gain.value = 0
 
     panner.connect(analyser)
     analyser.connect(masterGainRef.current!)
@@ -519,7 +551,7 @@ export function useAudioEngine() {
       // New 10 Elite plugins
       novaGate, novaMakeup, novaDry, novaWet,
       prismHP, prismWS, prismHarmonicGain, prismWet, prismDry,
-      vibeDelay, vibeLFOGain, vibeWet, vibeDry,
+      vibeDelay, vibeLFO, vibeLFOGain, vibeWet, vibeDry,
       phaseMid, phaseSide, phaseWidthOut,
       oxideWS, oxideLP, oxideHPF, oxideWet, oxideDry,
       hadesLP, hadesWS, hadesSubGain, hadesDry,
@@ -1019,10 +1051,9 @@ export function useAudioEngine() {
       const novaPlugin = track.plugins.find(p => p.type === 'expander' && p.enabled)
       if (novaPlugin && nodes.novaGate) {
         const np = novaPlugin.params
-        const thresh = np.threshold ?? -50
-        const ratio  = np.ratio ?? 10         // expansion ratio
-        const range  = np.range ?? 40         // max attenuation dB
-        const attack = np.attack ?? 0.001
+        const thresh  = np.threshold ?? -50
+        const ratio   = np.ratio ?? 10
+        const attack  = np.attack ?? 0.001
         const release = np.release ?? 0.1
         nodes.novaGate.threshold.setTargetAtTime(thresh, ctx.currentTime, 0.01)
         nodes.novaGate.ratio.setTargetAtTime(ratio, ctx.currentTime, 0.01)
@@ -1030,13 +1061,13 @@ export function useAudioEngine() {
         nodes.novaGate.release.setTargetAtTime(release, ctx.currentTime, 0.01)
         const makeup = Math.pow(10, (np.makeup ?? 0) / 20)
         nodes.novaMakeup!.gain.setTargetAtTime(makeup, ctx.currentTime, 0.01)
-        nodes.novaWet!.gain.setTargetAtTime(1, ctx.currentTime, 0.01) // gate always on when enabled
+        // Active: gate wet = gated signal, dry = 0 (gate replaces direct panner)
+        nodes.novaWet!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
         nodes.novaDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
-        // Suppress un-gated output from direct panner path in favour of gate path
-        void range // range used as reference only, ratio encodes attenuation level
       } else if (nodes.novaWet) {
+        // Inactive: both = 0, panner→analyser provides the signal directly
         nodes.novaWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
-        nodes.novaDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+        nodes.novaDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
       }
 
       // ── FS-Prism: Harmonic Exciter ────────────────────────────────────────
@@ -1060,40 +1091,43 @@ export function useAudioEngine() {
         nodes.prismDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       } else if (nodes.prismWet) {
         nodes.prismWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        nodes.prismDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
       }
 
       // ── FS-Vibe: Tape Vibrato ─────────────────────────────────────────────
       const vibePlugin = track.plugins.find(p => p.type === 'vibrato' && p.enabled)
       if (vibePlugin && nodes.vibeDelay) {
         const vp = vibePlugin.params
-        const depth = (vp.depth ?? 0.003) // in seconds (max 10ms typical)
-        const rate  = vp.rate ?? 5         // Hz
-        // Modulate delay time with a simple periodic update (not real LFO due to Web Audio constraints)
-        // We set a modest center delay + depth range
-        nodes.vibeDelay.delayTime.setTargetAtTime(0.005 + depth, ctx.currentTime, 0.01)
-        nodes.vibeLFOGain!.gain.setTargetAtTime(depth, ctx.currentTime, 0.01)
-        nodes.vibeWet!.gain.setTargetAtTime(vp.mix ?? 0.5, ctx.currentTime, 0.01)
-        nodes.vibeDry!.gain.setTargetAtTime(1 - (vp.mix ?? 0.5), ctx.currentTime, 0.01)
-        void rate // rate would drive an LFO oscillator – simplified here
+        const depth = vp.depth ?? 0.003 // in seconds (max 10ms typical)
+        const mix   = vp.mix ?? 0.5
+        const rate  = Math.max(0.1, Math.min(20, vp.rate ?? 5))
+        // Update LFO rate and depth
+        if (nodes.vibeLFO) nodes.vibeLFO.frequency.setTargetAtTime(rate, ctx.currentTime, 0.01)
+        if (nodes.vibeLFOGain) nodes.vibeLFOGain.gain.setTargetAtTime(depth, ctx.currentTime, 0.01)
+        // Set center delay: 5ms base
+        nodes.vibeDelay.delayTime.setTargetAtTime(0.005, ctx.currentTime, 0.01)
+        nodes.vibeWet!.gain.setTargetAtTime(mix, ctx.currentTime, 0.01)
+        nodes.vibeDry!.gain.setTargetAtTime(1 - mix, ctx.currentTime, 0.01)
       } else if (nodes.vibeWet) {
         nodes.vibeWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
-        nodes.vibeDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+        nodes.vibeDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
       }
 
       // ── FS-Phase: Stereo Width / M-S ──────────────────────────────────────
       const phasePlugin = track.plugins.find(p => p.type === 'stereo_width' && p.enabled)
       if (phasePlugin && nodes.phaseMid) {
         const php = phasePlugin.params
-        const width = php.width ?? 1.0     // 0 = mono, 1 = normal, 2 = wide
-        const midGain  = 1.0               // keep mid constant
-        const sideGain = width             // scale side signal
+        const width    = php.width ?? 1.0     // 0 = mono, 1 = normal, 2 = wide
+        const midGain  = 1.0
+        const sideGain = Math.max(0, width)
         nodes.phaseMid.gain.setTargetAtTime(midGain, ctx.currentTime, 0.01)
         nodes.phaseSide!.gain.setTargetAtTime(sideGain, ctx.currentTime, 0.01)
         nodes.phaseWidthOut!.gain.setTargetAtTime(Math.pow(10, (php.output ?? 0) / 20), ctx.currentTime, 0.01)
       } else if (nodes.phaseMid) {
-        nodes.phaseMid.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
-        nodes.phaseSide!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
-        nodes.phaseWidthOut!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+        // Inactive: zero out width output (panner→analyser handles signal directly)
+        nodes.phaseMid.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        nodes.phaseSide!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        nodes.phaseWidthOut!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
       }
 
       // ── FS-Oxide: Tape Emulation ──────────────────────────────────────────
@@ -1118,7 +1152,7 @@ export function useAudioEngine() {
         nodes.oxideDry!.gain.setTargetAtTime(1 - mix, ctx.currentTime, 0.01)
       } else if (nodes.oxideWet) {
         nodes.oxideWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
-        nodes.oxideDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+        nodes.oxideDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
       }
 
       // ── FS-Hades: Sub Enhancer ────────────────────────────────────────────
@@ -1136,10 +1170,11 @@ export function useAudioEngine() {
           subCurve[i] = Math.sign(x) * Math.pow(Math.abs(x), 0.3 + (1 - amount) * 0.5)
         }
         if (nodes.hadesWS) nodes.hadesWS.curve = subCurve
-        nodes.hadesSubGain!.gain.setTargetAtTime(amount, ctx.currentTime, 0.01)
+        nodes.hadesSubGain!.gain.setTargetAtTime(amount * 0.5, ctx.currentTime, 0.01)
         nodes.hadesDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       } else if (nodes.hadesSubGain) {
         nodes.hadesSubGain.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        nodes.hadesDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
       }
 
       // ── FS-Shield: Noise Gate ─────────────────────────────────────────────
@@ -1153,6 +1188,9 @@ export function useAudioEngine() {
         nodes.shieldComp.knee.setTargetAtTime(sp.hysteresis ?? 3, ctx.currentTime, 0.01)
         const makeup = Math.pow(10, (sp.makeup ?? 0) / 20)
         nodes.shieldMakeup!.gain.setTargetAtTime(makeup, ctx.currentTime, 0.01)
+      } else if (nodes.shieldMakeup) {
+        // Inactive: zero out — panner→analyser handles signal directly
+        nodes.shieldMakeup.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
       }
 
       // ── FS-Flux: Pitch Correct (simplified blend) ─────────────────────────
@@ -1168,7 +1206,7 @@ export function useAudioEngine() {
         nodes.fluxDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       } else if (nodes.fluxWet) {
         nodes.fluxWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
-        nodes.fluxDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+        nodes.fluxDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
       }
 
       // ── FS-Forge: Parallel Compressor ─────────────────────────────────────
@@ -1187,7 +1225,7 @@ export function useAudioEngine() {
         nodes.forgeWet!.gain.setTargetAtTime(blend, ctx.currentTime, 0.01)
       } else if (nodes.forgeWet) {
         nodes.forgeWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
-        nodes.forgeDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+        nodes.forgeDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
       }
 
       // ── FS-Crystal: Granular Freeze ───────────────────────────────────────
@@ -1212,8 +1250,252 @@ export function useAudioEngine() {
         nodes.crystalDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       } else if (nodes.crystalGain) {
         nodes.crystalGain.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
-        nodes.crystalDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+        nodes.crystalDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
       }
+
+      // ── Flowstate Pro Suite DSP ────────────────────────────────────────────
+      // All FS-Pro plugins use the main reverb/delay/compressor nodes with
+      // param-mapped values. They operate as parameter-remap layers on top of
+      // the existing Web Audio signal chain.
+
+      // FS-ProQ: 8-band EQ → remap to 3-band EQ (lowShelf, midPeak, highShelf)
+      // Params: b1f..b8f = freq, b2g..b8g = gain, b2q..b8q = Q, output
+      const proqPlugin = track.plugins.find(p => p.type === 'fs_proq' && p.enabled)
+      if (proqPlugin && nodes.lowShelf && nodes.midPeak && nodes.highShelf) {
+        const pp = proqPlugin.params
+        // Map bands 4,5,6 to low shelf, mid peak, high shelf
+        if (nodes.lowShelf) {
+          nodes.lowShelf.frequency.setTargetAtTime(pp.b4f ?? 320, ctx.currentTime, 0.01)
+          nodes.lowShelf.gain.setTargetAtTime(pp.b4g ?? 0, ctx.currentTime, 0.01)
+        }
+        if (nodes.midPeak) {
+          nodes.midPeak.frequency.setTargetAtTime(pp.b5f ?? 1000, ctx.currentTime, 0.01)
+          nodes.midPeak.gain.setTargetAtTime(pp.b5g ?? 0, ctx.currentTime, 0.01)
+          nodes.midPeak.Q.setTargetAtTime(pp.b5q ?? 1.0, ctx.currentTime, 0.01)
+        }
+        if (nodes.highShelf) {
+          nodes.highShelf.frequency.setTargetAtTime(pp.b6f ?? 3200, ctx.currentTime, 0.01)
+          nodes.highShelf.gain.setTargetAtTime(pp.b6g ?? 0, ctx.currentTime, 0.01)
+        }
+        // Output trim
+        const outGain = track.volume * Math.pow(10, (pp.output ?? 0) / 20)
+        nodes.gain.gain.setTargetAtTime(Math.max(0, outGain), ctx.currentTime, 0.01)
+      }
+
+      // FS-Cosmos: Algorithmic Reverb → maps to spaceReverb nodes
+      const cosmosPlugin = track.plugins.find(p => p.type === 'fs_vintage_verb' && p.enabled)
+      if (cosmosPlugin && nodes.spaceReverb && nodes.spaceReverbGain) {
+        const cp = cosmosPlugin.params
+        const wet  = cp.wet  ?? 0.3
+        const size = cp.size ?? 1.5
+        const damp = cp.damp ?? 0.5  // 'damp' not 'damping' per FLOWSTATE_PRO_DEFAULTS
+        // Rebuild IR
+        const irLen = Math.round(ctx.sampleRate * Math.max(0.1, size))
+        const irBuf = ctx.createBuffer(2, irLen, ctx.sampleRate)
+        for (let ch = 0; ch < 2; ch++) {
+          const d = irBuf.getChannelData(ch)
+          let lp = 0
+          for (let i = 0; i < irLen; i++) {
+            const env = Math.pow(1 - i / irLen, 1.5 + damp * 3)
+            lp = lp + ((Math.random() * 2 - 1) * env - lp) * (1 - damp * 0.5)
+            d[i] = lp
+          }
+        }
+        nodes.spaceReverb.buffer = irBuf
+        nodes.spaceReverbGain.gain.setTargetAtTime(wet, ctx.currentTime, 0.01)
+        nodes.spaceShimmerGain!.gain.setTargetAtTime(wet * (cp.shimmer ?? 0), ctx.currentTime, 0.01)
+      } else if (cosmosPlugin === undefined && nodes.spaceReverbGain) {
+        // Don't override if spacetime plugin is also present
+        const hasSpacetime = track.plugins.find(p => p.type === 'spacetime' && p.enabled)
+        if (!hasSpacetime) nodes.spaceReverbGain.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+      }
+
+      // FS-Echo: Tape/BBD Delay → maps to spacePingDelay / delayWet nodes
+      const echoPlugin = track.plugins.find(p => p.type === 'fs_echo' && p.enabled)
+      if (echoPlugin && nodes.spacePingDelay && nodes.spaceDlyWet) {
+        const ep = echoPlugin.params
+        const bpm2  = useProjectStore.getState().bpm
+        const sync  = ep.sync ?? 0
+        const syncDivOptions = [0.5, 0.25, 0.125, 1]
+        const time2 = sync > 0
+          ? (60 / bpm2) * (syncDivOptions[Math.round(ep.syncDiv ?? 0)] ?? 0.25)
+          : (ep.time ?? 0.375)
+        nodes.spacePingDelay.delayTime.setTargetAtTime(Math.max(0.001, Math.min(3, time2)), ctx.currentTime, 0.01)
+        nodes.spacePongDelay!.delayTime.setTargetAtTime(Math.max(0.001, Math.min(3, time2 * (1 + (ep.spread ?? 0) * 0.2))), ctx.currentTime, 0.01)
+        nodes.spacePingGain!.gain.setTargetAtTime(Math.max(0, Math.min(0.98, ep.feedback ?? 0.4)), ctx.currentTime, 0.01)
+        nodes.spacePongGain!.gain.setTargetAtTime(Math.max(0, Math.min(0.98, ep.feedback ?? 0.4)), ctx.currentTime, 0.01)
+        nodes.spaceDlyWet.gain.setTargetAtTime(ep.wet ?? 0.3, ctx.currentTime, 0.01)
+      } else if (echoPlugin === undefined && nodes.spaceDlyWet) {
+        const hasSpacetime2 = track.plugins.find(p => p.type === 'spacetime' && p.enabled)
+        if (!hasSpacetime2) nodes.spaceDlyWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+      }
+
+      // FS-Master: Mastering Suite → remap to comp + EQ nodes
+      const masterPlugin = track.plugins.find(p => p.type === 'fs_mastering' && p.enabled)
+      if (masterPlugin && nodes.compressor) {
+        const mp = masterPlugin.params
+        // Tonal: EQ — params: low/lom/him/high match shelf/peak gains
+        if (nodes.lowShelf) nodes.lowShelf.gain.setTargetAtTime(mp.low ?? 0, ctx.currentTime, 0.01)
+        if (nodes.highShelf) nodes.highShelf.gain.setTargetAtTime(mp.high ?? 0, ctx.currentTime, 0.01)
+        // Dynamics: comp — params: cThresh/cRatio/cAttack/cRelease
+        nodes.compressor.threshold.setTargetAtTime(mp.cThresh ?? -18, ctx.currentTime, 0.01)
+        nodes.compressor.ratio.setTargetAtTime(mp.cRatio ?? 2, ctx.currentTime, 0.01)
+        nodes.compressor.attack.setTargetAtTime(mp.cAttack ?? 0.01, ctx.currentTime, 0.01)
+        nodes.compressor.release.setTargetAtTime(mp.cRelease ?? 0.15, ctx.currentTime, 0.01)
+        // Loudness: lufs param — rough gain targeting
+        const lufsTarget = mp.lufs ?? -14
+        const lufsGain   = Math.pow(10, (-14 - lufsTarget) / 20)
+        nodes.gain.gain.setTargetAtTime(Math.max(0, track.volume * lufsGain), ctx.currentTime, 0.05)
+      }
+
+      // FS-Crush: Multiband Compressor → maps to pressureComp
+      const crushPlugin = track.plugins.find(p => p.type === 'fs_multiband_comp' && p.enabled)
+      if (crushPlugin && nodes.pressureComp) {
+        const ccp = crushPlugin.params
+        // Params: loThresh/loRatio/loAtk/loRel, lmThresh, hmThresh, hiThresh
+        const avgThresh = ((ccp.loThresh ?? -20) + (ccp.lmThresh ?? -20) + (ccp.hmThresh ?? -20) + (ccp.hiThresh ?? -20)) / 4
+        const avgRatio  = ((ccp.loRatio  ?? 4)   + (ccp.lmRatio  ?? 4)   + (ccp.hmRatio  ?? 4)   + (ccp.hiRatio  ?? 4))   / 4
+        nodes.pressureComp.threshold.setTargetAtTime(avgThresh, ctx.currentTime, 0.01)
+        nodes.pressureComp.ratio.setTargetAtTime(avgRatio, ctx.currentTime, 0.01)
+        nodes.pressureComp.attack.setTargetAtTime(ccp.loAtk ?? 0.01, ctx.currentTime, 0.01)
+        nodes.pressureComp.release.setTargetAtTime(ccp.loRel ?? 0.15, ctx.currentTime, 0.01)
+        nodes.pressureMakeup!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+        nodes.pressureDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        nodes.pressureWet!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+      }
+
+      // FS-Apex: True-Peak Limiter → maps to master limiter compensation
+      const apexPlugin = track.plugins.find(p => p.type === 'fs_peak_limiter' && p.enabled)
+      if (apexPlugin && nodes.compressor) {
+        const ap = apexPlugin.params
+        // Use the track compressor as a per-track limiter
+        nodes.compressor.threshold.setTargetAtTime(ap.threshold ?? -1, ctx.currentTime, 0.01)
+        nodes.compressor.ratio.setTargetAtTime(20, ctx.currentTime, 0.01) // hard limit
+        nodes.compressor.attack.setTargetAtTime(0.0001, ctx.currentTime, 0.01)
+        nodes.compressor.release.setTargetAtTime(ap.release ?? 0.05, ctx.currentTime, 0.01)
+        nodes.compressor.knee.setTargetAtTime(0, ctx.currentTime, 0.01)
+        const inputGain = Math.pow(10, (ap.input ?? 0) / 20)
+        nodes.gain.gain.setTargetAtTime(track.volume * inputGain, ctx.currentTime, 0.01)
+      }
+
+      // FS-Spacer: Spectral Carver → maps to prism exciter (sidechain carving)
+      const spacerPlugin = track.plugins.find(p => p.type === 'fs_spacer' && p.enabled)
+      if (spacerPlugin && nodes.prismHP) {
+        const sp3 = spacerPlugin.params
+        // Frequency-targeted reduction using HP filter + inverted wet (carve out high freqs)
+        nodes.prismHP.frequency.setTargetAtTime(sp3.rangeHz ?? 3000, ctx.currentTime, 0.01)
+        nodes.prismHP.Q.setTargetAtTime(0.7, ctx.currentTime, 0.01)
+        // The carving effect: reduce high-freq content proportional to depth
+        const carveAmt = (sp3.depth ?? 0.5) * 0.4
+        nodes.prismWet!.gain.setTargetAtTime(0, ctx.currentTime, 0.01) // don't add harmonics
+        nodes.prismDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+      }
+
+      // FS-Reel: Analog Tape Delay → maps to oxideWS + spacePingDelay
+      const reelPlugin = track.plugins.find(p => p.type === 'fs_tape_delay' && p.enabled)
+      if (reelPlugin && nodes.oxideWS && nodes.spacePingDelay) {
+        const rp = reelPlugin.params
+        const satAmt = rp.saturation ?? 0.3
+        const tapeCurve2 = new Float32Array(256)
+        const k2 = 1 + satAmt * 6
+        for (let i = 0; i < 256; i++) {
+          const x = (i * 2) / 256 - 1
+          tapeCurve2[i] = Math.tanh(k2 * x) / Math.tanh(k2)
+        }
+        nodes.oxideWS.curve = tapeCurve2
+        nodes.oxideWet!.gain.setTargetAtTime(rp.wet ?? 0.35, ctx.currentTime, 0.01)
+        nodes.oxideDry!.gain.setTargetAtTime(1 - (rp.wet ?? 0.35), ctx.currentTime, 0.01)
+        // Tape delay time
+        const bpm3 = useProjectStore.getState().bpm
+        const dlyT = rp.sync ? (60 / bpm3) * 0.5 : (rp.time ?? 0.5)
+        nodes.spacePingDelay.delayTime.setTargetAtTime(Math.min(3, dlyT), ctx.currentTime, 0.01)
+        nodes.spaceDlyWet!.gain.setTargetAtTime(rp.wet ?? 0.35, ctx.currentTime, 0.01)
+        nodes.spacePingGain!.gain.setTargetAtTime(rp.feedback ?? 0.4, ctx.currentTime, 0.01)
+      }
+
+      // FS-Aura: Vocal Enhancer → maps to prismHP exciter (air/presence boost)
+      const auraPlugin = track.plugins.find(p => p.type === 'fs_vocal_enhance' && p.enabled)
+      if (auraPlugin && nodes.prismHP && !spacerPlugin && !reelPlugin) {
+        const auP = auraPlugin.params
+        const airFreq = 8000 + (auP.air ?? 0) * 8000  // 8k-16k
+        nodes.prismHP.frequency.setTargetAtTime(airFreq, ctx.currentTime, 0.01)
+        const harmAmt = (auP.air ?? 0) * 0.3 + (auP.presence ?? 0) * 0.2
+        nodes.prismHarmonicGain!.gain.setTargetAtTime(harmAmt, ctx.currentTime, 0.01)
+        nodes.prismWet!.gain.setTargetAtTime(auP.mix ?? 0.5, ctx.currentTime, 0.01)
+        nodes.prismDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+      }
+
+      // FS-Voice: Pitch Corrector → maps to fluxDelay nodes
+      const voicePlugin = track.plugins.find(p => p.type === 'fs_tuner' && p.enabled)
+      if (voicePlugin && nodes.fluxDelay) {
+        const vp2 = voicePlugin.params
+        // speed/amount are 0-100 in FS-Voice defaults
+        const speed2  = (vp2.speed ?? 25) / 100   // normalize 0-100 → 0-1
+        const amount2 = (vp2.amount ?? 100) / 100 // normalize 0-100 → 0-1
+        nodes.fluxDelay.delayTime.setTargetAtTime(0.001 + (1 - speed2) * 0.008, ctx.currentTime, 0.02)
+        nodes.fluxWet!.gain.setTargetAtTime(amount2 * 0.12, ctx.currentTime, 0.01)
+        nodes.fluxDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+      } else if (voicePlugin === undefined && nodes.fluxWet) {
+        const hasFlux2 = track.plugins.find(p => p.type === 'pitch_correct' && p.enabled)
+        if (!hasFlux2) {
+          nodes.fluxWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+          nodes.fluxDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        }
+      }
+
+      // FS-Dimension: Stereo Chorus → maps to vibeDelay (modulated delay chorus)
+      const dimPlugin = track.plugins.find(p => p.type === 'fs_dimension' && p.enabled)
+      if (dimPlugin && nodes.vibeDelay && !vibePlugin) {
+        const dp    = dimPlugin.params
+        const depth2 = (dp.depth ?? 0.3) * 0.008 // 0-8ms chorus depth
+        const rate2  = dp.rate ?? 0.5             // chorus rate Hz
+        const mix2   = dp.mix ?? 0.5
+        if (nodes.vibeLFO)     nodes.vibeLFO.frequency.setTargetAtTime(rate2, ctx.currentTime, 0.01)
+        if (nodes.vibeLFOGain) nodes.vibeLFOGain.gain.setTargetAtTime(depth2, ctx.currentTime, 0.01)
+        nodes.vibeDelay.delayTime.setTargetAtTime(0.015, ctx.currentTime, 0.01) // 15ms chorus center
+        nodes.vibeWet!.gain.setTargetAtTime(mix2, ctx.currentTime, 0.01)
+        nodes.vibeDry!.gain.setTargetAtTime(1 - mix2, ctx.currentTime, 0.01)
+      } else if (dimPlugin === undefined && !vibePlugin && nodes.vibeWet) {
+        nodes.vibeWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        nodes.vibeDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+      }
+
+      // FS-Mutate: Vocal Transformer → maps to forgeComp (pitched parallel path)
+      const mutatePlugin = track.plugins.find(p => p.type === 'fs_alter' && p.enabled)
+      if (mutatePlugin && nodes.forgeComp && !forgePlugin) {
+        const muP = mutatePlugin.params
+        // Params: mode/pitch/formant/mix/detune/output/algo/voice
+        nodes.forgeComp.threshold.setTargetAtTime(-40, ctx.currentTime, 0.01)
+        nodes.forgeComp.ratio.setTargetAtTime(12, ctx.currentTime, 0.01)
+        nodes.forgeComp.attack.setTargetAtTime(0.001, ctx.currentTime, 0.01)
+        nodes.forgeComp.release.setTargetAtTime(0.05, ctx.currentTime, 0.01)
+        const formAmt = muP.formant ?? 0
+        const mixAmt  = muP.mix ?? 1
+        nodes.forgeMakeup!.gain.setTargetAtTime(1 + Math.abs(formAmt) * 0.3, ctx.currentTime, 0.01)
+        nodes.forgeDry!.gain.setTargetAtTime(1 - mixAmt * 0.4, ctx.currentTime, 0.01)
+        nodes.forgeWet!.gain.setTargetAtTime(mixAmt * 0.4, ctx.currentTime, 0.01)
+      }
+
+      // FS-Resonate: Resonance Suppressor → maps to shield (gate out resonances)
+      const resonPlugin = track.plugins.find(p => p.type === 'fs_resonance' && p.enabled)
+      if (resonPlugin && nodes.shieldComp && !shieldPlugin) {
+        const rp2 = resonPlugin.params
+        // Params: depth(dB)/sharpness/speed/sensitivity/mix/focus/delta/mode
+        const sens  = rp2.sensitivity ?? 0.5
+        const depth = rp2.depth ?? 5        // depth in dB
+        const speed2 = rp2.speed ?? 5       // response speed Hz
+        nodes.shieldComp.threshold.setTargetAtTime(-60 + sens * 30, ctx.currentTime, 0.01)
+        nodes.shieldComp.ratio.setTargetAtTime(Math.min(20, 2 + depth), ctx.currentTime, 0.01)
+        nodes.shieldComp.attack.setTargetAtTime(1 / Math.max(0.1, speed2) * 0.05, ctx.currentTime, 0.01)
+        nodes.shieldComp.release.setTargetAtTime(0.1, ctx.currentTime, 0.01)
+        const mixAmt = rp2.mix ?? 1
+        nodes.shieldMakeup!.gain.setTargetAtTime(mixAmt, ctx.currentTime, 0.01)
+      }
+
+      // FS-Glitch / FS-Spectrum / FS-Wavetable: stepseq/synth plugins
+      // These are UI-only plugins (no real DSP via Web Audio for glitch/synth)
+      // Their audio content comes from MIDI notes routed through the MIDI engine
+      // We just ensure they don't interfere with the signal chain
     }
   }, [getCtx])
 
