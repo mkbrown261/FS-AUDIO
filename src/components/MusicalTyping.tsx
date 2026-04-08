@@ -73,19 +73,16 @@ export function MusicalTyping({ isOpen, onClose, onNoteOn, onNoteOff, onPlayNote
   // Track which physical keys are currently held (to avoid repeat on keydown)
   const heldKeys = useRef<Set<string>>(new Set())
 
-  // ─── EXCLUSIVE KEYBOARD CAPTURE ───────────────────────────────────────────
-  // We register on the CAPTURE phase (useCapture = true) so our handler fires
-  // BEFORE any bubble-phase listener in App.tsx. For every key event we
-  // call stopImmediatePropagation() to prevent App shortcuts from firing.
-  // The ONLY exception is Shift+P which closes the window (same shortcut as open).
+  // ─── EXCLUSIVE KEYBOARD HANDLER ───────────────────────────────────────────
+  // Single handler that processes all keys and prevents App.tsx shortcuts
   useEffect(() => {
     if (!isOpen) return
 
-    // ── Capture-phase blocker: intercepts ALL keyboard events first ──────────
-    const captureBlocker = (e: KeyboardEvent) => {
-      // Stop propagation to prevent App.tsx shortcuts while MT is open
-      // BUT do NOT call preventDefault() — let our own bubble handler process the event
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Stop propagation to prevent App.tsx shortcuts
       e.stopPropagation()
+      
+      const key = e.key.toLowerCase()
 
       // Shift+P → close the Musical Typing window
       if (e.shiftKey && (e.key === 'P' || e.key === 'p')) {
@@ -100,15 +97,6 @@ export function MusicalTyping({ isOpen, onClose, onNoteOn, onNoteOff, onPlayNote
         onClose()
         return
       }
-    }
-
-    // ── Bubble-phase note handler: does the actual music logic ───────────────
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const key = e.key.toLowerCase()
-
-      // Already handled by captureBlocker — but double-check close shortcuts
-      if (e.shiftKey && (e.key === 'P' || e.key === 'p')) return
-      if (e.key === 'Escape') return
 
       // Skip repeat events for note keys
       if (heldKeys.current.has(key)) return
@@ -170,6 +158,9 @@ export function MusicalTyping({ isOpen, onClose, onNoteOn, onNoteOff, onPlayNote
     }
 
     const handleKeyUp = (e: KeyboardEvent) => {
+      // Stop propagation to prevent App.tsx shortcuts
+      e.stopPropagation()
+      
       const key = e.key.toLowerCase()
       heldKeys.current.delete(key)
 
@@ -191,13 +182,10 @@ export function MusicalTyping({ isOpen, onClose, onNoteOn, onNoteOff, onPlayNote
       }
     }
 
-    // CAPTURE phase = true → fires before any bubble-phase handler
-    document.addEventListener('keydown', captureBlocker, true)
     document.addEventListener('keydown', handleKeyDown, false)
     document.addEventListener('keyup', handleKeyUp, false)
 
     return () => {
-      document.removeEventListener('keydown', captureBlocker, true)
       document.removeEventListener('keydown', handleKeyDown, false)
       document.removeEventListener('keyup', handleKeyUp, false)
       // Release any held keys / notes when closing

@@ -951,6 +951,7 @@ export function Timeline({
       onWheel={e => {
         if (e.ctrlKey || e.metaKey) {
           e.preventDefault()
+          e.stopPropagation()
           setZoom(Math.max(0.25, Math.min(6, zoom + (e.deltaY > 0 ? -0.15 : 0.15))))
         }
       }}
@@ -1107,6 +1108,7 @@ export function Timeline({
             onMouseDown={(e) => {
               if (e.button !== 0) return
               e.stopPropagation()
+              e.preventDefault()
               const startX = e.clientX
               const startBeat = store.currentTime * (store.bpm / 60)
               const mv = (me: MouseEvent) => {

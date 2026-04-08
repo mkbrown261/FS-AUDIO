@@ -99,7 +99,9 @@ export function useTransport(
         const startBeat = recordStartBeatRef.current
         const id = `clip-rec-${Date.now()}`
         const audioUrl = `rec:${id}`
+        console.log('[stopRecord] Recording stopped, buffer duration:', audioBuffer.duration, 'audioUrl:', audioUrl)
         onRegisterAudioBuffer?.(audioUrl, audioBuffer)
+        console.log('[stopRecord] Buffer registered')
 
         const peaks: number[] = []
         const ch = audioBuffer.getChannelData(0)

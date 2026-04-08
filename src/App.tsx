@@ -720,6 +720,19 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transport, store, inspectorWidth, tracklistWidth, clawbotWidth, engine, showMusicalTyping, showExport, showAudioPrefs])
 
+  // Prevent browser zoom globally - only allow timeline zoom
+  useEffect(() => {
+    const preventBrowserZoom = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        // Prevent browser zoom everywhere
+        e.preventDefault()
+      }
+    }
+    // Use passive: false to allow preventDefault
+    document.addEventListener('wheel', preventBrowserZoom, { passive: false })
+    return () => document.removeEventListener('wheel', preventBrowserZoom)
+  }, [])
+
   const currentBeat = store.currentTime * (store.bpm / 60)
   const playheadX = currentBeat * store.pixelsPerBeat - store.scrollLeft
 

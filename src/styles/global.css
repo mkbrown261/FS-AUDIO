@@ -3489,7 +3489,10 @@ html, body, #root {
 .pdd-scroll::-webkit-scrollbar-thumb { background: rgba(168,85,247,0.3); border-radius: 2px; }
 
 /* Category row */
-.pdd-cat { border-bottom: 1px solid rgba(255,255,255,0.04); }
+.pdd-cat { 
+  border-bottom: 2px solid rgba(255,255,255,0.1); 
+  margin-bottom: 2px;
+}
 .pdd-cat:last-child { border-bottom: none; }
 
 /* Category header button */
@@ -3498,14 +3501,18 @@ html, body, #root {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 7px 10px;
-  background: transparent;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.02);
   border: none;
   cursor: pointer;
-  transition: background 0.1s;
+  transition: all 0.15s;
   text-align: left;
+  border-left: 3px solid transparent;
 }
-.pdd-cat-header:hover { background: rgba(255,255,255,0.04); }
+.pdd-cat-header:hover { 
+  background: rgba(255,255,255,0.06); 
+  border-left-color: currentColor;
+}
 
 .pdd-cat-icon {
   font-size: 12px;
@@ -3514,11 +3521,11 @@ html, body, #root {
 }
 .pdd-cat-label {
   flex: 1;
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.7px;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 1px;
   text-transform: uppercase;
-  color: rgba(255,255,255,0.55);
+  color: rgba(255,255,255,0.75);
 }
 .pdd-cat-count {
   font-size: 9px;
