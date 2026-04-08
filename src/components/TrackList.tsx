@@ -70,7 +70,7 @@ interface DragState {
 
 function TrackHeader({
   track, idx, dragState, onDragStart, onDragOver, onDragEnd,
-  onVolumeChange, onPanChange, onArmClick,
+  onVolumeChange, onPanChange, onArmClick, onFreezeTrack,
 }: {
   track: Track
   idx: number
@@ -81,6 +81,7 @@ function TrackHeader({
   onVolumeChange: (id: string, v: number) => void
   onPanChange: (id: string, v: number) => void
   onArmClick: (trackId: string) => void
+  onFreezeTrack?: (trackId: string) => void
 }) {
   const { updateTrack, removeTrack, selectTrack, selectedTrackId } = useProjectStore()
   const nameRef = useRef<HTMLInputElement>(null)
@@ -154,6 +155,23 @@ function TrackHeader({
       <div className="track-header-controls">
         <button className={`track-btn ${track.muted ? 'muted' : ''}`} onClick={e => { e.stopPropagation(); updateTrack(track.id, { muted: !track.muted }) }} title="Mute (M)">M</button>
         <button className={`track-btn ${track.solo ? 'soloed' : ''}`} onClick={e => { e.stopPropagation(); updateTrack(track.id, { solo: !track.solo }) }} title="Solo (S)">S</button>
+        {!isMaster && track.type === 'audio' && (
+          <button
+            className={`track-btn freeze-btn ${track.frozen ? 'frozen' : ''}`}
+            onClick={e => { e.stopPropagation(); onFreezeTrack?.(track.id) }}
+            title={track.frozen ? 'Unfreeze track (releases CPU)' : 'Freeze track (renders to audio)'}
+          >
+            {track.frozen ? (
+              <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
+                <path d="M4 0v8M0 4h8M1.2 1.2l5.6 5.6M6.8 1.2L1.2 6.8" stroke="currentColor" strokeWidth="1.2" fill="none"/>
+              </svg>
+            ) : (
+              <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.2">
+                <path d="M4 0.5V7.5M2 2L4 0.5L6 2M2 6L4 7.5L6 6M0.5 4H7.5M0.5 2.5L2 4L0.5 5.5M7.5 2.5L6 4L7.5 5.5"/>
+              </svg>
+            )}
+          </button>
+        )}
         {!isMaster && (
           <button
             className={`track-btn arm-btn ${track.armed ? 'armed' : ''}`}
@@ -211,10 +229,11 @@ function TrackHeader({
   )
 }
 
-export function TrackList({ onVolumeChange, onPanChange, onArmClick, width }: {
+export function TrackList({ onVolumeChange, onPanChange, onArmClick, onFreezeTrack, width }: {
   onVolumeChange: (id: string, v: number) => void
   onPanChange: (id: string, v: number) => void
   onArmClick: (trackId: string) => void
+  onFreezeTrack?: (trackId: string) => void
   width?: number
 }) {
   const { tracks, addTrack, moveTrack } = useProjectStore()
@@ -261,6 +280,7 @@ export function TrackList({ onVolumeChange, onPanChange, onArmClick, width }: {
             onVolumeChange={onVolumeChange}
             onPanChange={onPanChange}
             onArmClick={onArmClick}
+            onFreezeTrack={onFreezeTrack}
           />
         ))}
       </div>

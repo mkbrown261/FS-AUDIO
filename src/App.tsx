@@ -13,6 +13,7 @@ import { InspectorPanel } from './components/InspectorPanel'
 import { MusicalTyping } from './components/MusicalTyping'
 import { ExportModal } from './components/ExportModal'
 import { useExport } from './hooks/useExport'
+import { AudioPreferences, RestartOpts } from './components/AudioPreferences'
 
 const FLOWSTATE_HUB = 'https://flowstate-67g.pages.dev'
 
@@ -36,6 +37,7 @@ export default function App() {
   const [micLevel, setMicLevel] = useState(0)
   const [showMusicalTyping, setShowMusicalTyping] = useState(false)
   const [showExport, setShowExport] = useState(false)
+  const [showAudioPrefs, setShowAudioPrefs] = useState(false)
 
   // ── Panel widths (resizable) ──────────────────────────────────────────────
   const [inspectorWidth, setInspectorWidth] = useState(240)
@@ -117,6 +119,39 @@ export default function App() {
 
   const handleSetTrackEQ = useCallback((id: string, l: number, m: number, h: number) => {
     engine.setTrackEQ(id, l, m, h)
+  }, [engine])
+
+  // ── Audio context restart (from AudioPreferences) ─────────────────────────
+  const handleRestartAudioContext = useCallback(async (opts: RestartOpts) => {
+    // Stop transport first
+    if (store.isPlaying) transport.pause()
+    if (store.isRecording) await transport.record()
+    await engine.restartAudioContext({
+      sampleRate: opts.sampleRate,
+      latencyHint: opts.latencyHint,
+      outputDeviceId: opts.outputDeviceId,
+    })
+  }, [engine, transport, store.isPlaying, store.isRecording])
+
+  // ── Track Freeze ──────────────────────────────────────────────────────────
+  const handleFreezeTrack = useCallback(async (trackId: string) => {
+    const track = useProjectStore.getState().tracks.find(t => t.id === trackId)
+    if (!track) return
+    if (track.frozen) {
+      // Unfreeze — restore live playback
+      useProjectStore.getState().unfreezeTrack(trackId)
+      return
+    }
+    // Freeze — offline render
+    useProjectStore.getState().updateTrack(trackId, { frozen: false }) // Temporarily mark as rendering
+    try {
+      const frozenUrl = await engine.freezeTrack(trackId)
+      if (frozenUrl) {
+        useProjectStore.getState().freezeTrack(trackId, frozenUrl)
+      }
+    } catch (err) {
+      console.error('Freeze failed:', err)
+    }
   }, [engine])
 
   // ── Audio file import ─────────────────────────────────────────────────────
@@ -492,6 +527,11 @@ export default function App() {
           if (meta) { e.preventDefault(); setShowExport(true) }
           break
 
+        // ── Audio Preferences ─────────────────────────────────────────────
+        case 'Comma':
+          if (meta) { e.preventDefault(); setShowAudioPrefs(true) }
+          break
+
         // ── New project / Normalize gain ─────────────────────────────────
         case 'KeyN':
           if (meta && e.shiftKey) {
@@ -520,7 +560,7 @@ export default function App() {
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transport, store, inspectorWidth, tracklistWidth, clawbotWidth, engine, showMusicalTyping, showExport])
+  }, [transport, store, inspectorWidth, tracklistWidth, clawbotWidth, engine, showMusicalTyping, showExport, showAudioPrefs])
 
   const currentBeat = store.currentTime * (store.bpm / 60)
   const playheadX = currentBeat * store.pixelsPerBeat - store.scrollLeft
@@ -534,6 +574,7 @@ export default function App() {
         onToStart={transport.toStart}
         onRecord={transport.record}
         onExport={() => setShowExport(true)}
+        onOpenAudioPrefs={() => setShowAudioPrefs(true)}
       />
 
       <div className="main-area">
@@ -557,6 +598,7 @@ export default function App() {
             onVolumeChange={handleVolumeChange}
             onPanChange={handlePanChange}
             onArmClick={handleArmClick}
+            onFreezeTrack={handleFreezeTrack}
           />
           <PanelResizer onDrag={d => setTracklistWidth(w => Math.max(40, Math.min(360, w + d)))} />
         </div>
@@ -609,6 +651,12 @@ export default function App() {
         onClose={() => setShowExport(false)}
         onBounce={exporter.bounce}
         progress={exporter.progress}
+      />
+
+      <AudioPreferences
+        isOpen={showAudioPrefs}
+        onClose={() => setShowAudioPrefs(false)}
+        onRestartAudioContext={handleRestartAudioContext}
       />
     </div>
   )

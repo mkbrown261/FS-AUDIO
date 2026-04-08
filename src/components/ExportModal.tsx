@@ -13,10 +13,14 @@ export function ExportModal({ isOpen, onClose, onBounce, progress }: ExportModal
   const { name, loopStart, loopEnd, bpm, bitDepth: projectBD, sampleRate: projectSR, isLooping, tracks } = useProjectStore()
 
   const [range, setRange]       = useState<'project' | 'loop'>('project')
+  const [mode, setMode]         = useState<'mix' | 'stems'>('mix')
   const [bitDepth, setBitDepth] = useState<16 | 24 | 32>(projectBD as 16 | 24 | 32)
   const [sampleRate, setSR]     = useState<44100 | 48000>(44100)
   const [normalize, setNorm]    = useState(false)
   const [filename, setFilename] = useState(name.replace(/[^a-z0-9_\- ]/gi, '_') + '_bounce')
+  // Stem selection
+  const audioTracks = tracks.filter(t => t.type !== 'master' && t.clips.some(c => c.audioUrl))
+  const [selectedStems, setSelectedStems] = useState<Set<string>>(() => new Set(audioTracks.map(t => t.id)))
 
   if (!isOpen) return null
 
@@ -55,6 +59,45 @@ export function ExportModal({ isOpen, onClose, onBounce, progress }: ExportModal
 
         {/* Body */}
         <div className="export-body">
+          {/* Mode */}
+          <div className="export-section">
+            <div className="export-section-label">Export Mode</div>
+            <div className="export-btn-group">
+              {(['mix', 'stems'] as const).map(m => (
+                <button key={m} className={`export-fmt-btn ${mode === m ? 'active' : ''}`}
+                  onClick={() => setMode(m)}>
+                  {m === 'mix' ? '🎚 Stereo Mix' : '🎛 Stems (per track)'}
+                </button>
+              ))}
+            </div>
+            {mode === 'stems' && audioTracks.length > 0 && (
+              <div className="export-stem-list">
+                <div style={{ fontSize: 9, color: 'var(--text-s)', marginBottom: 6 }}>Select tracks to export:</div>
+                {audioTracks.map(t => (
+                  <label key={t.id} className="export-stem-row">
+                    <input
+                      type="checkbox"
+                      checked={selectedStems.has(t.id)}
+                      onChange={e => {
+                        const next = new Set(selectedStems)
+                        if (e.target.checked) next.add(t.id)
+                        else next.delete(t.id)
+                        setSelectedStems(next)
+                      }}
+                    />
+                    <span className="export-stem-dot" style={{ background: t.color }} />
+                    <span className="export-stem-name">{t.name}</span>
+                    <span className="export-stem-clips">{t.clips.filter(c=>c.audioUrl).length} clip{t.clips.filter(c=>c.audioUrl).length !== 1 ? 's' : ''}</span>
+                  </label>
+                ))}
+                <div className="export-stem-actions">
+                  <button className="export-stem-sel-btn" onClick={() => setSelectedStems(new Set(audioTracks.map(t=>t.id)))}>All</button>
+                  <button className="export-stem-sel-btn" onClick={() => setSelectedStems(new Set())}>None</button>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Range */}
           <div className="export-section">
             <div className="export-section-label">Export Range</div>
@@ -150,7 +193,7 @@ export function ExportModal({ isOpen, onClose, onBounce, progress }: ExportModal
 
           {done && (
             <div className="export-success">
-              ✓ Bounce complete — check your Downloads folder
+              {mode === 'stems' ? `✓ Stems exported (${selectedStems.size} track${selectedStems.size !== 1 ? 's' : ''}) — check your Downloads folder` : '✓ Bounce complete — check your Downloads folder'}
             </div>
           )}
 
@@ -166,16 +209,18 @@ export function ExportModal({ isOpen, onClose, onBounce, progress }: ExportModal
           <button className="export-cancel-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button
             className="export-bounce-btn"
-            disabled={busy || maxBeat <= 0}
+            disabled={busy || maxBeat <= 0 || (mode === 'stems' && selectedStems.size === 0)}
             onClick={() => onBounce({
               range,
               bitDepth,
               sampleRate,
               normalize,
               filename: filename.trim() ? `${filename.trim()}.wav` : undefined,
+              mode,
+              stemTrackIds: mode === 'stems' ? [...selectedStems] : undefined,
             })}
           >
-            {busy ? '⚙ Bouncing...' : '⬇ Bounce to WAV'}
+            {busy ? '⚙ Bouncing...' : mode === 'stems' ? `⬇ Export ${selectedStems.size} Stem${selectedStems.size !== 1 ? 's' : ''}` : '⬇ Bounce to WAV'}
           </button>
         </div>
       </div>

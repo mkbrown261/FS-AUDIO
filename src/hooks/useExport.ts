@@ -24,6 +24,10 @@ export interface ExportOptions {
   sampleRate: 44100 | 48000
   normalize: boolean
   filename?: string
+  /** 'mix' = full stereo mixdown (default); 'stems' = one WAV per track */
+  mode?: 'mix' | 'stems'
+  /** Which track IDs to export when mode = 'stems'; undefined = all */
+  stemTrackIds?: string[]
 }
 
 export interface ExportProgress {
@@ -101,6 +105,13 @@ export function useExport(audioBuffersRef: React.MutableRefObject<Map<string, Au
 
   const bounce = useCallback(async (opts: ExportOptions) => {
     abortRef.current = false
+
+    // Handle stem export separately
+    if (opts.mode === 'stems') {
+      await bounceStemsInternal(opts)
+      return
+    }
+
     setProgress({ phase: 'rendering', progress: 0 })
 
     try {
@@ -305,6 +316,161 @@ export function useExport(audioBuffersRef: React.MutableRefObject<Map<string, Au
     } catch (err: any) {
       console.error('Export failed:', err)
       setProgress({ phase: 'error', progress: 0, error: err?.message ?? 'Export failed.' })
+    }
+  }, [audioBuffersRef])
+
+  // ── Stem export ─────────────────────────────────────────────────────────────
+  const bounceStemsInternal = useCallback(async (opts: ExportOptions) => {
+    abortRef.current = false
+    const st = useProjectStore.getState()
+    const { tracks, bpm, loopStart, loopEnd } = st
+    const sr   = opts.sampleRate ?? st.sampleRate
+    const bits = opts.bitDepth   ?? st.bitDepth
+
+    // Determine which tracks to export
+    const exportTracks = tracks.filter(t =>
+      t.type !== 'master' &&
+      t.clips.some(c => c.audioUrl) &&
+      (!opts.stemTrackIds || opts.stemTrackIds.includes(t.id))
+    )
+
+    if (exportTracks.length === 0) {
+      setProgress({ phase: 'error', progress: 0, error: 'No audio tracks to export as stems.' })
+      return
+    }
+
+    setProgress({ phase: 'rendering', progress: 0 })
+
+    // Determine render range
+    let startSec = 0, endSec = 0
+    if (opts.range === 'loop') {
+      startSec = loopStart * (60 / bpm)
+      endSec   = loopEnd   * (60 / bpm)
+    } else {
+      let maxBeat = 0
+      for (const t of tracks) for (const c of t.clips) { const e = c.startBeat + c.durationBeats; if (e > maxBeat) maxBeat = e }
+      if (maxBeat <= 0) { setProgress({ phase: 'error', progress: 0, error: 'No clips to export.' }); return }
+      endSec = maxBeat * (60 / bpm)
+    }
+    const durationSec = endSec - startSec
+    const startBeat   = startSec * (bpm / 60)
+    const numSamples  = Math.ceil(durationSec * sr)
+
+    for (let ti = 0; ti < exportTracks.length; ti++) {
+      if (abortRef.current) break
+      const track = exportTracks[ti]
+      setProgress({ phase: 'rendering', progress: ti / exportTracks.length })
+
+      const offCtx = new OfflineAudioContext(2, numSamples, sr)
+      const trackGain = offCtx.createGain()
+      trackGain.gain.value = track.volume
+      const panner = offCtx.createStereoPanner()
+      panner.pan.value = track.pan
+
+      const eqPlugin = track.plugins.find(p => p.type === 'eq' && p.enabled)
+      const lowShelf = offCtx.createBiquadFilter()
+      lowShelf.type = 'lowshelf'; lowShelf.frequency.value = 320
+      lowShelf.gain.value = eqPlugin?.params.low ?? 0
+      const midPeak = offCtx.createBiquadFilter()
+      midPeak.type = 'peaking'; midPeak.frequency.value = 1000; midPeak.Q.value = 0.5
+      midPeak.gain.value = eqPlugin?.params.mid ?? 0
+      const highShelf = offCtx.createBiquadFilter()
+      highShelf.type = 'highshelf'; highShelf.frequency.value = 3200
+      highShelf.gain.value = eqPlugin?.params.high ?? 0
+
+      trackGain.connect(lowShelf)
+      lowShelf.connect(midPeak)
+      midPeak.connect(highShelf)
+      highShelf.connect(panner)
+      panner.connect(offCtx.destination)
+
+      for (const clip of track.clips) {
+        if (!clip.audioUrl || clip.muted) continue
+        const clipEndBeat = clip.startBeat + clip.durationBeats
+        if (clipEndBeat <= startBeat) continue
+
+        const buf = audioBuffersRef.current.get(clip.audioUrl)
+        if (!buf) continue
+
+        const beatDur = 60 / bpm
+        const clipStartS = clip.startBeat * beatDur
+        const clipDurS   = clip.durationBeats * beatDur
+        const offset     = Math.max(0, startSec - clipStartS)
+        const playDur    = clipDurS - offset
+        if (playDur <= 0) continue
+
+        const source = offCtx.createBufferSource()
+        source.buffer = buf
+        source.playbackRate.value = clip.flexRate ?? 1
+        if (clip.looped) source.loop = true
+
+        const clipGain = offCtx.createGain()
+        clipGain.gain.value = clip.gain
+        source.connect(clipGain)
+        clipGain.connect(trackGain)
+
+        const when = Math.max(0, clipStartS - startSec)
+        const fadeInSec  = (clip.fadeIn  ?? 0) * beatDur
+        const fadeOutSec = (clip.fadeOut ?? 0) * beatDur
+        if (fadeInSec > 0) {
+          clipGain.gain.setValueAtTime(0.0001, when)
+          clipGain.gain.exponentialRampToValueAtTime(clip.gain, when + fadeInSec)
+        } else {
+          clipGain.gain.setValueAtTime(clip.gain, when)
+        }
+        if (fadeOutSec > 0) {
+          const fs = when + playDur - fadeOutSec
+          if (fs > when) {
+            clipGain.gain.setValueAtTime(clip.gain, fs)
+            clipGain.gain.exponentialRampToValueAtTime(0.0001, when + playDur)
+          }
+        }
+        source.start(when, offset * (clip.flexRate ?? 1), clip.looped ? undefined : playDur * (clip.flexRate ?? 1))
+      }
+
+      const rendered = await offCtx.startRendering()
+      if (abortRef.current) break
+
+      setProgress({ phase: 'encoding', progress: (ti + 0.8) / exportTracks.length })
+
+      let leftData  = rendered.getChannelData(0)
+      let rightData = rendered.numberOfChannels > 1 ? rendered.getChannelData(1) : leftData
+
+      if (opts.normalize) {
+        let peak = 0
+        for (let i = 0; i < leftData.length; i++) {
+          if (Math.abs(leftData[i])  > peak) peak = Math.abs(leftData[i])
+          if (Math.abs(rightData[i]) > peak) peak = Math.abs(rightData[i])
+        }
+        if (peak > 0 && peak < 0.999) {
+          const scale = 0.98 / peak
+          const normL = new Float32Array(leftData.length)
+          const normR = new Float32Array(rightData.length)
+          for (let i = 0; i < leftData.length; i++) {
+            normL[i] = leftData[i] * scale
+            normR[i] = rightData[i] * scale
+          }
+          leftData = normL; rightData = normR
+        }
+      }
+
+      const wavBlob = encodeWav(leftData, rightData, sr, bits as 16 | 24 | 32)
+      const safeName = track.name.replace(/[^a-z0-9_\- ]/gi, '_')
+      const projectName = useProjectStore.getState().name.replace(/[^a-z0-9_\- ]/gi, '_')
+      const filename = `${projectName}_STEM_${String(ti + 1).padStart(2, '0')}_${safeName}_${bits}bit.wav`
+      const url = URL.createObjectURL(wavBlob)
+      const a = document.createElement('a')
+      a.href = url; a.download = filename; a.click()
+      // Stagger downloads so browser doesn't block them
+      await new Promise(r => setTimeout(r, 600))
+      URL.revokeObjectURL(url)
+    }
+
+    if (!abortRef.current) {
+      setProgress({ phase: 'done', progress: 1 })
+      setTimeout(() => setProgress({ phase: 'idle', progress: 0 }), 4000)
+    } else {
+      setProgress({ phase: 'idle', progress: 0 })
     }
   }, [audioBuffersRef])
 

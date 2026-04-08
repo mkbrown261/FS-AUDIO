@@ -282,6 +282,16 @@ function ClipView({
           {(clip.fadeIn ?? 0) > 0 && <span className="clip-badge clip-badge-fade">FI</span>}
           {(clip.fadeOut ?? 0) > 0 && <span className="clip-badge clip-badge-fade">FO</span>}
           {clip.muted && <span className="clip-badge clip-badge-muted">MUTE</span>}
+          {clip.flexRate && clip.flexRate !== 1 && (
+            <span className="clip-badge clip-badge-flex" title={`Flex Time: ${Math.round(clip.flexRate * 100)}%`}>
+              {Math.round(clip.flexRate * 100)}%
+            </span>
+          )}
+          {(clip.takes?.length ?? 0) > 0 && (
+            <span className="clip-badge clip-badge-take" title={`Take ${(clip.activeTakeIndex ?? 0) + 1} / ${clip.takes!.length}`}>
+              T{(clip.activeTakeIndex ?? 0) + 1}/{clip.takes!.length}
+            </span>
+          )}
         </div>
 
         {clip.type === 'audio' && clip.waveformPeaks && clip.waveformPeaks.length > 0 && (
@@ -695,10 +705,25 @@ export function Timeline({
           const val = prompt('Gain (0–200%):', String(Math.round(clip.gain * 100)))
           if (val !== null) { const n = parseFloat(val); if (!isNaN(n)) store.updateClip(clip.id, { gain: Math.max(0, Math.min(2, n / 100)) }) }
         }},
+        { label: `Flex Time: ${clip.flexRate && clip.flexRate !== 1 ? `${(clip.flexRate * 100).toFixed(0)}%` : 'Off'}`, action: () => {
+          const v = prompt('Flex time rate (25%–400%):\n100% = original speed\n50% = half speed (stretches)\n200% = double speed', String(Math.round((clip.flexRate ?? 1) * 100)))
+          if (v !== null) { const n = parseFloat(v); if (!isNaN(n) && n >= 25 && n <= 400) store.setClipFlexRate(clip.id, n / 100) }
+        }},
+        { label: clip.flexRate && clip.flexRate !== 1 ? 'Reset Flex Time' : '', action: () => store.setClipFlexRate(clip.id, 1),
+          disabled: !clip.flexRate || clip.flexRate === 1 },
         { separator: true, label: '', action: () => {} },
         { label: 'Duplicate', shortcut: '⌘D', action: () => store.duplicateClip(clip.id) },
         { label: 'Copy', shortcut: '⌘C', action: () => store.setClipboardClip(clip) },
         { label: 'Delete', shortcut: 'Del', danger: true, action: () => store.removeClip(clip.id) },
+        ...((clip.takes?.length ?? 0) > 0 ? [
+          { separator: true, label: '', action: () => {} },
+          { label: `Takes (${clip.takes!.length}) — select:`, action: () => {} },
+          ...clip.takes!.map((take, i) => ({
+            label: `  ${i === (clip.activeTakeIndex ?? 0) ? '✓ ' : ''}Take ${i + 1}: ${take.name}`,
+            action: () => store.setActiveTake(clip.id, i),
+          })),
+          { label: 'Delete Current Take', danger: true, action: () => store.deleteTake(clip.id, clip.activeTakeIndex ?? 0) },
+        ] : []),
       ],
     })
   }, [store])

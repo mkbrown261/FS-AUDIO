@@ -46,9 +46,26 @@ export interface Clip {
   waveformPeaks?: number[]
   // Crossfade: if set, this clip overlaps with the previous clip by this many beats
   crossfadeBeats?: number
+  // Flex Time — non-destructive time stretch (1.0 = no change, 0.5 = half speed, 2.0 = double speed)
+  flexRate?: number
+  // Take folder — which take is active (-1 = not a take-folder clip)
+  takeIndex?: number
+  // Take folder clips (comp system)
+  takes?: Take[]
+  activeTakeIndex?: number
+}
+
+export interface Take {
+  id: string
+  name: string
+  audioUrl: string
+  waveformPeaks?: number[]
+  gain?: number
 }
 
 export interface Track {
+  // Take-folder flag — if true, this track shows takes/comp UI
+  isTakeFolder?: boolean
   id: string
   name: string
   type: 'audio' | 'midi' | 'bus' | 'master'
@@ -63,6 +80,7 @@ export interface Track {
   clips: Clip[]
   height: number     // px
   frozen: boolean
+  frozenAudioUrl?: string   // URL to pre-rendered frozen audio
   locked: boolean
   inputGain: number  // 0-2
   outputGain: number // 0-2
@@ -141,6 +159,11 @@ export interface ProjectState {
   // Inspector
   inspectorOpen: boolean
 
+  // Audio device preferences
+  audioInputDeviceId: string   // '' = default
+  audioOutputDeviceId: string  // '' = default
+  audioLatencyHint: 'interactive' | 'balanced' | 'playback'
+
   // Clipboard
   clipboardClip: Clip | null
 
@@ -212,6 +235,18 @@ interface Actions {
   // Glue (join adjacent clips)
   glueClips: (clipIds: string[]) => void
 
+  // Flex Time — set non-destructive stretch rate on a clip
+  setClipFlexRate: (clipId: string, rate: number) => void
+
+  // Track Freeze — freeze/unfreeze; frozenAudioUrl is set by the engine after offline render
+  freezeTrack: (trackId: string, frozenAudioUrl?: string) => void
+  unfreezeTrack: (trackId: string) => void
+
+  // Take folders
+  addTakeToClip: (clipId: string, take: Take) => void
+  setActiveTake: (clipId: string, takeIndex: number) => void
+  deleteTake: (clipId: string, takeIndex: number) => void
+
   addPlugin: (trackId: string, plugin: Plugin) => void
   removePlugin: (trackId: string, pluginId: string) => void
   updatePlugin: (trackId: string, pluginId: string, params: Record<string, number>) => void
@@ -251,6 +286,11 @@ interface Actions {
   saveProject: () => void
   loadProject: () => void
   setTimeSignature: (num: number, den: number) => void
+  setBufferSize: (v: ProjectState['bufferSize']) => void
+  setAudioInputDevice: (id: string) => void
+  setAudioOutputDevice: (id: string) => void
+  setAudioLatencyHint: (v: ProjectState['audioLatencyHint']) => void
+  setMetronomeVolume: (v: number) => void
   saveSnapshot: () => void
   undo: () => void
   redo: () => void
@@ -303,6 +343,10 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
   snapEnabled: true,
   snapValue: '1/4',
   inspectorOpen: true,
+
+  audioInputDeviceId: '',
+  audioOutputDeviceId: '',
+  audioLatencyHint: 'interactive',
 
   clipboardClip: null,
 
@@ -496,6 +540,75 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
     return st
   }),
 
+  // ── Flex Time ─────────────────────────────────────────────────────────────
+  setClipFlexRate: (clipId, rate) => set(st => ({
+    tracks: st.tracks.map(t => ({
+      ...t,
+      clips: t.clips.map(c => c.id === clipId
+        ? { ...c, flexRate: Math.max(0.25, Math.min(4, rate)) }
+        : c),
+    })),
+    isDirty: true,
+  })),
+
+  // ── Track Freeze ─────────────────────────────────────────────────────────
+  freezeTrack: (trackId, frozenAudioUrl) => set(st => ({
+    tracks: st.tracks.map(t => t.id === trackId
+      ? { ...t, frozen: true, frozenAudioUrl: frozenAudioUrl ?? t.frozenAudioUrl }
+      : t),
+    isDirty: true,
+  })),
+  unfreezeTrack: (trackId) => set(st => ({
+    tracks: st.tracks.map(t => t.id === trackId
+      ? { ...t, frozen: false, frozenAudioUrl: undefined }
+      : t),
+    isDirty: true,
+  })),
+
+  // ── Take folder actions ───────────────────────────────────────────────────
+  addTakeToClip: (clipId, take) => set(st => ({
+    tracks: st.tracks.map(t => ({
+      ...t,
+      clips: t.clips.map(c => {
+        if (c.id !== clipId) return c
+        const takes = [...(c.takes ?? []), take]
+        return { ...c, takes, activeTakeIndex: takes.length - 1 }
+      }),
+    })),
+    isDirty: true,
+  })),
+  setActiveTake: (clipId, takeIndex) => set(st => ({
+    tracks: st.tracks.map(t => ({
+      ...t,
+      clips: t.clips.map(c => {
+        if (c.id !== clipId) return c
+        const takes = c.takes ?? []
+        if (takeIndex < 0 || takeIndex >= takes.length) return c
+        const activeTake = takes[takeIndex]
+        return {
+          ...c,
+          activeTakeIndex: takeIndex,
+          audioUrl: activeTake.audioUrl,
+          waveformPeaks: activeTake.waveformPeaks,
+          gain: activeTake.gain ?? c.gain,
+        }
+      }),
+    })),
+    isDirty: true,
+  })),
+  deleteTake: (clipId, takeIndex) => set(st => ({
+    tracks: st.tracks.map(t => ({
+      ...t,
+      clips: t.clips.map(c => {
+        if (c.id !== clipId) return c
+        const takes = (c.takes ?? []).filter((_, i) => i !== takeIndex)
+        const newActive = Math.min(c.activeTakeIndex ?? 0, takes.length - 1)
+        return { ...c, takes, activeTakeIndex: newActive >= 0 ? newActive : undefined }
+      }),
+    })),
+    isDirty: true,
+  })),
+
   // ── Plugin actions ─────────────────────────────────────────────────────────
   addPlugin: (trackId, plugin) => set(st => ({
     tracks: st.tracks.map(t => t.id === trackId ? { ...t, plugins: [...t.plugins, plugin] } : t),
@@ -619,6 +732,11 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
 
   setSampleRate: (v) => set({ sampleRate: v }),
   setBitDepth: (v) => set({ bitDepth: v }),
+  setBufferSize: (v) => set({ bufferSize: v }),
+  setAudioInputDevice: (id) => set({ audioInputDeviceId: id }),
+  setAudioOutputDevice: (id) => set({ audioOutputDeviceId: id }),
+  setAudioLatencyHint: (v) => set({ audioLatencyHint: v }),
+  setMetronomeVolume: (v) => set({ metronomeVolume: Math.max(0, Math.min(1, v)) }),
 
   setTimeSignature: (num, den) => set({ timeSignature: [num, den], isDirty: true }),
 

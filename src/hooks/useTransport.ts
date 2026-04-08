@@ -113,20 +113,45 @@ export function useTransport(
           peaks.push(max)
         }
 
-        const clip: import('../store/projectStore').Clip = {
-          id,
-          trackId: armedTrack.id,
-          startBeat,
-          durationBeats,
-          name: `Take ${new Date().toLocaleTimeString()}`,
-          type: 'audio',
-          audioUrl,
-          gain: 1, fadeIn: 0, fadeOut: 0,
-          fadeInCurve: 'exp', fadeOutCurve: 'exp',
-          looped: false, muted: false, aiGenerated: false,
-          waveformPeaks: peaks,
+        // Check if there's an overlapping clip on this track → take folder mode
+        const overlappingClip = armedTrack.clips.find(c => {
+          const cEnd = c.startBeat + c.durationBeats
+          const newEnd = startBeat + durationBeats
+          return c.startBeat < newEnd && cEnd > startBeat
+        })
+
+        const takeName = `Take ${new Date().toLocaleTimeString()}`
+
+        if (overlappingClip) {
+          // Add as a new take to the existing overlapping clip
+          const take: import('../store/projectStore').Take = {
+            id,
+            name: takeName,
+            audioUrl,
+            waveformPeaks: peaks,
+            gain: 1,
+          }
+          store.getState().addTakeToClip(overlappingClip.id, take)
+          // Also update the clip to point to the new take's audio
+          store.getState().updateClip(overlappingClip.id, { audioUrl, waveformPeaks: peaks })
+        } else {
+          const clip: import('../store/projectStore').Clip = {
+            id,
+            trackId: armedTrack.id,
+            startBeat,
+            durationBeats,
+            name: takeName,
+            type: 'audio',
+            audioUrl,
+            gain: 1, fadeIn: 0, fadeOut: 0,
+            fadeInCurve: 'exp', fadeOutCurve: 'exp',
+            looped: false, muted: false, aiGenerated: false,
+            waveformPeaks: peaks,
+            takes: [{ id, name: takeName, audioUrl, waveformPeaks: peaks, gain: 1 }],
+            activeTakeIndex: 0,
+          }
+          store.getState().addClip(clip)
         }
-        store.getState().addClip(clip)
       }
     }
     // Stop playback after saving clip

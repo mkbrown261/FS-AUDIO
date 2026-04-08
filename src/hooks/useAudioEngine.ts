@@ -249,7 +249,9 @@ export function useAudioEngine() {
 
     const source = ctx.createBufferSource()
     source.buffer = buffer
-    source.playbackRate.value = 1
+    // Flex Time — non-destructive time stretch via playbackRate
+    const flexRate = clip.flexRate ?? 1
+    source.playbackRate.value = flexRate
     if (clip.looped) source.loop = true
 
     const clipGain = ctx.createGain()
@@ -260,8 +262,11 @@ export function useAudioEngine() {
     const when = Math.max(0, clipStartSec - playheadSec)
     const scheduledAt = ctx.currentTime + when
     const playDuration = clipDurSec - clipOffset
+    // For flexRate != 1, buffer offset is in buffer-time (scaled by flex rate)
+    const bufferOffset = clipOffset * flexRate
+    const bufferDuration = playDuration * flexRate
 
-    source.start(scheduledAt, clipOffset, clip.looped ? undefined : playDuration)
+    source.start(scheduledAt, bufferOffset, clip.looped ? undefined : bufferDuration)
 
     // Apply fade ramps
     applyFadeRamps(clipGain, clip, bpm, clipOffset, scheduledAt, playDuration)
@@ -583,6 +588,193 @@ export function useAudioEngine() {
     setTimeout(() => noteOff(pitch), durationSec * 1000)
   }, [noteOn, noteOff])
 
+  // ── Audio context restart (for AudioPreferences) ─────────────────────────
+  const restartAudioContext = useCallback(async (opts: {
+    sampleRate: number
+    latencyHint: 'interactive' | 'balanced' | 'playback'
+    outputDeviceId?: string
+  }) => {
+    // 1. Stop everything
+    stopAll()
+    stopMetronome()
+
+    // 2. Close old context
+    if (ctxRef.current) {
+      try { await ctxRef.current.close() } catch {}
+      ctxRef.current = null
+    }
+    masterGainRef.current = null
+    masterAnalyserRef.current = null
+    masterLimiterRef.current = null
+    trackNodesRef.current.clear()
+
+    // 3. Create new context with requested settings
+    const newCtx = new AudioContext({
+      sampleRate: opts.sampleRate,
+      latencyHint: opts.latencyHint,
+    })
+    ctxRef.current = newCtx
+
+    // 4. Rebuild master chain
+    const masterGain = newCtx.createGain()
+    masterGain.gain.value = 0.9
+    masterGainRef.current = masterGain
+
+    const masterAnalyser = newCtx.createAnalyser()
+    masterAnalyser.fftSize = 2048
+    masterAnalyserRef.current = masterAnalyser
+
+    const masterLimiter = newCtx.createDynamicsCompressor()
+    masterLimiter.threshold.value = -1
+    masterLimiter.knee.value = 0
+    masterLimiter.ratio.value = 20
+    masterLimiter.attack.value = 0.001
+    masterLimiter.release.value = 0.1
+    masterLimiterRef.current = masterLimiter
+
+    masterGain.connect(masterLimiter)
+    masterLimiter.connect(masterAnalyser)
+    masterAnalyser.connect(newCtx.destination)
+
+    // 5. Try to route output to specific device (Chrome only)
+    if (opts.outputDeviceId && opts.outputDeviceId !== '') {
+      try {
+        // @ts-ignore — setSinkId is experimental, not in TS types yet
+        if (typeof newCtx.setSinkId === 'function') {
+          await (newCtx as any).setSinkId(opts.outputDeviceId)
+        }
+      } catch (e) {
+        console.warn('[AudioEngine] setSinkId failed (may not be supported):', e)
+      }
+    }
+
+    // Resume (browsers sometimes start suspended)
+    if (newCtx.state === 'suspended') await newCtx.resume()
+    console.log('[AudioEngine] AudioContext restarted:', newCtx.sampleRate, 'Hz, latency:', opts.latencyHint)
+  }, [stopAll, stopMetronome])
+
+  // ── Track Freeze — offline render a track to a single audio buffer ────────
+  const freezeTrack = useCallback(async (
+    trackId: string,
+    onProgress?: (p: number) => void,
+  ): Promise<string | null> => {
+    const { tracks, bpm } = useProjectStore.getState()
+    const track = tracks.find(t => t.id === trackId)
+    if (!track || track.type === 'master') return null
+
+    // Find render range
+    let maxBeat = 0
+    for (const c of track.clips) { const e = c.startBeat + c.durationBeats; if (e > maxBeat) maxBeat = e }
+    if (maxBeat <= 0) return null
+
+    const sr = getCtx().sampleRate
+    const durationSec = maxBeat * (60 / bpm)
+    const numSamples = Math.ceil(durationSec * sr)
+
+    onProgress?.(0.05)
+
+    const offCtx = new OfflineAudioContext(2, numSamples, sr)
+    const offMaster = offCtx.createGain()
+    offMaster.gain.value = 1
+    offMaster.connect(offCtx.destination)
+
+    const trackGain = offCtx.createGain()
+    trackGain.gain.value = track.volume
+    const panner = offCtx.createStereoPanner()
+    panner.pan.value = track.pan
+
+    // 3-band EQ
+    const eqPlugin = track.plugins.find(p => p.type === 'eq' && p.enabled)
+    const lowShelf = offCtx.createBiquadFilter()
+    lowShelf.type = 'lowshelf'; lowShelf.frequency.value = 320
+    lowShelf.gain.value = eqPlugin?.params.low ?? 0
+    const midPeak = offCtx.createBiquadFilter()
+    midPeak.type = 'peaking'; midPeak.frequency.value = 1000; midPeak.Q.value = 0.5
+    midPeak.gain.value = eqPlugin?.params.mid ?? 0
+    const highShelf = offCtx.createBiquadFilter()
+    highShelf.type = 'highshelf'; highShelf.frequency.value = 3200
+    highShelf.gain.value = eqPlugin?.params.high ?? 0
+
+    trackGain.connect(lowShelf)
+    lowShelf.connect(midPeak)
+    midPeak.connect(highShelf)
+    highShelf.connect(panner)
+    panner.connect(offMaster)
+
+    for (const clip of track.clips) {
+      if (!clip.audioUrl || clip.muted) continue
+      const buf = audioBuffersRef.current.get(clip.audioUrl)
+      if (!buf) continue
+
+      const beatDur = 60 / bpm
+      const flexRate = clip.flexRate ?? 1
+      const clipStartS = clip.startBeat * beatDur
+      const clipDurS = clip.durationBeats * beatDur
+
+      const source = offCtx.createBufferSource()
+      source.buffer = buf
+      source.playbackRate.value = flexRate
+      if (clip.looped) source.loop = true
+
+      const clipGain = offCtx.createGain()
+      clipGain.gain.value = clip.gain
+      source.connect(clipGain)
+      clipGain.connect(trackGain)
+
+      const fadeInSec  = (clip.fadeIn  ?? 0) * beatDur
+      const fadeOutSec = (clip.fadeOut ?? 0) * beatDur
+      if (fadeInSec > 0) {
+        clipGain.gain.setValueAtTime(0.0001, clipStartS)
+        clipGain.gain.exponentialRampToValueAtTime(clip.gain, clipStartS + fadeInSec)
+      }
+      if (fadeOutSec > 0) {
+        const fs = clipStartS + clipDurS - fadeOutSec
+        if (fs > clipStartS) {
+          clipGain.gain.setValueAtTime(clip.gain, fs)
+          clipGain.gain.exponentialRampToValueAtTime(0.0001, clipStartS + clipDurS)
+        }
+      }
+
+      source.start(clipStartS, 0, clip.looped ? undefined : clipDurS / flexRate)
+    }
+
+    onProgress?.(0.2)
+    const rendered = await offCtx.startRendering()
+    onProgress?.(0.9)
+
+    // Encode to WAV blob and create object URL
+    const left = rendered.getChannelData(0)
+    const right = rendered.numberOfChannels > 1 ? rendered.getChannelData(1) : left
+    const numCh = 2, bps = 3, blockAlign = numCh * bps
+    const dataSize = rendered.length * numCh * bps
+    const arrayBuffer = new ArrayBuffer(44 + dataSize)
+    const view = new DataView(arrayBuffer)
+    const ws = (o: number, s: string) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)) }
+    ws(0, 'RIFF'); view.setUint32(4, 36 + dataSize, true); ws(8, 'WAVE')
+    ws(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true)
+    view.setUint16(22, 2, true); view.setUint32(24, sr, true)
+    view.setUint32(28, sr * blockAlign, true); view.setUint16(32, blockAlign, true)
+    view.setUint16(34, 24, true); ws(36, 'data'); view.setUint32(40, dataSize, true)
+    let off = 44
+    for (let i = 0; i < rendered.length; i++) {
+      for (const s of [left[i], right[i]]) {
+        const v = Math.max(-1, Math.min(1, s))
+        const val = v < 0 ? (v * 0x800000) | 0 : (v * 0x7fffff) | 0
+        view.setUint8(off++, val & 0xff)
+        view.setUint8(off++, (val >> 8) & 0xff)
+        view.setUint8(off++, (val >> 16) & 0xff)
+      }
+    }
+
+    const frozenBlob = new Blob([arrayBuffer], { type: 'audio/wav' })
+    const frozenUrl = URL.createObjectURL(frozenBlob)
+    // Register in cache so playback can use it
+    const frozenBuf = await getCtx().decodeAudioData(await frozenBlob.arrayBuffer())
+    audioBuffersRef.current.set(frozenUrl, frozenBuf)
+    onProgress?.(1)
+    return frozenUrl
+  }, [getCtx, audioBuffersRef])
+
   useEffect(() => {
     return () => {
       stopAll()
@@ -624,5 +816,7 @@ export function useAudioEngine() {
     allNotesOff,
     playPreviewNote,
     audioBuffersRef,
+    restartAudioContext,
+    freezeTrack,
   }
 }

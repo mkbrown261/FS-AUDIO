@@ -9,6 +9,7 @@ interface ToolbarProps {
   onToStart: () => void
   onRecord: () => void
   onExport?: () => void
+  onOpenAudioPrefs?: () => void
 }
 
 const KEYS = [
@@ -131,10 +132,10 @@ function secToTime(sec: number): string {
   return `${m}:${String(s).padStart(2,'0')}.${String(ms).padStart(3,'0')}`
 }
 
-export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport }: ToolbarProps) {
+export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport, onOpenAudioPrefs }: ToolbarProps) {
   const {
     bpm, setBpm, key, setKey,
-    isPlaying, isRecording, isLooping, metronomeEnabled,
+    isPlaying, isRecording, isLooping, metronomeEnabled, metronomeVolume, setMetronomeVolume,
     currentTime, timeSignature, setTimeSignature, aiLevel, setAiLevel,
     toggleLoop, toggleMetronome, showClawbot, setShowClawbot,
     setZoom, zoom, countIn, snapEnabled, snapValue,
@@ -240,6 +241,17 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport
         <button className={`tbt ${metronomeEnabled ? 'active' : ''}`} onClick={toggleMetronome} title="Metronome (K)">
           <svg width="9" height="13" viewBox="0 0 9 13"><polygon points="4.5,0 9,13 0,13" stroke="currentColor" strokeWidth="1" fill="none"/><line x1="4.5" y1="13" x2="7" y2="5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
         </button>
+        {/* Metronome volume quick-knob — only shown while metronome is enabled */}
+        {metronomeEnabled && (
+          <input
+            type="range" min={0} max={100} step={1}
+            className="metro-vol-slider"
+            value={Math.round(metronomeVolume * 100)}
+            onChange={e => setMetronomeVolume(parseInt(e.target.value) / 100)}
+            title={`Metronome volume: ${Math.round(metronomeVolume * 100)}%`}
+            style={{ width: 48 }}
+          />
+        )}
         <button
           className={`tbt tbt-tap ${tapActive ? 'tapped' : ''}`}
           onClick={handleTapTempo}
@@ -363,6 +375,18 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport
       <button className="tbt tbt-export" onClick={onExport} title="Export / Bounce to WAV (⌘E)">
         <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M5.5 1v6M3 5l2.5 2.5L8 5M1 9.5h9"/>
+        </svg>
+      </button>
+
+      {/* Audio Preferences */}
+      <button
+        className="tbt tbt-audio-prefs"
+        onClick={onOpenAudioPrefs}
+        title="Audio Preferences (⌘,)"
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+          <circle cx="6" cy="6" r="2"/>
+          <path d="M6 1v1.5M6 9.5V11M1 6h1.5M9.5 6H11M2.6 2.6l1.1 1.1M8.3 8.3l1.1 1.1M2.6 9.4l1.1-1.1M8.3 3.7l1.1-1.1"/>
         </svg>
       </button>
 
