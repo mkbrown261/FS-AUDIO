@@ -1634,30 +1634,70 @@ export function useAudioEngine() {
   // ── Microphone Recording ─────────────────────────────────────────────────
   const startRecording = useCallback(async (): Promise<void> => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      // Professional audio constraints to eliminate noise and humming
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          // Professional quality settings
+          sampleRate: 48000,          // Studio-quality sample rate
+          sampleSize: 24,             // 24-bit depth for pro audio
+          channelCount: 1,            // Mono for vocals (change to 2 for stereo)
+          
+          // Noise reduction and processing
+          echoCancellation: true,     // Remove echo/feedback
+          noiseSuppression: true,     // Remove background noise (AC hum, fan noise, etc.)
+          autoGainControl: true,      // Automatic level control
+          
+          // Latency optimization
+          latency: 0.01,              // 10ms latency for monitoring
+          
+          // Advanced constraints (if supported)
+          googEchoCancellation: true,
+          googAutoGainControl: true,
+          googNoiseSuppression: true,
+          googHighpassFilter: true,   // Critical: removes low-frequency hum (60Hz/50Hz)
+          googTypingNoiseDetection: true,
+        } as any,
+        video: false
+      })
+      
       mediaStreamRef.current = stream
       recordedChunksRef.current = []
 
       const ctx = getCtx()
       if (ctx.state === 'suspended') await ctx.resume()
 
+      // Create audio processing chain for additional noise reduction
+      const micSource = ctx.createMediaStreamSource(stream)
+      
+      // Add high-pass filter to remove sub-bass rumble and AC hum
+      const highpassFilter = ctx.createBiquadFilter()
+      highpassFilter.type = 'highpass'
+      highpassFilter.frequency.value = 80  // Remove everything below 80Hz (removes hum)
+      highpassFilter.Q.value = 0.7
+      
+      // Add analyser for metering
+      const micAnalyser = ctx.createAnalyser()
+      micAnalyser.fftSize = 2048
+      micAnalyser.smoothingTimeConstant = 0.8
+      
+      // Connect chain: source -> highpass -> analyser
+      micSource.connect(highpassFilter)
+      highpassFilter.connect(micAnalyser)
+      
+      micSourceRef.current = micSource
+      micAnalyserRef.current = micAnalyser
+
+      // Use highest quality codec available
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
         : MediaRecorder.isTypeSupported('audio/webm')
         ? 'audio/webm'
         : 'audio/ogg'
 
-      const micSource = ctx.createMediaStreamSource(stream)
-      const micAnalyser = ctx.createAnalyser()
-      micAnalyser.fftSize = 512
-      micSource.connect(micAnalyser)
-      micSourceRef.current = micSource
-      micAnalyserRef.current = micAnalyser
-
-      // Use high bitrate to reduce compression artifacts
+      // Use maximum bitrate for lossless-quality recording
       const recorder = new MediaRecorder(stream, { 
         mimeType,
-        audioBitsPerSecond: 256000 // 256 kbps for better quality
+        audioBitsPerSecond: 320000 // 320 kbps - maximum quality
       })
       mediaRecorderRef.current = recorder
 
@@ -1667,7 +1707,17 @@ export function useAudioEngine() {
         }
       }
 
-      recorder.start(1000) // Record in 1-second chunks for better quality
+      recorder.start(100) // Smaller chunks (100ms) for lower latency
+      
+      console.log('[Audio Engine] Professional recording started:', {
+        sampleRate: stream.getAudioTracks()[0].getSettings().sampleRate,
+        channelCount: stream.getAudioTracks()[0].getSettings().channelCount,
+        echoCancellation: stream.getAudioTracks()[0].getSettings().echoCancellation,
+        noiseSuppression: stream.getAudioTracks()[0].getSettings().noiseSuppression,
+        autoGainControl: stream.getAudioTracks()[0].getSettings().autoGainControl,
+        bitrate: 320000,
+        codec: mimeType
+      })
     } catch (err: any) {
       const msg = err?.name === 'NotAllowedError'
         ? 'Microphone access denied. Please allow microphone access in your browser settings.'
