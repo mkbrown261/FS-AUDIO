@@ -8,6 +8,7 @@ import { Timeline } from './components/Timeline'
 import { Mixer } from './components/Mixer'
 import { PianoRoll } from './components/PianoRoll'
 import { ClawbotPanel } from './components/ClawbotPanel'
+import { ClawflowBubble } from './components/ClawflowBubble'
 import { StatusBar } from './components/StatusBar'
 import { InspectorPanel } from './components/InspectorPanel'
 import { MusicalTyping } from './components/MusicalTyping'
@@ -776,6 +777,9 @@ export default function App() {
         onRestartAudioContext={handleRestartAudioContext}
         getAudioContext={() => { try { return engine.getCtx() } catch { return null } }}
       />
+
+      {/* ── Clawflow floating chat bubble — fixed overlay, never blocks DAW UI ── */}
+      <ClawflowBubble />
     </div>
   )
 }
