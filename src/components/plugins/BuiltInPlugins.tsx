@@ -1042,7 +1042,12 @@ function PluginSlot({ trackId, plugin, slotIndex }: PluginSlotProps) {
       case 'fs_architect':
       case 'fs_phantom':
       case 'fs_nerve':
-      case 'fs_bpmfinder': return renderAiPlugin(plugin, handleChange)
+      case 'fs_bpmfinder':
+      // Experimental AI Suite
+      case 'fs_ghost':
+      case 'fs_prophet':
+      case 'fs_void':
+      case 'fs_alchemy':   return renderAiPlugin(plugin, handleChange)
       // Flowstate Pro Suite
       default: return renderFlowstatePlugin(plugin, handleChange)
     }
@@ -1064,6 +1069,8 @@ function PluginSlot({ trackId, plugin, slotIndex }: PluginSlotProps) {
     // AI Plugin Suite
     fs_oracle: '#d946ef', fs_clone: '#06b6d4', fs_architect: '#22c55e',
     fs_phantom: '#8b5cf6', fs_nerve: '#f59e0b', fs_bpmfinder: '#f97316',
+    // Experimental AI Suite
+    fs_ghost: '#a855f7', fs_prophet: '#f59e0b', fs_void: '#6366f1', fs_alchemy: '#d97706',
     // Flowstate Pro Suite
     fs_proq: '#a855f7', fs_resonance: '#10b981', fs_vintage_verb: '#818cf8',
     fs_echo: '#f59e0b', fs_tuner: '#e879f9', fs_mastering: '#facc15',
@@ -1319,6 +1326,17 @@ const AI_CATEGORIES: { label: string; color: string; icon: string; plugins: Plug
     icon: '⟁',
     plugins: [
       { key: 'fs_nerve',     name: 'FS-Nerve',      type: 'fs_nerve',     desc: 'Adaptive sidechain AI' },
+    ],
+  },
+  {
+    label: '🧪 Experimental',
+    color: '#f59e0b',
+    icon: '⚗',
+    plugins: [
+      { key: 'fs_ghost',   name: 'FS-Ghost',   type: 'fs_ghost',   desc: 'AI phantom harmonic sculptor — summons ghost overtones' },
+      { key: 'fs_prophet', name: 'FS-Prophet', type: 'fs_prophet', desc: 'AI future-caster — synthesizes clip continuation' },
+      { key: 'fs_void',    name: 'FS-Void',    type: 'fs_void',    desc: 'Anti-sound negative space filler' },
+      { key: 'fs_alchemy', name: 'FS-Alchemy', type: 'fs_alchemy', desc: 'Material transmutation — turn Water into Obsidian' },
     ],
   },
 ]

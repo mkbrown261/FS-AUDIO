@@ -18,6 +18,8 @@ export interface Plugin {
     | 'fs_wavetable' | 'fs_multiband_comp' | 'fs_tape_delay' | 'fs_vocal_enhance' | 'fs_dimension'
     // AI Plugin Suite
     | 'fs_oracle' | 'fs_clone' | 'fs_architect' | 'fs_phantom' | 'fs_nerve' | 'fs_bpmfinder'
+    // Experimental AI Suite
+    | 'fs_ghost' | 'fs_prophet' | 'fs_void' | 'fs_alchemy'
   enabled: boolean
   params: Record<string, number>
   vstPath?: string
