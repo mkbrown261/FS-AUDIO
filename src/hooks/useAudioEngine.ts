@@ -530,16 +530,16 @@ export function useAudioEngine() {
     crystalGain.connect(analyser)
     crystalDry.connect(analyser)
 
-    // Set initial state: all new elite plugin dry/wet gain = 0 (signal goes through panner→analyser directly)
+    // Set initial state: dry = 1 (bypass), wet = 0 (off)
     // When a plugin is activated via applyElitePlugins, dry/wet gains are set appropriately
-    novaDry.gain.value = 0;    novaWet.gain.value = 0
-    prismDry.gain.value = 0;   prismWet.gain.value = 0
-    vibeDry.gain.value = 0;    vibeWet.gain.value = 0
-    oxideDry.gain.value = 0;   oxideWet.gain.value = 0
-    hadesDry.gain.value = 0;   hadesSubGain.gain.value = 0
-    fluxDry.gain.value = 0;    fluxWet.gain.value = 0
-    forgeDry.gain.value = 0;   forgeWet.gain.value = 0
-    crystalDry.gain.value = 0; crystalGain.gain.value = 0
+    novaDry.gain.value = 1;    novaWet.gain.value = 0
+    prismDry.gain.value = 1;   prismWet.gain.value = 0
+    vibeDry.gain.value = 1;    vibeWet.gain.value = 0
+    oxideDry.gain.value = 1;   oxideWet.gain.value = 0
+    hadesDry.gain.value = 1;   hadesSubGain.gain.value = 0
+    fluxDry.gain.value = 1;    fluxWet.gain.value = 0
+    forgeDry.gain.value = 1;   forgeWet.gain.value = 0
+    crystalDry.gain.value = 1; crystalGain.gain.value = 0
 
     panner.connect(analyser)
     analyser.connect(masterGainRef.current!)
@@ -1096,11 +1096,11 @@ export function useAudioEngine() {
         nodes.novaMakeup!.gain.setTargetAtTime(makeup, ctx.currentTime, 0.01)
         // Active: gate wet = gated signal, dry = 0 (gate replaces direct panner)
         nodes.novaWet!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
-        nodes.novaDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        nodes.novaDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       } else if (nodes.novaWet) {
         // Inactive: both = 0, panner→analyser provides the signal directly
         nodes.novaWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
-        nodes.novaDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        nodes.novaDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       }
 
       // ── FS-Prism: Harmonic Exciter ────────────────────────────────────────
@@ -1128,7 +1128,7 @@ export function useAudioEngine() {
         nodes.prismDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       } else if (nodes.prismWet) {
         nodes.prismWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
-        nodes.prismDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        nodes.prismDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       }
 
       // ── FS-Vibe: Tape Vibrato ─────────────────────────────────────────────
@@ -1149,7 +1149,7 @@ export function useAudioEngine() {
         nodes.vibeDry!.gain.setTargetAtTime(1 - mix, ctx.currentTime, 0.01)
       } else if (nodes.vibeWet) {
         nodes.vibeWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
-        nodes.vibeDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        nodes.vibeDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       }
 
       // ── FS-Phase: Stereo Width / M-S ──────────────────────────────────────
@@ -1191,7 +1191,7 @@ export function useAudioEngine() {
         nodes.oxideDry!.gain.setTargetAtTime(1 - mix, ctx.currentTime, 0.01)
       } else if (nodes.oxideWet) {
         nodes.oxideWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
-        nodes.oxideDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        nodes.oxideDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       }
 
       // ── FS-Hades: Sub Enhancer ────────────────────────────────────────────
@@ -1213,7 +1213,7 @@ export function useAudioEngine() {
         nodes.hadesDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       } else if (nodes.hadesSubGain) {
         nodes.hadesSubGain.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
-        nodes.hadesDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        nodes.hadesDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       }
 
       // ── FS-Shield: Noise Gate ─────────────────────────────────────────────
@@ -1251,8 +1251,9 @@ export function useAudioEngine() {
         nodes.fluxWet!.gain.setTargetAtTime(amount * 0.2, ctx.currentTime, 0.01) // subtle
         nodes.fluxDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       } else if (nodes.fluxWet) {
+        // When disabled, bypass via dry path
         nodes.fluxWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
-        nodes.fluxDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        nodes.fluxDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       }
 
       // ── FS-Forge: Parallel Compressor ─────────────────────────────────────
@@ -1273,7 +1274,7 @@ export function useAudioEngine() {
         nodes.forgeWet!.gain.setTargetAtTime(blend, ctx.currentTime, 0.01)
       } else if (nodes.forgeWet) {
         nodes.forgeWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
-        nodes.forgeDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        nodes.forgeDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       }
 
       // ── FS-Crystal: Granular Freeze ───────────────────────────────────────
@@ -1298,7 +1299,7 @@ export function useAudioEngine() {
         nodes.crystalDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       } else if (nodes.crystalGain) {
         nodes.crystalGain.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
-        nodes.crystalDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        nodes.crystalDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       }
 
       // ── Flowstate Pro Suite DSP ────────────────────────────────────────────
@@ -1413,7 +1414,7 @@ export function useAudioEngine() {
         nodes.pressureComp.knee.setTargetAtTime(6, ctx.currentTime, 0.01)
         nodes.pressureMakeup!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
         // Full wet mode: only compressed signal passes to transient designer
-        nodes.pressureDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        nodes.pressureDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
         nodes.pressureWet!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       }
 
@@ -1519,7 +1520,7 @@ export function useAudioEngine() {
         const hasFlux2 = track.plugins.find(p => p.type === 'pitch_correct' && p.enabled)
         if (!hasFlux2) {
           nodes.fluxWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
-          nodes.fluxDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+          nodes.fluxDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
         }
       }
 
@@ -1537,7 +1538,7 @@ export function useAudioEngine() {
         nodes.vibeDry!.gain.setTargetAtTime(1 - mix2, ctx.currentTime, 0.01)
       } else if (dimPlugin === undefined && !vibePlugin && nodes.vibeWet) {
         nodes.vibeWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
-        nodes.vibeDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        nodes.vibeDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       }
 
       // FS-Mutate: Vocal Transformer → maps to forgeComp (parallel harmonic path)
