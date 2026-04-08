@@ -636,21 +636,63 @@ export default function App() {
           store.setActiveTool('pointer') // ESC resets to pointer
           break
 
-        // ── Playhead navigation ──────────────────────────────────────────
+        // ── Playhead & Timeline navigation ──────────────────────────────────────────
         case 'ArrowLeft': {
           e.preventDefault()
-          const st = useProjectStore.getState()
-          const beatsBack = meta ? 4 : e.shiftKey ? 0.25 : 1
-          const newBeat = Math.max(0, st.currentTime * (st.bpm / 60) - beatsBack)
-          transport.seekToBeat(newBeat)
+          if (e.altKey) {
+            // Alt + Left = scroll timeline left
+            const timeline = document.querySelector('.timeline') as HTMLElement
+            if (timeline) {
+              timeline.scrollLeft = Math.max(0, timeline.scrollLeft - 200)
+            }
+          } else {
+            // Normal playhead navigation
+            const st = useProjectStore.getState()
+            const beatsBack = meta ? 4 : e.shiftKey ? 0.25 : 1
+            const newBeat = Math.max(0, st.currentTime * (st.bpm / 60) - beatsBack)
+            transport.seekToBeat(newBeat)
+          }
           break
         }
         case 'ArrowRight': {
           e.preventDefault()
-          const st = useProjectStore.getState()
-          const beatsFwd = meta ? 4 : e.shiftKey ? 0.25 : 1
-          const newBeat = st.currentTime * (st.bpm / 60) + beatsFwd
-          transport.seekToBeat(newBeat)
+          if (e.altKey) {
+            // Alt + Right = scroll timeline right
+            const timeline = document.querySelector('.timeline') as HTMLElement
+            if (timeline) {
+              timeline.scrollLeft += 200
+            }
+          } else {
+            // Normal playhead navigation
+            const st = useProjectStore.getState()
+            const beatsFwd = meta ? 4 : e.shiftKey ? 0.25 : 1
+            const newBeat = st.currentTime * (st.bpm / 60) + beatsFwd
+            transport.seekToBeat(newBeat)
+          }
+          break
+        }
+
+        // ── Home/End — Quick timeline navigation ─────────────────────────
+        case 'Home': {
+          e.preventDefault()
+          if (e.altKey) {
+            // Alt + Home = scroll timeline to start
+            const timeline = document.querySelector('.timeline') as HTMLElement
+            if (timeline) timeline.scrollLeft = 0
+          } else {
+            // Home = move playhead to start
+            transport.seekToBeat(0)
+          }
+          break
+        }
+        case 'End': {
+          e.preventDefault()
+          if (e.altKey) {
+            // Alt + End = scroll timeline to end
+            const timeline = document.querySelector('.timeline') as HTMLElement
+            if (timeline) timeline.scrollLeft = timeline.scrollWidth
+          }
+          // End key without alt doesn't move playhead (would be confusing)
           break
         }
 

@@ -948,13 +948,28 @@ export function Timeline({
     <div
       ref={scrollRef}
       className="timeline"
-      style={{ overflowX:'auto', overflowY:'auto', flex:1, position:'relative' }}
+      style={{ 
+        overflowX: 'scroll', // Always show scrollbar
+        overflowY: 'auto', 
+        flex: 1, 
+        position: 'relative',
+        scrollBehavior: 'auto', // Smooth but responsive scrolling
+        WebkitOverflowScrolling: 'touch' // Better scroll on touch devices
+      }}
       onWheel={e => {
         if (e.ctrlKey || e.metaKey) {
           e.preventDefault()
           e.stopPropagation()
           setZoom(Math.max(0.25, Math.min(6, zoom + (e.deltaY > 0 ? -0.15 : 0.15))))
+        } else if (e.shiftKey) {
+          // Shift + wheel = horizontal scroll
+          e.preventDefault()
+          const el = scrollRef.current
+          if (el) {
+            el.scrollLeft += e.deltaY
+          }
         }
+        // Allow natural horizontal scrolling with trackpad
       }}
     >
       {/* Ruler */}
