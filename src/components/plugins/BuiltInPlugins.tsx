@@ -19,9 +19,10 @@
  * 11. FS-Transient  — Attack/sustain transient designer (SPL Transient Designer)
  */
 
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { useProjectStore, Track, Plugin } from '../../store/projectStore'
 import { FLOWSTATE_PRO_DEFAULTS, renderFlowstatePlugin } from './FlowstatePro'
+import { AI_PLUGIN_DEFAULTS, renderAiPlugin } from './AiPlugins'
 
 // ── Knob Component ────────────────────────────────────────────────────────────
 interface KnobProps {
@@ -1035,6 +1036,13 @@ function PluginSlot({ trackId, plugin, slotIndex }: PluginSlotProps) {
       case 'pitch_correct':return <FluxEditor plugin={plugin} onChange={handleChange} />
       case 'parallel_comp':return <ForgeEditor plugin={plugin} onChange={handleChange} />
       case 'granular':     return <CrystalEditor plugin={plugin} onChange={handleChange} />
+      // AI Plugin Suite
+      case 'fs_oracle':
+      case 'fs_clone':
+      case 'fs_architect':
+      case 'fs_phantom':
+      case 'fs_nerve':
+      case 'fs_bpmfinder': return renderAiPlugin(plugin, handleChange)
       // Flowstate Pro Suite
       default: return renderFlowstatePlugin(plugin, handleChange)
     }
@@ -1053,6 +1061,9 @@ function PluginSlot({ trackId, plugin, slotIndex }: PluginSlotProps) {
     stereo_width: '#38bdf8', tape: '#d97706', sub_enhancer: '#7c3aed',
     noise_gate: '#14b8a6', pitch_correct: '#e879f9', parallel_comp: '#facc15',
     granular: '#818cf8',
+    // AI Plugin Suite
+    fs_oracle: '#d946ef', fs_clone: '#06b6d4', fs_architect: '#22c55e',
+    fs_phantom: '#8b5cf6', fs_nerve: '#f59e0b', fs_bpmfinder: '#f97316',
     // Flowstate Pro Suite
     fs_proq: '#a855f7', fs_resonance: '#10b981', fs_vintage_verb: '#818cf8',
     fs_echo: '#f59e0b', fs_tuner: '#e879f9', fs_mastering: '#facc15',
@@ -1094,31 +1105,323 @@ interface PluginRackProps {
   track: Track
 }
 
-const CLASSIC_PLUGINS = ['eq','compressor','limiter','reverb','delay','chorus','distortion']
-const ELITE_PLUGINS   = [
-  'saturation','bus_compressor','spacetime','transient',
-  'expander','exciter','vibrato','stereo_width','tape',
-  'sub_enhancer','noise_gate','pitch_correct','parallel_comp','granular',
+// ── Categorized plugin definitions ──────────────────────────────────────────
+interface PluginEntry { key: string; name: string; type: string; desc: string }
+
+const CLASSIC_CATEGORIES: { label: string; color: string; icon: string; plugins: PluginEntry[] }[] = [
+  {
+    label: 'EQ & Filter',
+    color: '#06b6d4',
+    icon: '◈',
+    plugins: [
+      { key: 'eq',          name: 'FS-EQ3',        type: 'eq',         desc: '3-band parametric EQ' },
+    ],
+  },
+  {
+    label: 'Dynamics',
+    color: '#10b981',
+    icon: '⟁',
+    plugins: [
+      { key: 'compressor',  name: 'FS-Comp',        type: 'compressor', desc: 'Classic VCA compressor' },
+      { key: 'limiter',     name: 'FS-Limiter',     type: 'limiter',    desc: 'Brick-wall limiter' },
+    ],
+  },
+  {
+    label: 'Reverb & Delay',
+    color: '#a855f7',
+    icon: '◉',
+    plugins: [
+      { key: 'reverb',      name: 'FS-Reverb',      type: 'reverb',     desc: 'Algorithmic plate reverb' },
+      { key: 'delay',       name: 'FS-Delay',       type: 'delay',      desc: 'Stereo delay + feedback' },
+    ],
+  },
+  {
+    label: 'Modulation',
+    color: '#ec4899',
+    icon: '∿',
+    plugins: [
+      { key: 'chorus',      name: 'FS-Chorus',      type: 'chorus',     desc: 'Modulated chorus' },
+    ],
+  },
+  {
+    label: 'Distortion',
+    color: '#f59e0b',
+    icon: '⚡',
+    plugins: [
+      { key: 'distortion',  name: 'FS-Bitcrusher',  type: 'distortion', desc: 'Lo-fi bit depth reducer' },
+    ],
+  },
 ]
-const FLOWSTATE_PRO_PLUGINS = Object.keys(FLOWSTATE_PRO_DEFAULTS)
 
-const PLUGIN_MENU = Object.entries(PLUGIN_DEFAULTS).map(([key, def]) => ({
-  key, name: def.name, type: def.type,
-  elite: ELITE_PLUGINS.includes(key),
-  pro: false,
-}))
+const ELITE_CATEGORIES: { label: string; color: string; icon: string; plugins: PluginEntry[] }[] = [
+  {
+    label: 'Saturation',
+    color: '#f97316',
+    icon: '◈',
+    plugins: [
+      { key: 'saturation',    name: 'FS-Saturn',    type: 'saturation',    desc: 'Multiband harmonic saturation' },
+      { key: 'tape',          name: 'FS-Oxide',     type: 'tape',          desc: 'Analog tape emulation' },
+    ],
+  },
+  {
+    label: 'Dynamics',
+    color: '#22d3ee',
+    icon: '⟁',
+    plugins: [
+      { key: 'bus_compressor',name: 'FS-Pressure',  type: 'bus_compressor',desc: 'Vintage SSL/Neve bus comp' },
+      { key: 'transient',     name: 'FS-Transient', type: 'transient',     desc: 'Attack/sustain designer' },
+      { key: 'expander',      name: 'FS-Nova',      type: 'expander',      desc: 'Multiband expander/gate' },
+      { key: 'noise_gate',    name: 'FS-Shield',    type: 'noise_gate',    desc: 'Precision noise gate' },
+      { key: 'parallel_comp', name: 'FS-Forge',     type: 'parallel_comp', desc: 'NY parallel compressor' },
+    ],
+  },
+  {
+    label: 'Reverb & Space',
+    color: '#c084fc',
+    icon: '◉',
+    plugins: [
+      { key: 'spacetime',     name: 'FS-Spacetime', type: 'spacetime',     desc: 'Shimmer reverb + ping-pong' },
+      { key: 'granular',      name: 'FS-Crystal',   type: 'granular',      desc: 'Granular freeze reverb' },
+    ],
+  },
+  {
+    label: 'Modulation',
+    color: '#fb923c',
+    icon: '∿',
+    plugins: [
+      { key: 'vibrato',       name: 'FS-Vibe',      type: 'vibrato',       desc: 'Tape vibrato/chorus' },
+    ],
+  },
+  {
+    label: 'Pitch & Tone',
+    color: '#e879f9',
+    icon: '♪',
+    plugins: [
+      { key: 'pitch_correct', name: 'FS-Flux',      type: 'pitch_correct', desc: 'Real-time pitch correction' },
+      { key: 'exciter',       name: 'FS-Prism',     type: 'exciter',       desc: 'Harmonic exciter' },
+      { key: 'sub_enhancer',  name: 'FS-Hades',     type: 'sub_enhancer',  desc: 'Sub-harmonic enhancer' },
+    ],
+  },
+  {
+    label: 'Stereo',
+    color: '#38bdf8',
+    icon: '↔',
+    plugins: [
+      { key: 'stereo_width',  name: 'FS-Phase',     type: 'stereo_width',  desc: 'M/S stereo widener' },
+    ],
+  },
+]
 
-const FLOWSTATE_PRO_MENU = Object.entries(FLOWSTATE_PRO_DEFAULTS).map(([key, def]) => ({
-  key, name: def.name, type: def.type, elite: false, pro: true,
-}))
+const PRO_CATEGORIES: { label: string; color: string; icon: string; plugins: PluginEntry[] }[] = [
+  {
+    label: 'EQ & Filtering',
+    color: '#a855f7',
+    icon: '◈',
+    plugins: [
+      { key: 'fs_proq',          name: 'FS-ProQ',      type: 'fs_proq',          desc: '8-band surgical + dynamic EQ' },
+      { key: 'fs_resonance',     name: 'FS-Resonate',  type: 'fs_resonance',     desc: 'Spectral resonance suppressor' },
+      { key: 'fs_spacer',        name: 'FS-Spacer',    type: 'fs_spacer',        desc: 'Sidechain spectral carver' },
+    ],
+  },
+  {
+    label: 'Dynamics',
+    color: '#ef4444',
+    icon: '⟁',
+    plugins: [
+      { key: 'fs_multiband_comp',name: 'FS-Crush',     type: 'fs_multiband_comp',desc: '4-band multiband compressor' },
+      { key: 'fs_peak_limiter',  name: 'FS-Apex',      type: 'fs_peak_limiter',  desc: 'True-peak limiter + LUFS' },
+    ],
+  },
+  {
+    label: 'Reverb & Delay',
+    color: '#818cf8',
+    icon: '◉',
+    plugins: [
+      { key: 'fs_vintage_verb',  name: 'FS-Cosmos',    type: 'fs_vintage_verb',  desc: '18-mode algorithmic reverb' },
+      { key: 'fs_echo',          name: 'FS-Echo',      type: 'fs_echo',          desc: 'Tape/BBD/Galaxy delay' },
+      { key: 'fs_tape_delay',    name: 'FS-Reel',      type: 'fs_tape_delay',    desc: 'Analog tape delay + flutter' },
+    ],
+  },
+  {
+    label: 'Pitch & Voice',
+    color: '#e879f9',
+    icon: '♪',
+    plugins: [
+      { key: 'fs_tuner',         name: 'FS-Voice',     type: 'fs_tuner',         desc: 'Real-time pitch/formant' },
+      { key: 'fs_vocal_enhance', name: 'FS-Aura',      type: 'fs_vocal_enhance', desc: 'Intelligent vocal enhancer' },
+      { key: 'fs_alter',         name: 'FS-Mutate',    type: 'fs_alter',         desc: 'Vocal transformer' },
+    ],
+  },
+  {
+    label: 'Modulation',
+    color: '#22d3ee',
+    icon: '∿',
+    plugins: [
+      { key: 'fs_dimension',     name: 'FS-Dimension', type: 'fs_dimension',     desc: 'Stereo chorus expander' },
+    ],
+  },
+  {
+    label: 'Mastering',
+    color: '#facc15',
+    icon: '★',
+    plugins: [
+      { key: 'fs_mastering',     name: 'FS-Master',    type: 'fs_mastering',     desc: '4-section mastering suite' },
+    ],
+  },
+  {
+    label: 'Creative FX',
+    color: '#f97316',
+    icon: '⚡',
+    plugins: [
+      { key: 'fs_glitch',        name: 'FS-Glitch',    type: 'fs_glitch',        desc: '16-step multi-FX sequencer' },
+      { key: 'fs_wavetable',     name: 'FS-Spectrum',  type: 'fs_wavetable',     desc: 'Wavetable oscillator layer' },
+    ],
+  },
+]
+
+const AI_CATEGORIES: { label: string; color: string; icon: string; plugins: PluginEntry[] }[] = [
+  {
+    label: 'Analysis',
+    color: '#f97316',
+    icon: '◎',
+    plugins: [
+      { key: 'fs_bpmfinder', name: 'FS-BPM Finder', type: 'fs_bpmfinder', desc: 'Live BPM detection + tap tempo' },
+    ],
+  },
+  {
+    label: 'Mastering AI',
+    color: '#d946ef',
+    icon: '★',
+    plugins: [
+      { key: 'fs_oracle',    name: 'FS-Oracle',     type: 'fs_oracle',    desc: 'AI mastering suite + Claude 3.5' },
+    ],
+  },
+  {
+    label: 'Composition AI',
+    color: '#22c55e',
+    icon: '♪',
+    plugins: [
+      { key: 'fs_architect', name: 'FS-Architect',  type: 'fs_architect', desc: 'Chord/melody AI generator' },
+    ],
+  },
+  {
+    label: 'Timbre & Space',
+    color: '#06b6d4',
+    icon: '◈',
+    plugins: [
+      { key: 'fs_clone',     name: 'FS-Clone',      type: 'fs_clone',     desc: 'AI timbre transfer' },
+      { key: 'fs_phantom',   name: 'FS-Phantom',    type: 'fs_phantom',   desc: 'AI stereo reconstructor' },
+    ],
+  },
+  {
+    label: 'Dynamics AI',
+    color: '#f59e0b',
+    icon: '⟁',
+    plugins: [
+      { key: 'fs_nerve',     name: 'FS-Nerve',      type: 'fs_nerve',     desc: 'Adaptive sidechain AI' },
+    ],
+  },
+]
+
+// ── Custom scrollable dropdown component ─────────────────────────────────────
+interface PluginDropdownProps {
+  onSelect: (key: string) => void
+  onClose: () => void
+}
+
+function PluginDropdown({ onSelect, onClose }: PluginDropdownProps) {
+  const [activeTab, setActiveTab] = useState<'classic'|'elite'|'pro'|'ai'>('classic')
+  const [expandedCat, setExpandedCat] = useState<string | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // Close on outside click
+  useEffect(() => {
+    const handle = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose()
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [onClose])
+
+  const tabs: { id: 'classic'|'elite'|'pro'|'ai'; label: string; color: string }[] = [
+    { id: 'classic', label: 'CLASSIC',        color: '#06b6d4' },
+    { id: 'elite',   label: '★ ELITE',        color: '#f97316' },
+    { id: 'pro',     label: '⚡ PRO',          color: '#a855f7' },
+    { id: 'ai',      label: '🤖 AI',           color: '#22c55e' },
+  ]
+
+  const cats =
+    activeTab === 'classic' ? CLASSIC_CATEGORIES :
+    activeTab === 'elite'   ? ELITE_CATEGORIES   :
+    activeTab === 'pro'     ? PRO_CATEGORIES      : AI_CATEGORIES
+
+  return (
+    <div ref={menuRef} className="pdd-overlay">
+      {/* Tab bar */}
+      <div className="pdd-tabs">
+        {tabs.map(t => (
+          <button
+            key={t.id}
+            className={`pdd-tab ${activeTab === t.id ? 'pdd-tab-active' : ''}`}
+            style={activeTab === t.id ? { color: t.color, borderBottomColor: t.color } : {}}
+            onClick={() => { setActiveTab(t.id); setExpandedCat(null) }}
+          >{t.label}</button>
+        ))}
+      </div>
+
+      {/* Category list — scrollable */}
+      <div className="pdd-scroll">
+        {cats.map(cat => (
+          <div key={cat.label} className="pdd-cat">
+            {/* Category header */}
+            <button
+              className="pdd-cat-header"
+              onClick={() => setExpandedCat(expandedCat === cat.label ? null : cat.label)}
+            >
+              <span className="pdd-cat-icon" style={{ color: cat.color }}>{cat.icon}</span>
+              <span className="pdd-cat-label">{cat.label}</span>
+              <span className="pdd-cat-count">{cat.plugins.length}</span>
+              <span className="pdd-cat-arrow">{expandedCat === cat.label ? '▲' : '▼'}</span>
+            </button>
+
+            {/* Plugin list inside category */}
+            {expandedCat === cat.label && (
+              <div className="pdd-plugin-list">
+                {cat.plugins.map(plugin => (
+                  <button
+                    key={plugin.key}
+                    className="pdd-plugin-row"
+                    onClick={() => onSelect(plugin.key)}
+                  >
+                    <div className="pdd-plugin-dot" style={{ background: cat.color }} />
+                    <div className="pdd-plugin-info">
+                      <span className="pdd-plugin-name" style={{ color: cat.color }}>{plugin.name}</span>
+                      <span className="pdd-plugin-desc">{plugin.desc}</span>
+                    </div>
+                    <span className="pdd-plugin-add">+</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 export function PluginRack({ track }: PluginRackProps) {
   const { addPlugin } = useProjectStore()
   const [showAdd, setShowAdd] = useState(false)
-  const [menuSection, setMenuSection] = useState<'classic'|'elite'|'pro'>('classic')
 
-  function addNewPlugin(key: string) {
-    const def = PLUGIN_DEFAULTS[key] ?? FLOWSTATE_PRO_DEFAULTS[key]
+  const allDefs: Record<string, { name: string; type: string; params: Record<string, number> }> = {
+    ...PLUGIN_DEFAULTS,
+    ...FLOWSTATE_PRO_DEFAULTS,
+    ...AI_PLUGIN_DEFAULTS,
+  }
+
+  const addNewPlugin = useCallback((key: string) => {
+    const def = allDefs[key]
     if (!def) return
     addPlugin(track.id, {
       id: `plugin-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -1128,44 +1431,26 @@ export function PluginRack({ track }: PluginRackProps) {
       params: { ...def.params },
     })
     setShowAdd(false)
-  }
+  }, [track.id, addPlugin, allDefs])
 
   return (
     <div className="plugin-rack">
       <div className="plugin-rack-header">
         <span className="plugin-rack-title">INSERT EFFECTS</span>
-        <button className="plugin-rack-add-btn" onClick={() => setShowAdd(s => !s)} title="Add Plugin">
+        <button
+          className="plugin-rack-add-btn"
+          onClick={() => setShowAdd(s => !s)}
+          title="Add Plugin"
+        >
           + ADD
         </button>
       </div>
 
       {showAdd && (
-        <div className="plugin-add-menu">
-          {/* Section tabs */}
-          <div className="plugin-add-tabs">
-            <button className={`plugin-add-tab ${menuSection === 'classic' ? 'active' : ''}`} onClick={() => setMenuSection('classic')}>CLASSIC</button>
-            <button className={`plugin-add-tab ${menuSection === 'elite' ? 'active' : ''}`} onClick={() => setMenuSection('elite')}>★ ELITE</button>
-            <button className={`plugin-add-tab plugin-add-tab-pro ${menuSection === 'pro' ? 'active' : ''}`} onClick={() => setMenuSection('pro')}>⚡ FLOWSTATE PRO</button>
-          </div>
-          {menuSection === 'classic' && PLUGIN_MENU.filter(p => !p.elite).map(p => (
-            <button key={p.key} className="plugin-add-option" onClick={() => addNewPlugin(p.key)}>
-              <span className="plugin-add-type">{p.type.toUpperCase()}</span>
-              {p.name}
-            </button>
-          ))}
-          {menuSection === 'elite' && PLUGIN_MENU.filter(p => p.elite).map(p => (
-            <button key={p.key} className="plugin-add-option plugin-add-elite" onClick={() => addNewPlugin(p.key)}>
-              <span className="plugin-add-type" style={{ color: '#f97316' }}>{p.type.replace('_',' ').toUpperCase()}</span>
-              {p.name}
-            </button>
-          ))}
-          {menuSection === 'pro' && FLOWSTATE_PRO_MENU.map(p => (
-            <button key={p.key} className="plugin-add-option plugin-add-pro" onClick={() => addNewPlugin(p.key)}>
-              <span className="plugin-add-type" style={{ color: '#a855f7' }}>{p.key.replace('fs_','').toUpperCase()}</span>
-              {p.name}
-            </button>
-          ))}
-        </div>
+        <PluginDropdown
+          onSelect={addNewPlugin}
+          onClose={() => setShowAdd(false)}
+        />
       )}
 
       <div className="plugin-rack-slots">

@@ -16,6 +16,8 @@ export interface Plugin {
     | 'fs_proq' | 'fs_resonance' | 'fs_vintage_verb' | 'fs_echo' | 'fs_tuner'
     | 'fs_mastering' | 'fs_spacer' | 'fs_peak_limiter' | 'fs_alter' | 'fs_glitch'
     | 'fs_wavetable' | 'fs_multiband_comp' | 'fs_tape_delay' | 'fs_vocal_enhance' | 'fs_dimension'
+    // AI Plugin Suite
+    | 'fs_oracle' | 'fs_clone' | 'fs_architect' | 'fs_phantom' | 'fs_nerve' | 'fs_bpmfinder'
   enabled: boolean
   params: Record<string, number>
   vstPath?: string
