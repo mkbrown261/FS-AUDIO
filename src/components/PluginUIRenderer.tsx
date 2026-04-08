@@ -1,10 +1,11 @@
 import React from 'react'
 import { Plugin } from '../store/projectStore'
+import { AnalogSynthUI } from './instruments/AnalogSynthUI'
 
 interface PluginUIRendererProps {
   plugin: Plugin
   trackId: string
-  onUpdateParams: (params: Record<string, number>) => void
+  onUpdateParams: (params: Record<string, number | string>) => void
 }
 
 // Professional Knob Component
@@ -590,6 +591,11 @@ function getPluginTheme(plugin: Plugin): { gradient: string, accent: string, ico
 
 // Generic plugin UI that works for ALL plugins
 export function PluginUIRenderer({ plugin, trackId, onUpdateParams }: PluginUIRendererProps) {
+  // Custom UI for instrument plugins
+  if (plugin.type === 'fs_analog') {
+    return <AnalogSynthUI params={plugin.params} onUpdate={onUpdateParams} />
+  }
+  
   const theme = getPluginTheme(plugin)
   const paramCount = Object.keys(plugin.params).length
 

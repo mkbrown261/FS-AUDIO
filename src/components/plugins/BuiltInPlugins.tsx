@@ -112,7 +112,7 @@ function describeArc(cx: number, cy: number, r: number, startAngle: number, endA
 }
 
 // ── Plugin Default Params ─────────────────────────────────────────────────────
-export const PLUGIN_DEFAULTS: Record<string, { params: Record<string, number>; name: string; type: Plugin['type'] }> = {
+export const PLUGIN_DEFAULTS: Record<string, { params: Record<string, number | string>; name: string; type: Plugin['type'] }> = {
   eq: {
     name: 'FS-EQ3',
     type: 'eq',
@@ -371,6 +371,36 @@ export const PLUGIN_DEFAULTS: Record<string, { params: Record<string, number>; n
       mode: 0,
       reverse: 0,       // play grains in reverse
       density: 0.8,     // grain density (0-1)
+    },
+  },
+
+  // ── Instrument Plugins ────────────────────────────────────────────────────────
+  fs_analog: {
+    name: 'FS-Analog',
+    type: 'fs_analog',
+    params: {
+      osc1_type: 'sawtooth',
+      osc1_level: 0.7,
+      osc1_octave: 0,
+      osc1_detune: 0,
+      osc2_type: 'square',
+      osc2_level: 0.3,
+      osc2_octave: -1,
+      osc2_detune: 5,
+      filter_type: 'lowpass',
+      filter_cutoff: 2000,
+      filter_resonance: 5,
+      filter_env_amount: 0.5,
+      env_attack: 0.01,
+      env_decay: 0.2,
+      env_sustain: 0.6,
+      env_release: 0.3,
+      lfo_rate: 5,
+      lfo_amount: 0.2,
+      lfo_destination: 'filter',
+      unison_voices: 2,
+      unison_detune: 10,
+      master_volume: 0.7,
     },
   },
 }

@@ -20,8 +20,10 @@ export interface Plugin {
     | 'fs_oracle' | 'fs_clone' | 'fs_architect' | 'fs_phantom' | 'fs_nerve' | 'fs_bpmfinder'
     // Experimental AI Suite
     | 'fs_ghost' | 'fs_prophet' | 'fs_void' | 'fs_alchemy'
+    // Instrument Plugins
+    | 'fs_analog' | 'fs_sampler' | 'fs_drum_machine'
   enabled: boolean
-  params: Record<string, number>
+  params: Record<string, number | string>  // Allow string for waveform types, etc.
   vstPath?: string
 }
 
@@ -288,7 +290,7 @@ interface Actions {
 
   addPlugin: (trackId: string, plugin: Plugin) => void
   removePlugin: (trackId: string, pluginId: string) => void
-  updatePlugin: (trackId: string, pluginId: string, params: Record<string, number>) => void
+  updatePlugin: (trackId: string, pluginId: string, params: Record<string, number | string>) => void
   togglePlugin: (trackId: string, pluginId: string) => void
   openPluginWindow: (pluginId: string) => void
   closePluginWindow: (pluginId: string) => void
