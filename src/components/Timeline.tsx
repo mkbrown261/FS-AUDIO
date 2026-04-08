@@ -732,6 +732,7 @@ export function Timeline({
   const currentBeat = currentTime * (bpm / 60)
 
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null)
+  const [lassoBox, setLassoBox] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null)
   const recordStartBeatRef = useRef(0)
   useEffect(() => {
     if (isRecording) recordStartBeatRef.current = currentBeat
@@ -1085,7 +1086,69 @@ export function Timeline({
       </div>
 
       {/* Lanes + grid */}
-      <div style={{ position:'relative', width: totalWidth, minWidth:'100%' }}>
+      <div 
+        style={{ position:'relative', width: totalWidth, minWidth:'100%' }}
+        onMouseDown={(e) => {
+          // Only start lasso if clicking in empty space (not on clips or controls)
+          if (e.button !== 0) return
+          if ((e.target as HTMLElement).closest('.clip, .playhead, .loop-region, .loop-locator')) return
+          
+          const containerRect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
+          const startX = e.clientX - containerRect.left
+          const startY = e.clientY - containerRect.top
+          let currentEndX = startX
+          let currentEndY = startY
+          
+          setLassoBox({ startX, startY, endX: startX, endY: startY })
+          
+          const handleMouseMove = (me: MouseEvent) => {
+            currentEndX = me.clientX - containerRect.left
+            currentEndY = me.clientY - containerRect.top
+            setLassoBox({ startX, startY, endX: currentEndX, endY: currentEndY })
+          }
+          
+          const handleMouseUp = () => {
+            // Select all clips within the lasso box
+            const minX = Math.min(startX, currentEndX) + scrollLeft
+            const maxX = Math.max(startX, currentEndX) + scrollLeft
+            const minY = Math.min(startY, currentEndY)
+            const maxY = Math.max(startY, currentEndY)
+            
+            // Find all clips that intersect with the lasso box
+            const clipsToSelect: string[] = []
+            tracks.forEach((track, trackIndex) => {
+              const trackTop = trackIndex * 60 // Approximate track height
+              const trackBottom = trackTop + 60
+              
+              // Check if track intersects with lasso
+              if (trackBottom >= minY && trackTop <= maxY) {
+                track.clips.forEach(clip => {
+                  const clipLeft = clip.startBeat * pixelsPerBeat
+                  const clipRight = (clip.startBeat + clip.durationBeats) * pixelsPerBeat
+                  
+                  // Check if clip intersects with lasso
+                  if (clipRight >= minX && clipLeft <= maxX) {
+                    clipsToSelect.push(clip.id)
+                  }
+                })
+              }
+            })
+            
+            // Select the clips (with shift behavior for multi-select)
+            if (clipsToSelect.length > 0) {
+              store.deselectAll()
+              clipsToSelect.forEach(clipId => store.selectClip(clipId, true))
+            }
+            
+            setLassoBox(null)
+            window.removeEventListener('mousemove', handleMouseMove)
+            window.removeEventListener('mouseup', handleMouseUp)
+          }
+          
+          window.addEventListener('mousemove', handleMouseMove)
+          window.addEventListener('mouseup', handleMouseUp)
+        }}
+      >
         {gridLines}
         {tracks.map(track => {
           const trackAutoLanes = automationLanes.filter(l => l.trackId === track.id)
@@ -1142,6 +1205,24 @@ export function Timeline({
           />
         </div>
       </div>
+
+      {/* Lasso selection box */}
+      {lassoBox && (
+        <div
+          className="lasso-box"
+          style={{
+            position: 'absolute',
+            left: Math.min(lassoBox.startX, lassoBox.endX),
+            top: Math.min(lassoBox.startY, lassoBox.endY),
+            width: Math.abs(lassoBox.endX - lassoBox.startX),
+            height: Math.abs(lassoBox.endY - lassoBox.startY),
+            border: '1px dashed rgba(6, 182, 212, 0.8)',
+            background: 'rgba(6, 182, 212, 0.1)',
+            pointerEvents: 'none',
+            zIndex: 999,
+          }}
+        />
+      )}
 
       {ctxMenu && (
         <ContextMenu x={ctxMenu.x} y={ctxMenu.y} items={ctxMenu.items} onClose={() => setCtxMenu(null)} />

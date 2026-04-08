@@ -109,7 +109,7 @@ interface PluginSlotProps {
 }
 
 function PluginSlot({ plugin, trackId, index, onSetEQ, onSetCompressor }: PluginSlotProps) {
-  const { addPlugin, removePlugin, togglePlugin, updatePlugin } = useProjectStore()
+  const { addPlugin, removePlugin, togglePlugin, updatePlugin, openPluginWindow } = useProjectStore()
   const [expanded, setExpanded] = useState(false)
 
   const PLUGIN_TYPES: Plugin['type'][] = ['eq', 'compressor', 'reverb', 'delay', 'limiter', 'chorus', 'distortion']
@@ -167,7 +167,9 @@ function PluginSlot({ plugin, trackId, index, onSetEQ, onSetCompressor }: Plugin
           <div className={`plugin-power-dot ${plugin.enabled ? 'on' : 'off'}`} />
         </button>
         <span className="plugin-slot-num">{index + 1}</span>
-        <span className="plugin-slot-name">{plugin.name}</span>
+        <span className="plugin-slot-name" onClick={() => openPluginWindow(plugin.id)} style={{ cursor: 'pointer' }} title="Click to open window">
+          {plugin.name}
+        </span>
         <button className="plugin-expand-btn" onClick={() => setExpanded(e => !e)} title="Edit">
           {expanded ? '▲' : '▼'}
         </button>

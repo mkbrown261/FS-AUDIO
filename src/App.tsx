@@ -6,6 +6,7 @@ import { Toolbar } from './components/Toolbar'
 import { TrackList } from './components/TrackList'
 import { Timeline } from './components/Timeline'
 import { Mixer } from './components/Mixer'
+import { PluginWindowManager } from './components/PluginWindowManager'
 import { PianoRoll } from './components/PianoRoll'
 import { ClawbotPanel } from './components/ClawbotPanel'
 import { ClawflowBubble } from './components/ClawflowBubble'
@@ -843,6 +844,9 @@ export default function App() {
 
       {/* ── Toast notifications ── */}
       <ToastStack toasts={toasts} onRemove={id => setToasts(prev => prev.filter(t => t.id !== id))} />
+
+      {/* ── Floating plugin windows ── */}
+      <PluginWindowManager />
     </div>
   )
 }

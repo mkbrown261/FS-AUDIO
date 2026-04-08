@@ -57,7 +57,7 @@ function ChannelStrip({
   onVolumeChange: (id: string, v: number) => void
   onPanChange: (id: string, v: number) => void
 }) {
-  const { updateTrack, selectTrack, selectedTrackId, addPlugin, setActivePanel } = useProjectStore()
+  const { updateTrack, selectTrack, selectedTrackId, addPlugin, setActivePanel, openPluginWindow } = useProjectStore()
   const [showPluginMenu, setShowPluginMenu] = useState<number | null>(null)
   const [eqGains] = useState<[number,number,number]>([0,0,0])
 
@@ -100,15 +100,13 @@ function ChannelStrip({
               onClick={(e) => {
                 e.stopPropagation()
                 if (plugin) {
-                  // open rack for this track
-                  selectTrack(track.id)
-                  setActivePanel('plugins')
-                  setShowPluginMenu(null)
+                  // Open floating window for this plugin
+                  openPluginWindow(plugin.id)
                 } else {
                   setShowPluginMenu(showPluginMenu === i ? null : i)
                 }
               }}
-              title={plugin ? `${plugin.name} — click to open rack` : 'Add plugin'}
+              title={plugin ? `${plugin.name} — click to open window` : 'Add plugin'}
             >
               {plugin ? plugin.name : `—`}
               {showPluginMenu === i && !plugin && (

@@ -180,6 +180,9 @@ export interface ProjectState {
   // Inspector
   inspectorOpen: boolean
 
+  // Plugin windows
+  openPluginWindows: Set<string> // Set of plugin IDs with open windows
+
   // Audio device preferences
   audioInputDeviceId: string   // '' = default
   audioOutputDeviceId: string  // '' = default
@@ -287,6 +290,8 @@ interface Actions {
   removePlugin: (trackId: string, pluginId: string) => void
   updatePlugin: (trackId: string, pluginId: string, params: Record<string, number>) => void
   togglePlugin: (trackId: string, pluginId: string) => void
+  openPluginWindow: (pluginId: string) => void
+  closePluginWindow: (pluginId: string) => void
 
   setPlaying: (v: boolean) => void
   setRecording: (v: boolean) => void
@@ -379,6 +384,7 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
   snapEnabled: true,
   snapValue: '1/4',
   inspectorOpen: true,
+  openPluginWindows: new Set(),
 
   audioInputDeviceId: '',
   audioOutputDeviceId: '',
@@ -764,6 +770,16 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
       ? { ...t, plugins: t.plugins.map(p => p.id === pluginId ? { ...p, enabled: !p.enabled } : p) }
       : t),
   })),
+
+  openPluginWindow: (pluginId) => set(st => ({
+    openPluginWindows: new Set(st.openPluginWindows).add(pluginId),
+  })),
+
+  closePluginWindow: (pluginId) => set(st => {
+    const newSet = new Set(st.openPluginWindows)
+    newSet.delete(pluginId)
+    return { openPluginWindows: newSet }
+  }),
 
   // ── Transport ──────────────────────────────────────────────────────────────
   setPlaying: (v) => set({ isPlaying: v }),
