@@ -288,6 +288,11 @@ function ClipView({
               {Math.round(clip.flexRate * 100)}%
             </span>
           )}
+          {clip.pitchShift && clip.pitchShift !== 0 && (
+            <span className="clip-badge clip-badge-pitch" title={`Flex Pitch: ${clip.pitchShift > 0 ? '+' : ''}${clip.pitchShift} semitones`}>
+              {clip.pitchShift > 0 ? '+' : ''}{clip.pitchShift}st
+            </span>
+          )}
           {(clip.takes?.length ?? 0) > 0 && (
             <span className="clip-badge clip-badge-take" title={`Take ${(clip.activeTakeIndex ?? 0) + 1} / ${clip.takes!.length}`}>
               T{(clip.activeTakeIndex ?? 0) + 1}/{clip.takes!.length}
@@ -635,12 +640,16 @@ function TimelineDropZone({ onDropCreateTrack }: { onDropCreateTrack?: (file: Fi
 // ── Main Timeline ─────────────────────────────────────────────────────────────
 export function Timeline({
   playheadX, onScrub, onImportAudio, onDropCreateTrack, recordingMicLevel = 0,
+  onImportMidi, onExportMidi, onSetClipPitch,
 }: {
   playheadX: number
   onScrub: (beat: number) => void
   onImportAudio?: (trackId: string, file: File, startBeat: number) => Promise<void>
   onDropCreateTrack?: (file: File) => void
   recordingMicLevel?: number
+  onImportMidi?: (file: File, trackId?: string) => Promise<void>
+  onExportMidi?: (clipId?: string) => void
+  onSetClipPitch?: (clipId: string, semitones: number) => void
 }) {
   const store = useProjectStore()
   const {
@@ -757,10 +766,23 @@ export function Timeline({
         }},
         { label: clip.flexRate && clip.flexRate !== 1 ? 'Reset Flex Time' : '', action: () => store.setClipFlexRate(clip.id, 1),
           disabled: !clip.flexRate || clip.flexRate === 1 },
+        { label: `Flex Pitch: ${clip.pitchShift && clip.pitchShift !== 0 ? `${clip.pitchShift > 0 ? '+' : ''}${clip.pitchShift} st` : 'Off'}`,
+          action: () => {
+            const v = prompt('Pitch shift (semitones, -24 to +24):\n0 = no change\n+12 = one octave up\n-12 = one octave down', String(clip.pitchShift ?? 0))
+            if (v !== null) { const n = parseInt(v); if (!isNaN(n) && n >= -24 && n <= 24) { onSetClipPitch?.(clip.id, n) } }
+          },
+          disabled: clip.type !== 'audio',
+        },
+        { label: clip.pitchShift && clip.pitchShift !== 0 ? 'Reset Flex Pitch' : '', action: () => onSetClipPitch?.(clip.id, 0),
+          disabled: !clip.pitchShift || clip.pitchShift === 0 },
         { separator: true, label: '', action: () => {} },
         { label: 'Duplicate', shortcut: '⌘D', action: () => store.duplicateClip(clip.id) },
         { label: 'Copy', shortcut: '⌘C', action: () => store.setClipboardClip(clip) },
         { label: 'Delete', shortcut: 'Del', danger: true, action: () => store.removeClip(clip.id) },
+        ...(clip.type === 'midi' ? [
+          { separator: true, label: '', action: () => {} },
+          { label: '⬇ Export MIDI (.mid)', action: () => onExportMidi?.(clip.id) },
+        ] : []),
         ...((clip.takes?.length ?? 0) > 0 ? [
           { separator: true, label: '', action: () => {} },
           { label: `Takes (${clip.takes!.length}) — select:`, action: () => {} },
@@ -795,6 +817,17 @@ export function Timeline({
     items.push({ separator: true, label: '', action: () => {} })
     items.push({ label: 'Add Audio Track', action: () => store.addTrack('audio') })
     items.push({ label: 'Add MIDI Track', action: () => store.addTrack('midi') })
+    if (track.type === 'midi' && onImportMidi) {
+      items.push({
+        label: '⬆ Import MIDI File…',
+        action: () => {
+          const input = document.createElement('input')
+          input.type = 'file'; input.accept = '.mid,.midi'
+          input.onchange = () => { if (input.files?.[0]) onImportMidi(input.files[0], track.id) }
+          input.click()
+        },
+      })
+    }
     items.push({ separator: true, label: '', action: () => {} })
 
     const PRESET_COLORS = ['#a855f7','#ec4899','#3b82f6','#10b981','#f59e0b','#ef4444']

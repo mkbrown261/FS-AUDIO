@@ -16,6 +16,7 @@
 
 import { useCallback, useRef, useState } from 'react'
 import { useProjectStore } from '../store/projectStore'
+import { encodeAudioBufferToMp3 } from '../utils/mp3Encoder'
 
 export interface ExportOptions {
   /** 'project' = 0 to end of last clip; 'loop' = loopStart to loopEnd */
@@ -24,6 +25,10 @@ export interface ExportOptions {
   sampleRate: 44100 | 48000
   normalize: boolean
   filename?: string
+  /** 'wav' (default) or 'mp3' */
+  format?: 'wav' | 'mp3'
+  /** MP3 bitrate — only used when format = 'mp3' */
+  mp3BitRate?: 128 | 192 | 256 | 320
   /** 'mix' = full stereo mixdown (default); 'stems' = one WAV per track */
   mode?: 'mix' | 'stems'
   /** Which track IDs to export when mode = 'stems'; undefined = all */
@@ -298,12 +303,27 @@ export function useExport(audioBuffersRef: React.MutableRefObject<Map<string, Au
         }
       }
 
-      const wavBlob = encodeWav(leftData, rightData, sr, bits as 16 | 24 | 32)
+      const fmt = opts.format ?? 'wav'
+      const projectName = useProjectStore.getState().name.replace(/[^a-z0-9_\- ]/gi, '_')
+
+      let exportBlob: Blob
+      let filename: string
+
+      if (fmt === 'mp3') {
+        setProgress({ phase: 'encoding', progress: 0.9 })
+        const tempCtx = new OfflineAudioContext(2, leftData.length, sr)
+        const tempBuf = tempCtx.createBuffer(2, leftData.length, sr)
+        tempBuf.copyToChannel(leftData, 0)
+        tempBuf.copyToChannel(rightData, 1)
+        exportBlob = encodeAudioBufferToMp3(tempBuf, { bitRate: opts.mp3BitRate ?? 192, sampleRate: sr })
+        filename = opts.filename ?? `${projectName}_bounce_${opts.mp3BitRate ?? 192}kbps.mp3`
+      } else {
+        exportBlob = encodeWav(leftData, rightData, sr, bits as 16 | 24 | 32)
+        filename = opts.filename ?? `${projectName}_bounce_${bits}bit.wav`
+      }
 
       // Trigger download
-      const projectName = useProjectStore.getState().name.replace(/[^a-z0-9_\- ]/gi, '_')
-      const filename = opts.filename ?? `${projectName}_bounce_${bits}bit.wav`
-      const url = URL.createObjectURL(wavBlob)
+      const url = URL.createObjectURL(exportBlob)
       const a   = document.createElement('a')
       a.href     = url
       a.download = filename

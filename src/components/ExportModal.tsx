@@ -14,7 +14,9 @@ export function ExportModal({ isOpen, onClose, onBounce, progress }: ExportModal
 
   const [range, setRange]       = useState<'project' | 'loop'>('project')
   const [mode, setMode]         = useState<'mix' | 'stems'>('mix')
+  const [format, setFormat]     = useState<'wav' | 'mp3'>('wav')
   const [bitDepth, setBitDepth] = useState<16 | 24 | 32>(projectBD as 16 | 24 | 32)
+  const [mp3BitRate, setMp3BR]  = useState<128 | 192 | 256 | 320>(192)
   const [sampleRate, setSR]     = useState<44100 | 48000>(44100)
   const [normalize, setNorm]    = useState(false)
   const [filename, setFilename] = useState(name.replace(/[^a-z0-9_\- ]/gi, '_') + '_bounce')
@@ -215,12 +217,14 @@ export function ExportModal({ isOpen, onClose, onBounce, progress }: ExportModal
               bitDepth,
               sampleRate,
               normalize,
-              filename: filename.trim() ? `${filename.trim()}.wav` : undefined,
+              format,
+              mp3BitRate,
+              filename: filename.trim() ? `${filename.trim()}.${format}` : undefined,
               mode,
               stemTrackIds: mode === 'stems' ? [...selectedStems] : undefined,
             })}
           >
-            {busy ? '⚙ Bouncing...' : mode === 'stems' ? `⬇ Export ${selectedStems.size} Stem${selectedStems.size !== 1 ? 's' : ''}` : '⬇ Bounce to WAV'}
+            {busy ? '⚙ Bouncing...' : mode === 'stems' ? `⬇ Export ${selectedStems.size} Stem${selectedStems.size !== 1 ? 's' : ''}` : `⬇ Bounce to ${format.toUpperCase()}`}
           </button>
         </div>
       </div>

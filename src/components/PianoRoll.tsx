@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react'
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useProjectStore, MidiNote, Clip } from '../store/projectStore'
+import { detectChordFromSelection, detectChordAtBeat } from '../utils/chordDetect'
 
 const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B']
 const BLACK_KEY_PITCHES = new Set([1,3,6,8,10])
@@ -25,6 +26,7 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
   const [selectedNotes, setSelectedNotes] = useState<Set<string>>(new Set())
   const [noteClipboard, setNoteClipboard] = useState<MidiNote[]>([])
   const [saveFlash, setSaveFlash] = useState(false)
+  const [cursorBeat, setCursorBeat] = useState<number | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Resolve clip
@@ -37,6 +39,17 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
 
   const notes: MidiNote[] = clip?.midiNotes ?? []
   const totalBeats = Math.max(clip?.durationBeats ?? 16, 16)
+
+  // ── Chord detection ─────────────────────────────────────────────────────────
+  const chordName = useMemo(() => {
+    if (selectedNotes.size >= 2) {
+      return detectChordFromSelection(notes, selectedNotes)
+    }
+    if (cursorBeat !== null && notes.length >= 2) {
+      return detectChordAtBeat(notes, cursorBeat)
+    }
+    return ''
+  }, [notes, selectedNotes, cursorBeat])
   const totalWidth = totalBeats * ppb
   const totalHeight = 128 * CELL_H
 
@@ -362,6 +375,11 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
         <div className="pr-clip-info">
           {clip.name} — {notes.length} notes
           {selectedNotes.size > 0 && <span className="pr-sel-count"> ({selectedNotes.size} selected)</span>}
+          {chordName && (
+            <span className="pr-chord-name" title={selectedNotes.size >= 2 ? 'Chord from selection' : 'Chord at cursor'}>
+              {' '}⬡ {chordName}
+            </span>
+          )}
         </div>
 
         {/* Keyboard shortcut hints */}
@@ -410,6 +428,12 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
             className="pr-grid"
             style={{ width: totalWidth, height: totalHeight, position:'relative', cursor: cursorMap[tool], flexShrink:0 }}
             onClick={handleGridClick}
+            onMouseMove={e => {
+              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+              const x = e.clientX - rect.left + (scrollRef.current?.scrollLeft ?? 0)
+              setCursorBeat(x / ppb)
+            }}
+            onMouseLeave={() => setCursorBeat(null)}
             onMouseDown={e => {
               // Click on empty grid space in select mode → deselect all
               if (tool === 'select' && !(e.target as HTMLElement).closest('.midi-note')) {

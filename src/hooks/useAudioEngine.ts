@@ -31,6 +31,8 @@ export function useAudioEngine() {
   const scheduledSourcesRef = useRef<ScheduledSource[]>([])
   const metronomeIntervalRef = useRef<number | null>(null)
   const audioBuffersRef = useRef<Map<string, AudioBuffer>>(new Map())
+  // Cache for pitch-shifted buffers: key = `${clipId}:${semitones}`
+  const pitchBufferCache = useRef<Map<string, AudioBuffer>>(new Map())
 
   // Recording state
   const mediaStreamRef = useRef<MediaStream | null>(null)
@@ -232,6 +234,54 @@ export function useAudioEngine() {
     }
   }, [getCtx])
 
+  // ── Flex Pitch — time-preserving pitch shift via resample trick ──────────
+  // Strategy: render the source at rate = 2^(semitones/12) into an OfflineAudioContext
+  // whose sampleRate is shifted inversely, so the output has the same number of samples
+  // as the original but at a different pitch. Result is cached per clip+semitones.
+  const applyPitchShift = useCallback(async (
+    buffer: AudioBuffer,
+    cacheKey: string,
+    semitones: number,
+  ): Promise<AudioBuffer> => {
+    const cached = pitchBufferCache.current.get(cacheKey)
+    if (cached) return cached
+
+    const rate = Math.pow(2, semitones / 12)
+    const ctx = getCtx()
+    // We need the output to have the same duration as input.
+    // Trick: render at shifted rate into offline ctx with original sample count,
+    // but set sampleRate = originalSR / rate so the pitch changes but not duration.
+    // However OfflineAudioContext sampleRate must be 8000-96000.
+    const shiftedSR = Math.min(96000, Math.max(8000, Math.round(buffer.sampleRate / rate)))
+    const numFrames = Math.round(buffer.duration * shiftedSR)
+    const offCtx = new OfflineAudioContext(buffer.numberOfChannels, numFrames, shiftedSR)
+
+    const src = offCtx.createBufferSource()
+    // Copy buffer into offline ctx
+    const offBuf = offCtx.createBuffer(buffer.numberOfChannels, buffer.length, buffer.sampleRate)
+    for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+      offBuf.copyToChannel(buffer.getChannelData(ch), ch)
+    }
+    src.buffer = offBuf
+    src.connect(offCtx.destination)
+    src.start(0)
+
+    const rendered = await offCtx.startRendering()
+
+    // Now resample rendered back to original sampleRate using another offline ctx
+    // so the AudioBufferSourceNode can play it at rate=1 with correct pitch & duration
+    const finalFrames = Math.round(rendered.duration * ctx.sampleRate)
+    const finalCtx = new OfflineAudioContext(rendered.numberOfChannels, finalFrames, ctx.sampleRate)
+    const finalSrc = finalCtx.createBufferSource()
+    finalSrc.buffer = rendered
+    finalSrc.connect(finalCtx.destination)
+    finalSrc.start(0)
+    const finalBuf = await finalCtx.startRendering()
+
+    pitchBufferCache.current.set(cacheKey, finalBuf)
+    return finalBuf
+  }, [getCtx])
+
   const playClip = useCallback(async (
     audioUrl: string,
     trackId: string,
@@ -253,8 +303,16 @@ export function useAudioEngine() {
     const clipOffset = Math.max(0, playheadSec - clipStartSec)
     if (clipOffset >= clipDurSec) return null
 
+    // Flex Pitch — apply pitch shift before playback (cached)
+    let playBuffer = buffer
+    const semitones = clip.pitchShift ?? 0
+    if (semitones !== 0) {
+      const cacheKey = `${clip.id}:pitch:${semitones}`
+      playBuffer = await applyPitchShift(buffer, cacheKey, semitones)
+    }
+
     const source = ctx.createBufferSource()
-    source.buffer = buffer
+    source.buffer = playBuffer
     // Flex Time — non-destructive time stretch via playbackRate
     const flexRate = clip.flexRate ?? 1
     source.playbackRate.value = flexRate
@@ -286,6 +344,59 @@ export function useAudioEngine() {
 
 
 
+  // ── MIDI Synth — schedule all notes in a MIDI clip ────────────────────────
+  const scheduleMidiClip = useCallback((
+    trackId: string,
+    clip: import('../store/projectStore').Clip,
+    bpm: number,
+    fromBeat: number,
+    volume: number,
+  ) => {
+    const ctx = getCtx()
+    const nodes = getTrackNodes(trackId, volume, 0)
+    const secPerBeat = 60 / bpm
+    const now = ctx.currentTime
+    const clipStartSec = Math.max(0, (clip.startBeat - fromBeat) * secPerBeat)
+
+    for (const note of (clip.midiNotes ?? [])) {
+      const noteStartBeat = clip.startBeat + note.startBeat
+      const noteEndBeat   = noteStartBeat + note.durationBeats
+
+      // Skip notes entirely before playhead
+      if (noteEndBeat * secPerBeat <= fromBeat * secPerBeat) continue
+
+      // Compute absolute schedule times
+      const absStartSec = (noteStartBeat - fromBeat) * secPerBeat
+      const absDurSec   = note.durationBeats * secPerBeat
+      const schedStart  = now + Math.max(0, absStartSec)
+      const schedEnd    = now + Math.max(schedStart - now + 0.01, absStartSec + absDurSec)
+
+      // Frequency from MIDI pitch (A4 = 440 Hz = pitch 69)
+      const freq = 440 * Math.pow(2, (note.pitch - 69) / 12)
+      const vel  = (note.velocity ?? 100) / 127
+
+      // Build oscillator + envelope
+      const osc  = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = 'triangle'
+      osc.frequency.value = freq
+      osc.connect(gain)
+      gain.connect(nodes.gain)
+
+      // Attack / sustain / release envelope
+      gain.gain.setValueAtTime(0, schedStart)
+      gain.gain.linearRampToValueAtTime(vel * 0.7, schedStart + 0.005)
+      gain.gain.setValueAtTime(vel * 0.7, schedEnd - 0.02)
+      gain.gain.linearRampToValueAtTime(0, schedEnd)
+
+      osc.start(schedStart)
+      osc.stop(schedEnd + 0.05)
+
+      // Track for cleanup
+      scheduledSourcesRef.current.push({ source: osc as unknown as AudioBufferSourceNode, clipId: clip.id })
+    }
+  }, [getCtx, getTrackNodes])
+
   const startPlayback = useCallback(async (fromBeat: number) => {
     const ctx = getCtx()
     if (ctx.state === 'suspended') await ctx.resume()
@@ -294,20 +405,64 @@ export function useAudioEngine() {
 
     for (const track of tracks) {
       if (track.type === 'master') continue
-      // Solo logic: if any track is soloed, mute all non-soloed tracks
       const effectiveVol = track.muted ? 0 : (anySolo && !track.solo) ? 0 : track.volume
       const nodes = getTrackNodes(track.id, track.volume, track.pan)
       nodes.gain.gain.value = effectiveVol
       if (effectiveVol === 0) continue
 
       for (const clip of track.clips) {
-        if (!clip.audioUrl || clip.muted) continue
+        if (clip.muted) continue
         const clipEndBeat = clip.startBeat + clip.durationBeats
         if (clipEndBeat <= fromBeat) continue
-        await playClip(clip.audioUrl, track.id, clip, bpm, fromBeat, effectiveVol, track.pan)
+
+        if (clip.type === 'midi' && clip.midiNotes?.length) {
+          // MIDI clip — schedule notes through the Web Audio synth
+          scheduleMidiClip(track.id, clip, bpm, fromBeat, effectiveVol)
+        } else if (clip.audioUrl) {
+          // Audio clip
+          await playClip(clip.audioUrl, track.id, clip, bpm, fromBeat, effectiveVol, track.pan)
+        }
       }
     }
-  }, [getCtx, getTrackNodes, playClip])
+  }, [getCtx, getTrackNodes, playClip, scheduleMidiClip])
+
+  // ── Bus/Send routing — connect track analyser outputs to bus track gains ──
+  const applySends = useCallback(() => {
+    const { tracks } = useProjectStore.getState()
+    const ctx = ctxRef.current
+    if (!ctx) return
+
+    for (const track of tracks) {
+      if (!track.sends || track.sends.length === 0) continue
+      const sourceNodes = trackNodesRef.current.get(track.id)
+      if (!sourceNodes) continue
+
+      for (const send of track.sends) {
+        if (!send.busId) continue
+        const busNodes = trackNodesRef.current.get(send.busId)
+        if (!busNodes) continue
+
+        // Create a send gain node keyed by trackId+busId
+        const sendKey = `${track.id}:send:${send.busId}`
+        let sendGain = (trackNodesRef.current as any).sendGains?.get(sendKey) as GainNode | undefined
+        if (!sendGain) {
+          sendGain = ctx.createGain()
+          // Store send gains in a side map on trackNodesRef
+          if (!(trackNodesRef.current as any).sendGains) {
+            (trackNodesRef.current as any).sendGains = new Map()
+          }
+          ;(trackNodesRef.current as any).sendGains.set(sendKey, sendGain)
+          // Connect: source analyser → sendGain → bus gain input
+          try {
+            sourceNodes.analyser.connect(sendGain)
+            sendGain.connect(busNodes.gain)
+          } catch { /* already connected */ }
+        }
+        // Update send level
+        sendGain.gain.value = send.preFader ? send.level : send.level * track.volume
+      }
+    }
+  }, [])
 
   // ── Apply solo/mute state live (called when user toggles solo/mute) ──────
   const applySoloMute = useCallback(() => {
@@ -319,7 +474,9 @@ export function useAudioEngine() {
       const effectiveVol = track.muted ? 0 : (anySolo && !track.solo && track.type !== 'master') ? 0 : track.volume
       nodes.gain.gain.value = effectiveVol
     }
-  }, [])
+    // Re-apply sends after solo/mute change
+    applySends()
+  }, [applySends])
 
   const stopAll = useCallback(() => {
     for (const { source } of scheduledSourcesRef.current) {
@@ -856,6 +1013,7 @@ export function useAudioEngine() {
     startPlayback,
     stopAll,
     playClip,
+    scheduleMidiClip,
     applySoloMute,
     applyAutomation,
     startMetronome,
@@ -885,5 +1043,10 @@ export function useAudioEngine() {
     audioBuffersRef,
     restartAudioContext,
     freezeTrack,
+    clearPitchCache: (clipId: string) => {
+      for (const key of [...pitchBufferCache.current.keys()]) {
+        if (key.startsWith(`${clipId}:pitch:`)) pitchBufferCache.current.delete(key)
+      }
+    },
   }
 }

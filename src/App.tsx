@@ -15,6 +15,7 @@ import { ExportModal } from './components/ExportModal'
 import { useExport } from './hooks/useExport'
 import { AudioPreferences, RestartOpts } from './components/AudioPreferences'
 import { useMidiOutput } from './hooks/useMidiOutput'
+import { parseMidiFile, downloadMidiFile } from './utils/midiFile'
 
 const FLOWSTATE_HUB = 'https://flowstate-67g.pages.dev'
 
@@ -235,6 +236,92 @@ export default function App() {
       console.error('Drop-create-track failed:', err)
     }
   }, [engine, store])
+
+  // ── MIDI file import ─────────────────────────────────────────────────────
+  const handleImportMidi = useCallback(async (file: File, targetTrackId?: string) => {
+    try {
+      const buf = await file.arrayBuffer()
+      const tracks = parseMidiFile(buf)
+      if (tracks.length === 0) { alert('No MIDI notes found in file.'); return }
+
+      const currentTracks = useProjectStore.getState().tracks
+      const nonMaster = currentTracks.filter(t => t.type !== 'master')
+
+      for (let i = 0; i < tracks.length; i++) {
+        const midiTrackData = tracks[i]
+        let destTrackId = targetTrackId
+
+        if (!destTrackId || tracks.length > 1) {
+          // Create a new MIDI track for each MIDI track in the file
+          useProjectStore.getState().addTrack('midi')
+          await new Promise(r => setTimeout(r, 0))
+          const freshTracks = useProjectStore.getState().tracks
+          const freshNonMaster = freshTracks.filter(t => t.type !== 'master')
+          const newTrack = freshNonMaster[freshNonMaster.length - 1]
+          destTrackId = newTrack?.id
+          if (!destTrackId) continue
+          useProjectStore.getState().updateTrack(destTrackId, { name: midiTrackData.name })
+        }
+
+        useProjectStore.getState().addClip({
+          id: `midi-import-${Date.now()}-${i}`,
+          trackId: destTrackId,
+          startBeat: 0,
+          durationBeats: midiTrackData.durationBeats,
+          name: midiTrackData.name,
+          type: 'midi',
+          midiNotes: midiTrackData.notes,
+          gain: 1, fadeIn: 0, fadeOut: 0,
+          fadeInCurve: 'exp', fadeOutCurve: 'exp',
+          looped: false, muted: false, aiGenerated: false,
+        })
+      }
+    } catch (err) {
+      console.error('MIDI import failed:', err)
+      alert('MIDI import failed: ' + (err as Error).message)
+    }
+  }, [])
+
+  // ── Flex Pitch ────────────────────────────────────────────────────────────
+  const handleSetClipPitch = useCallback((clipId: string, semitones: number) => {
+    store.updateClip(clipId, { pitchShift: semitones })
+    engine.clearPitchCache(clipId)
+  }, [store, engine])
+
+  // ── MIDI file export ──────────────────────────────────────────────────────
+  const handleExportMidi = useCallback((clipId?: string) => {
+    const st = useProjectStore.getState()
+    const { tracks, bpm } = st
+
+    // If clipId given, export just that clip. Otherwise export selected clip or all MIDI.
+    const targetClipId = clipId ?? st.selectedClipIds[0]
+
+    if (targetClipId) {
+      for (const track of tracks) {
+        const clip = track.clips.find(c => c.id === targetClipId && c.type === 'midi')
+        if (clip && clip.midiNotes?.length) {
+          downloadMidiFile(clip.midiNotes, bpm, clip.name || 'midi-clip')
+          return
+        }
+      }
+    }
+
+    // Fallback: collect all MIDI notes from all MIDI clips
+    const allNotes: import('./store/projectStore').MidiNote[] = []
+    let maxBeat = 0
+    for (const track of tracks) {
+      for (const clip of track.clips) {
+        if (clip.type === 'midi' && clip.midiNotes) {
+          for (const n of clip.midiNotes) {
+            allNotes.push({ ...n, startBeat: n.startBeat + clip.startBeat })
+            maxBeat = Math.max(maxBeat, n.startBeat + clip.startBeat + n.durationBeats)
+          }
+        }
+      }
+    }
+    if (allNotes.length === 0) { alert('No MIDI clips to export.'); return }
+    downloadMidiFile(allNotes, bpm, st.name || 'project')
+  }, [])
 
   // ── Warn before closing if unsaved ───────────────────────────────────────
   useEffect(() => {
@@ -593,6 +680,8 @@ export default function App() {
         onRecord={transport.record}
         onExport={() => setShowExport(true)}
         onOpenAudioPrefs={() => setShowAudioPrefs(true)}
+        onImportMidi={file => handleImportMidi(file)}
+        onExportMidi={handleExportMidi}
       />
 
       <div className="main-area">
@@ -633,6 +722,9 @@ export default function App() {
               onScrub={beat => transport.seekToBeat(beat)}
               onImportAudio={handleImportAudio}
               onDropCreateTrack={handleDropCreateTrack}
+              onImportMidi={handleImportMidi}
+              onExportMidi={handleExportMidi}
+              onSetClipPitch={handleSetClipPitch}
               recordingMicLevel={micLevel}
             />
           )}

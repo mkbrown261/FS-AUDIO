@@ -598,6 +598,17 @@ html, body, #root {
 .pr-quantize-btn { display: flex; align-items: center; gap: 2px; padding: 4px 7px; font-size: 10px; }
 .pr-clip-info { font-size: 11px; color: var(--text-m); }
 .pr-sel-count { color: var(--accent); font-weight: 600; }
+.pr-chord-name {
+  color: #2dd4bf;
+  font-weight: 700;
+  font-size: 12px;
+  margin-left: 8px;
+  background: rgba(20,184,166,.12);
+  border: 1px solid rgba(20,184,166,.3);
+  border-radius: 4px;
+  padding: 0 6px;
+  letter-spacing: 0.03em;
+}
 .pr-shortcut-hints { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
 .pr-hint {
   font-size: 9px; color: var(--text-s); padding: 2px 5px;
@@ -1557,6 +1568,17 @@ html, body, #root {
   background: rgba(245,158,11,.2);
   color: #fbbf24;
   border: 1px solid rgba(245,158,11,.35);
+  font-size: 8px;
+  font-weight: 700;
+  padding: 0 4px;
+  border-radius: 3px;
+  margin-left: 3px;
+  line-height: 1.5;
+}
+.clip-badge-pitch {
+  background: rgba(20,184,166,.2);
+  color: #2dd4bf;
+  border: 1px solid rgba(20,184,166,.35);
   font-size: 8px;
   font-weight: 700;
   padding: 0 4px;

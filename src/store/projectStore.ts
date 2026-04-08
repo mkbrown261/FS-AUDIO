@@ -48,6 +48,8 @@ export interface Clip {
   crossfadeBeats?: number
   // Flex Time — non-destructive time stretch (1.0 = no change, 0.5 = half speed, 2.0 = double speed)
   flexRate?: number
+  // Flex Pitch — semitone pitch shift without affecting tempo (-24 to +24)
+  pitchShift?: number
   // Take folder — which take is active (-1 = not a take-folder clip)
   takeIndex?: number
   // Take folder clips (comp system)

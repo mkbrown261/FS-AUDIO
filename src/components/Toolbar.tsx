@@ -10,6 +10,8 @@ interface ToolbarProps {
   onRecord: () => void
   onExport?: () => void
   onOpenAudioPrefs?: () => void
+  onImportMidi?: (file: File) => Promise<void>
+  onExportMidi?: () => void
 }
 
 const KEYS = [
@@ -132,7 +134,7 @@ function secToTime(sec: number): string {
   return `${m}:${String(s).padStart(2,'0')}.${String(ms).padStart(3,'0')}`
 }
 
-export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport, onOpenAudioPrefs }: ToolbarProps) {
+export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport, onOpenAudioPrefs, onImportMidi, onExportMidi }: ToolbarProps) {
   const {
     bpm, setBpm, key, setKey,
     isPlaying, isRecording, isLooping, metronomeEnabled, metronomeVolume, setMetronomeVolume,
@@ -393,6 +395,29 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport
         <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M5.5 1v6M3 5l2.5 2.5L8 5M1 9.5h9"/>
         </svg>
+      </button>
+
+      {/* MIDI Import */}
+      <button className="tbt" title="Import MIDI File"
+        onClick={() => {
+          if (!onImportMidi) return
+          const inp = document.createElement('input')
+          inp.type = 'file'; inp.accept = '.mid,.midi'
+          inp.onchange = () => { if (inp.files?.[0]) onImportMidi(inp.files[0]) }
+          inp.click()
+        }}>
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M5.5 7V1M3 3.5L5.5 1 8 3.5M1 9.5h9"/>
+        </svg>
+        <span style={{fontSize:'7px',marginLeft:'1px'}}>MID</span>
+      </button>
+
+      {/* MIDI Export */}
+      <button className="tbt" title="Export MIDI File" onClick={onExportMidi}>
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M5.5 1v6M3 5l2.5 2.5L8 5M1 9.5h9"/>
+        </svg>
+        <span style={{fontSize:'7px',marginLeft:'1px'}}>MID</span>
       </button>
 
       {/* Audio Preferences */}
