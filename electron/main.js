@@ -74,7 +74,7 @@ function createWindow() {
               buttons: ['Save', "Don't Save", 'Cancel'],
               title: 'Confirm',
               message: 'Do you want to save the changes you made?',
-              detail: 'Your changes will be lost if you don't save them.',
+              detail: 'Your changes will be lost if you don\'t save them.',
               defaultId: 0,
               cancelId: 2
             })
