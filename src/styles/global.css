@@ -2769,3 +2769,114 @@ html, body, #root {
   from { opacity: 0; transform: translateY(10px) scale(.95); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
+
+/* ─── Automation Panel (Mixer bottom tab) ──────────────────────────────────── */
+.automation-panel-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  flex: 1; padding: 20px 16px; gap: 8px; color: var(--text-m);
+}
+.automation-panel-empty-icon { opacity: .6; margin-bottom: 4px; }
+.automation-panel-empty-text {
+  font-size: 13px; font-weight: 700; color: var(--text-s);
+}
+.automation-panel-empty-sub {
+  font-size: 11px; color: var(--text-m); text-align: center; line-height: 1.6;
+}
+.automation-panel-tracks {
+  display: flex; flex-direction: column; gap: 4px; margin-top: 8px; width: 100%; max-width: 360px;
+}
+.automation-panel-track-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px; border-radius: 5px; background: var(--bg-card);
+  border: 1px solid var(--border);
+}
+
+.automation-panel {
+  display: flex; flex-direction: column;
+}
+.automation-panel-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 12px; border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.automation-panel-title {
+  font-size: 11px; font-weight: 700; color: var(--text-s);
+  text-transform: uppercase; letter-spacing: .06em;
+}
+.automation-panel-hint {
+  font-size: 10px; color: var(--text-m);
+}
+.automation-track-group {
+  border-bottom: 1px solid rgba(255,255,255,.04);
+}
+.automation-track-group.automation-track-empty { opacity: .5; }
+.automation-track-label {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 10px;
+  background: rgba(255,255,255,.02);
+  cursor: pointer; font-size: 11px; font-weight: 600; color: var(--text-s);
+  transition: background .1s;
+}
+.automation-track-label:hover { background: rgba(255,255,255,.04); }
+.automation-track-label.selected {
+  background: rgba(168,85,247,.08);
+  border-left: 2px solid var(--accent);
+}
+
+/* ─── Automation lane point count badge ───────────────────────────────────── */
+.auto-lane-pts {
+  font-size: 9px; color: var(--text-m); padding: 1px 4px;
+  background: rgba(255,255,255,.06); border-radius: 3px;
+}
+.auto-lane-clear {
+  background: none; border: none; color: var(--text-m);
+  cursor: pointer; font-size: 10px; padding: 0 3px;
+  transition: color .1s;
+}
+.auto-lane-clear:hover { color: var(--amber, #f59e0b); }
+
+/* ─── Mixer tab badge (automation count) ─────────────────────────────────── */
+.btab-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 14px; height: 14px; padding: 0 3px; border-radius: 7px;
+  background: rgba(168,85,247,.35); color: #d8d5ff;
+  font-size: 8px; font-weight: 800; margin-left: 4px;
+}
+
+/* ─── Functional Sends (InspectorPanel) ───────────────────────────────────── */
+.send-row {
+  display: flex; align-items: center; gap: 5px;
+  padding: 3px 0;
+}
+.send-bus-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  flex-shrink: 0;
+}
+.send-prefader-btn {
+  font-size: 7px; font-weight: 800; padding: 1px 4px; border-radius: 3px;
+  border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.05);
+  color: var(--text-m); cursor: pointer; letter-spacing: .03em;
+  transition: all .1s;
+}
+.send-prefader-btn.active {
+  background: rgba(168,85,247,.2); border-color: rgba(168,85,247,.4); color: var(--accent);
+}
+.send-remove-btn {
+  background: none; border: none; color: var(--text-m); cursor: pointer;
+  font-size: 9px; padding: 0 2px; opacity: 0; transition: opacity .1s, color .1s;
+  flex-shrink: 0;
+}
+.send-row:hover .send-remove-btn { opacity: 1; }
+.send-remove-btn:hover { color: var(--danger, #ef4444); }
+.send-bus-menu {
+  position: absolute; top: calc(100% + 3px); right: 0; z-index: 1000;
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 5px; min-width: 130px; overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0,0,0,.5);
+}
+.send-bus-option {
+  display: flex; align-items: center; padding: 6px 10px;
+  font-size: 11px; color: var(--text-s); cursor: pointer;
+  transition: background .08s;
+}
+.send-bus-option:hover { background: var(--bg-hover); color: var(--text-p); }

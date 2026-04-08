@@ -2,6 +2,7 @@ import React, { useRef, useState, useCallback } from 'react'
 import { useProjectStore, Track } from '../store/projectStore'
 import { PluginRack, PLUGIN_DEFAULTS } from './plugins/BuiltInPlugins'
 import { MidiOutputPanel } from './MidiOutputPanel'
+import { AutomationLaneView, AddAutomationLaneButton, AUTOMATION_PARAMS } from './AutomationLaneView'
 
 // ── VU Meter ──────────────────────────────────────────────────────────────────
 const VU_SEGS = 20
@@ -202,7 +203,7 @@ export function Mixer({
   onVolumeChange: (id: string, v: number) => void
   onPanChange: (id: string, v: number) => void
 }) {
-  const { tracks, showMixer, setShowMixer, activePanel, setActivePanel, setShowPianoRoll } = useProjectStore()
+  const { tracks, showMixer, setShowMixer, activePanel, setActivePanel, setShowPianoRoll, pixelsPerBeat, scrollLeft, activeTool, automationLanes } = useProjectStore()
   const [panelHeight, setPanelHeight] = useState(220)
   const dragRef = useRef<{ startY: number; startH: number } | null>(null)
 
@@ -212,7 +213,7 @@ export function Mixer({
     const mv = (me: MouseEvent) => {
       if (!dragRef.current) return
       const dy = dragRef.current.startY - me.clientY
-      setPanelHeight(Math.max(120, Math.min(500, dragRef.current.startH + dy)))
+      setPanelHeight(Math.max(120, Math.min(600, dragRef.current.startH + dy)))
     }
     const up = () => { dragRef.current = null; window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up) }
     window.addEventListener('mousemove', mv)
@@ -223,6 +224,7 @@ export function Mixer({
 
   const nonMasterTracks = tracks.filter(t => t.type !== 'master')
   const masterTrack = tracks.find(t => t.type === 'master')
+  const TOTAL_BEATS = 96 * 4
 
   return (
     <div className="bottom-panel" style={{ height: panelHeight }}>
@@ -234,6 +236,12 @@ export function Mixer({
         <button className={`btab ${activePanel === 'mixer' ? 'active' : ''}`} onClick={() => setActivePanel('mixer')}>Mixer</button>
         <button className={`btab ${activePanel === 'piano-roll' ? 'active' : ''}`} onClick={() => { setActivePanel('piano-roll'); setShowPianoRoll(true) }}>Piano Roll</button>
         <button className={`btab ${activePanel === 'plugins' ? 'active' : ''}`} onClick={() => setActivePanel('plugins')}>Smart Controls</button>
+        <button className={`btab ${activePanel === 'automation' ? 'active' : ''}`} onClick={() => setActivePanel('automation')}>
+          Automation
+          {automationLanes.length > 0 && (
+            <span className="btab-badge">{automationLanes.length}</span>
+          )}
+        </button>
         <button className={`btab ${activePanel === 'midi' ? 'active' : ''}`} onClick={() => setActivePanel('midi')}>MIDI Out</button>
         <button className="btab btab-close" style={{ marginLeft:'auto' }} onClick={() => setShowMixer(false)}>✕</button>
       </div>
@@ -264,6 +272,15 @@ export function Mixer({
         <PluginControlsPanel />
       )}
 
+      {activePanel === 'automation' && (
+        <AutomationPanel
+          pixelsPerBeat={pixelsPerBeat}
+          scrollLeft={scrollLeft}
+          totalBeats={TOTAL_BEATS}
+          activeTool={activeTool}
+        />
+      )}
+
       {activePanel === 'midi' && (
         <div style={{ flex:1, overflowY:'auto', padding:'8px 16px' }}>
           <MidiOutputPanel />
@@ -289,6 +306,96 @@ function PluginControlsPanel() {
   return (
     <div style={{ flex:1, overflowY:'auto', padding:'8px 16px' }}>
       <PluginRack track={track} />
+    </div>
+  )
+}
+
+// ── Automation Panel ───────────────────────────────────────────────────────────
+function AutomationPanel({ pixelsPerBeat, scrollLeft, totalBeats, activeTool }: {
+  pixelsPerBeat: number
+  scrollLeft: number
+  totalBeats: number
+  activeTool: string
+}) {
+  const { tracks, automationLanes, selectedTrackId, selectTrack } = useProjectStore()
+  const nonMasterTracks = tracks.filter(t => t.type !== 'master')
+
+  if (automationLanes.length === 0) {
+    return (
+      <div className="automation-panel-empty">
+        <div className="automation-panel-empty-icon">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+            <path d="M2 20 Q7 8 14 14 Q21 20 26 6" stroke="rgba(168,85,247,.5)" strokeWidth="2" fill="none" strokeLinecap="round"/>
+            <circle cx="7" cy="12" r="3" fill="rgba(168,85,247,.25)" stroke="rgba(168,85,247,.5)" strokeWidth="1.5"/>
+            <circle cx="14" cy="14" r="3" fill="rgba(168,85,247,.25)" stroke="rgba(168,85,247,.5)" strokeWidth="1.5"/>
+            <circle cx="21" cy="10" r="3" fill="rgba(168,85,247,.25)" stroke="rgba(168,85,247,.5)" strokeWidth="1.5"/>
+          </svg>
+        </div>
+        <div className="automation-panel-empty-text">No automation lanes yet</div>
+        <div className="automation-panel-empty-sub">
+          Click <strong>+ Auto</strong> on any track to add an automation lane,<br/>
+          then use the Pencil tool to draw automation curves.
+        </div>
+        <div className="automation-panel-tracks">
+          {nonMasterTracks.map(t => (
+            <div key={t.id} className="automation-panel-track-row">
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: t.color, flexShrink: 0 }} />
+              <span style={{ flex: 1, fontSize: 11 }}>{t.name}</span>
+              <AddAutomationLaneButton trackId={t.id} />
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  // Group lanes by track
+  const lanesByTrack = nonMasterTracks.map(t => ({
+    track: t,
+    lanes: automationLanes.filter(l => l.trackId === t.id),
+  })).filter(g => g.lanes.length > 0)
+
+  return (
+    <div className="automation-panel" style={{ flex: 1, overflowY: 'auto', overflowX: 'auto' }}>
+      <div className="automation-panel-header">
+        <span className="automation-panel-title">Automation Editor</span>
+        <span className="automation-panel-hint">Use Pencil tool to draw · Scissors to erase · drag points to adjust</span>
+      </div>
+      {lanesByTrack.map(({ track, lanes }) => (
+        <div key={track.id} className="automation-track-group">
+          <div
+            className={`automation-track-label${selectedTrackId === track.id ? ' selected' : ''}`}
+            onClick={() => selectTrack(track.id)}
+          >
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: track.color, flexShrink: 0 }} />
+            <span>{track.name}</span>
+            <AddAutomationLaneButton trackId={track.id} />
+          </div>
+          {lanes.map(lane => (
+            <AutomationLaneView
+              key={lane.id}
+              lane={lane}
+              pixelsPerBeat={pixelsPerBeat}
+              scrollLeft={scrollLeft}
+              totalBeats={totalBeats}
+              activeTool={activeTool}
+            />
+          ))}
+        </div>
+      ))}
+      {/* Tracks without lanes — show add buttons */}
+      {nonMasterTracks
+        .filter(t => !automationLanes.some(l => l.trackId === t.id))
+        .map(t => (
+          <div key={t.id} className="automation-track-group automation-track-empty">
+            <div className="automation-track-label">
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: t.color, flexShrink: 0 }} />
+              <span>{t.name}</span>
+              <AddAutomationLaneButton trackId={t.id} />
+            </div>
+          </div>
+        ))
+      }
     </div>
   )
 }

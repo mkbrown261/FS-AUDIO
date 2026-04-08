@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useState, useRef, useEffect } from 'react'
 import { useProjectStore, Track, Plugin, Clip } from '../store/projectStore'
 import { PluginRack } from './plugins/BuiltInPlugins'
 
@@ -239,8 +239,22 @@ interface InspectorPanelProps {
 }
 
 export function InspectorPanel({ onSetTrackEQ, onSetTrackVolume, onSetTrackPan, onSetTrackCompressor }: InspectorPanelProps) {
-  const { tracks, selectedTrackId, selectedClipIds, updateTrack, updateClip, setActiveTake, deleteTake, setClipFadeIn, setClipFadeOut } = useProjectStore()
+  const { tracks, selectedTrackId, selectedClipIds, updateTrack, updateClip, setActiveTake, deleteTake, setClipFadeIn, setClipFadeOut, addSend, removeSend, updateSendLevel, toggleSendPreFader } = useProjectStore()
   const [eqGains, setEqGains] = useState<Record<string, [number, number, number]>>({})
+  const [showSendMenu, setShowSendMenu] = useState(false)
+  const sendMenuRef = useRef<HTMLDivElement>(null)
+
+  // Close send menu when clicking outside
+  useEffect(() => {
+    if (!showSendMenu) return
+    const handler = (e: MouseEvent) => {
+      if (sendMenuRef.current && !sendMenuRef.current.contains(e.target as Node)) {
+        setShowSendMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showSendMenu])
 
   const track = tracks.find(t => t.id === selectedTrackId) ?? null
 
@@ -451,22 +465,84 @@ export function InspectorPanel({ onSetTrackEQ, onSetTrackVolume, onSetTrackPan, 
         <PluginRack track={track!} />
       </div>
 
-      {/* Sends (stub) */}
-      <div className="inspector-section">
-        <div className="inspector-section-title">Sends</div>
-        <div className="sends-stub">
-          {track!.sends.length === 0
-            ? <div className="inspector-empty-text" style={{ fontSize: 11 }}>No sends configured</div>
-            : track!.sends.map(s => (
-                <div key={s.id} className="inspector-vol-row">
-                  <span className="inspector-label">Bus</span>
-                  <input type="range" min={0} max={100} value={Math.round(s.level * 100)} className="inspector-slider" readOnly />
-                  <span className="inspector-val">{Math.round(s.level * 100)}%</span>
-                </div>
-              ))
-          }
+      {/* Sends — functional routing to bus tracks */}
+      {!isMaster && (
+        <div className="inspector-section">
+          <div className="inspector-section-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            Sends
+            <div style={{ position: 'relative', marginLeft: 'auto' }} ref={sendMenuRef}>
+              <button
+                className="inspector-btn"
+                style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3 }}
+                onClick={() => setShowSendMenu(v => !v)}
+                title="Add send to bus"
+              >+ Bus</button>
+              {showSendMenu && (() => {
+                const busTracks = tracks.filter(t => t.type === 'bus' || t.type === 'master')
+                return (
+                  <div className="send-bus-menu">
+                    {busTracks.length === 0 && (
+                      <div className="send-bus-option" style={{ opacity: .5, cursor: 'default' }}>No bus tracks</div>
+                    )}
+                    {busTracks.map(bt => (
+                      <div
+                        key={bt.id}
+                        className="send-bus-option"
+                        onClick={() => {
+                          addSend(track!.id, bt.id)
+                          setShowSendMenu(false)
+                        }}
+                      >
+                        <span style={{ color: bt.color, marginRight: 4 }}>●</span>
+                        {bt.name}
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
+
+          <div className="sends-stub">
+            {track!.sends.length === 0 ? (
+              <div className="inspector-empty-text" style={{ fontSize: 11 }}>
+                No sends — click + Bus to route to a bus
+              </div>
+            ) : (
+              track!.sends.map(send => {
+                const busTrack = tracks.find(t => t.id === send.busId)
+                return (
+                  <div key={send.id} className="send-row">
+                    <div
+                      className="send-bus-dot"
+                      style={{ background: busTrack?.color ?? '#6b7280' }}
+                      title={busTrack?.name ?? send.busId}
+                    />
+                    <span className="inspector-label" style={{ minWidth: 54 }}>{busTrack?.name ?? 'Bus'}</span>
+                    <input
+                      type="range" min={0} max={100} step={1}
+                      value={Math.round(send.level * 100)}
+                      className="inspector-slider"
+                      onChange={e => updateSendLevel(track!.id, send.id, parseInt(e.target.value) / 100)}
+                    />
+                    <span className="inspector-val" style={{ minWidth: 26 }}>{Math.round(send.level * 100)}%</span>
+                    <button
+                      className={`send-prefader-btn${send.preFader ? ' active' : ''}`}
+                      onClick={() => toggleSendPreFader(track!.id, send.id)}
+                      title={send.preFader ? 'Pre-fader (click for post)' : 'Post-fader (click for pre)'}
+                    >{send.preFader ? 'PRE' : 'POST'}</button>
+                    <button
+                      className="send-remove-btn"
+                      onClick={() => removeSend(track!.id, send.id)}
+                      title="Remove send"
+                    >✕</button>
+                  </div>
+                )
+              })
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

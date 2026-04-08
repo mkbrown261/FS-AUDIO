@@ -115,13 +115,15 @@ export function AutomationLaneView({
   const {
     addAutomationPoint,
     removeAutomationPoint,
+    updateAutomationPoint,
     removeAutomationLane,
     setAutomationCurve,
     toggleAutomationLane,
   } = useProjectStore()
 
   const svgRef = useRef<SVGSVGElement>(null)
-  const dragRef = useRef<{ beat: number } | null>(null)
+  // dragRef tracks an existing point being dragged: its original beat (key into store)
+  const dragRef = useRef<{ origBeat: number; isDraggingExisting: boolean } | null>(null)
 
   const W = totalBeats * pixelsPerBeat
   const H = LANE_HEIGHT
@@ -130,7 +132,7 @@ export function AutomationLaneView({
   const pxToBeat = (clientX: number) => {
     const rect = svgRef.current?.getBoundingClientRect()
     if (!rect) return 0
-    return (clientX - rect.left + scrollLeft) / pixelsPerBeat
+    return Math.max(0, (clientX - rect.left + scrollLeft) / pixelsPerBeat)
   }
 
   // Convert normalized value → Y pixel
@@ -140,7 +142,7 @@ export function AutomationLaneView({
   }
   const yToVal = (y: number) => {
     const norm = 1 - (y - 2) / (H - 4)
-    return lane.minValue + norm * (lane.maxValue - lane.minValue)
+    return Math.max(lane.minValue, Math.min(lane.maxValue, lane.minValue + norm * (lane.maxValue - lane.minValue)))
   }
 
   // Build SVG path from points
@@ -157,7 +159,6 @@ export function AutomationLaneView({
       const x = pts[i].beat * pixelsPerBeat - scrollLeft
       const y = valToY(pts[i].value)
       if (lane.curve === 'step') {
-        const prevX = pts[i - 1].beat * pixelsPerBeat - scrollLeft
         parts.push(`H ${x} V ${y}`)
       } else if (lane.curve === 'smooth') {
         const prevX = pts[i - 1].beat * pixelsPerBeat - scrollLeft
@@ -174,33 +175,56 @@ export function AutomationLaneView({
   const handleMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
     if (e.button !== 0) return
     e.preventDefault()
-    const beat = Math.max(0, pxToBeat(e.clientX))
+    const beat = pxToBeat(e.clientX)
     const rect = svgRef.current!.getBoundingClientRect()
     const y = e.clientY - rect.top
-    const value = Math.max(lane.minValue, Math.min(lane.maxValue, yToVal(y)))
+    const value = yToVal(y)
 
-    if (activeTool === 'pencil' || activeTool === 'pointer') {
-      addAutomationPoint(lane.id, { beat, value })
-      dragRef.current = { beat }
-    } else if (activeTool === 'scissors') {
-      // Erase: find nearest point within 10px
+    if (activeTool === 'scissors') {
+      // Erase: find nearest point within 12px
       const nearest = lane.points.find(p => {
         const px = p.beat * pixelsPerBeat - scrollLeft
-        return Math.abs(px - (e.clientX - rect.left)) < 10
+        return Math.abs(px - (e.clientX - rect.left)) < 12
       })
       if (nearest) removeAutomationPoint(lane.id, nearest.beat)
+      return
+    }
+
+    if (activeTool === 'pencil' || activeTool === 'pointer') {
+      // Check if clicking near an existing point — if so, drag it
+      const existing = lane.points.find(p => {
+        const px = p.beat * pixelsPerBeat - scrollLeft
+        const py = valToY(p.value)
+        return Math.abs(px - (e.clientX - rect.left)) < 8 && Math.abs(py - y) < 8
+      })
+      if (existing) {
+        dragRef.current = { origBeat: existing.beat, isDraggingExisting: true }
+      } else {
+        // Draw new point
+        addAutomationPoint(lane.id, { beat, value })
+        dragRef.current = { origBeat: beat, isDraggingExisting: false }
+      }
     }
   }, [activeTool, lane, pixelsPerBeat, scrollLeft, addAutomationPoint, removeAutomationPoint])
 
   const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
-    if (!dragRef.current || (activeTool !== 'pencil' && activeTool !== 'pointer')) return
-    const beat = Math.max(0, pxToBeat(e.clientX))
+    if (!dragRef.current) return
+    if (activeTool !== 'pencil' && activeTool !== 'pointer') return
+    const beat = pxToBeat(e.clientX)
     const rect = svgRef.current!.getBoundingClientRect()
     const y = e.clientY - rect.top
-    const value = Math.max(lane.minValue, Math.min(lane.maxValue, yToVal(y)))
-    addAutomationPoint(lane.id, { beat, value })
-    dragRef.current = { beat }
-  }, [activeTool, lane, pixelsPerBeat, scrollLeft, addAutomationPoint])
+    const value = yToVal(y)
+
+    if (dragRef.current.isDraggingExisting) {
+      // Drag existing point: update its value (keep beat) OR move to new beat
+      // We update both beat and value by removing+adding (store deduplicates by beat proximity)
+      updateAutomationPoint(lane.id, dragRef.current.origBeat, value)
+    } else {
+      // Pencil draw: add points as we move
+      addAutomationPoint(lane.id, { beat, value })
+      dragRef.current = { origBeat: beat, isDraggingExisting: false }
+    }
+  }, [activeTool, lane, pixelsPerBeat, scrollLeft, addAutomationPoint, updateAutomationPoint])
 
   const handleMouseUp = useCallback(() => {
     dragRef.current = null
@@ -209,26 +233,48 @@ export function AutomationLaneView({
   const path = buildPath()
   const defaultY = valToY(lane.defaultValue)
 
+  // Value display for label
+  const formatVal = (v: number) => {
+    if (lane.param === 'volume') return `${Math.round(v * 100)}%`
+    if (lane.param === 'pan') return v === 0 ? 'C' : v < 0 ? `L${Math.round(-v * 100)}` : `R${Math.round(v * 100)}`
+    if (lane.param.startsWith('eq-')) return `${v >= 0 ? '+' : ''}${v.toFixed(1)} dB`
+    return v.toFixed(2)
+  }
+
   return (
     <div className="auto-lane">
       {/* Header */}
       <div className="auto-lane-header">
-        <button className="auto-lane-vis" onClick={() => toggleAutomationLane(lane.id)} title="Hide/show">
+        <button className="auto-lane-vis" onClick={() => toggleAutomationLane(lane.id)} title="Hide/show lane">
           {lane.visible ? '▾' : '▸'}
         </button>
         <span className="auto-lane-label">{lane.label}</span>
+        {lane.points.length > 0 && (
+          <span className="auto-lane-pts">{lane.points.length} pt{lane.points.length !== 1 ? 's' : ''}</span>
+        )}
         <div className="auto-curve-btns">
           {(['linear', 'smooth', 'step'] as AutomationCurve[]).map(c => (
             <button
               key={c}
               className={`auto-curve-btn ${lane.curve === c ? 'active' : ''}`}
               onClick={() => setAutomationCurve(lane.id, c)}
-              title={c}
+              title={`Curve: ${c}`}
             >
               {c === 'linear' ? '/' : c === 'smooth' ? '∿' : '⊓'}
             </button>
           ))}
         </div>
+        {lane.points.length > 0 && (
+          <button
+            className="auto-lane-clear"
+            onClick={() => {
+              // Remove all points by rebuilding lane (remove + re-add without points)
+              const pts = [...lane.points]
+              pts.forEach(p => removeAutomationPoint(lane.id, p.beat))
+            }}
+            title="Clear all points"
+          >⌫</button>
+        )}
         <button className="auto-lane-del" onClick={() => removeAutomationLane(lane.id)} title="Delete lane">✕</button>
       </div>
 
@@ -240,32 +286,35 @@ export function AutomationLaneView({
             width={W}
             height={H}
             className="auto-lane-svg"
-            style={{ cursor: activeTool === 'scissors' ? 'crosshair' : 'crosshair' }}
+            style={{ cursor: activeTool === 'scissors' ? 'crosshair' : activeTool === 'pencil' ? 'cell' : 'default' }}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
           >
-            {/* Default value line */}
-            <line x1={0} y1={defaultY} x2={W} y2={defaultY} stroke="rgba(255,255,255,0.08)" strokeWidth={1} strokeDasharray="4 4" />
+            {/* Background grid lines */}
+            <line x1={0} y1={H / 2} x2={W} y2={H / 2} stroke="rgba(255,255,255,0.04)" strokeWidth={1} />
 
-            {/* Automation curve */}
+            {/* Default value line */}
+            <line x1={0} y1={defaultY} x2={W} y2={defaultY} stroke="rgba(168,85,247,0.2)" strokeWidth={1} strokeDasharray="4 4" />
+
+            {/* Automation curve fill */}
+            {path && lane.points.length >= 2 && (
+              <path
+                d={`${path} L ${lane.points[lane.points.length - 1].beat * pixelsPerBeat - scrollLeft} ${H} L ${lane.points[0].beat * pixelsPerBeat - scrollLeft} ${H} Z`}
+                fill="rgba(168,85,247,0.07)"
+              />
+            )}
+
+            {/* Automation curve line */}
             {path && (
               <path
                 d={path}
                 fill="none"
-                stroke="rgba(168,85,247,0.8)"
+                stroke="rgba(168,85,247,0.85)"
                 strokeWidth={1.5}
                 strokeLinecap="round"
                 strokeLinejoin="round"
-              />
-            )}
-
-            {/* Fill under curve */}
-            {path && lane.points.length >= 2 && (
-              <path
-                d={`${path} L ${lane.points[lane.points.length - 1].beat * pixelsPerBeat - scrollLeft} ${H} L ${lane.points[0].beat * pixelsPerBeat - scrollLeft} ${H} Z`}
-                fill="rgba(168,85,247,0.08)"
               />
             )}
 
@@ -273,24 +322,27 @@ export function AutomationLaneView({
             {lane.points.map((p, i) => {
               const cx = p.beat * pixelsPerBeat - scrollLeft
               const cy = valToY(p.value)
-              if (cx < -6 || cx > W + 6) return null
+              if (cx < -8 || cx > W + 8) return null
               return (
-                <circle
-                  key={i}
-                  cx={cx} cy={cy} r={4}
-                  fill="#a855f7"
-                  stroke="#fff"
-                  strokeWidth={1}
-                  style={{ cursor: 'pointer' }}
-                  onMouseDown={e => {
-                    e.stopPropagation()
-                    if (activeTool === 'scissors') {
-                      removeAutomationPoint(lane.id, p.beat)
-                    } else {
-                      dragRef.current = { beat: p.beat }
-                    }
-                  }}
-                />
+                <g key={i}>
+                  <circle
+                    cx={cx} cy={cy} r={5}
+                    fill="#a855f7"
+                    stroke="#fff"
+                    strokeWidth={1.5}
+                    style={{ cursor: activeTool === 'scissors' ? 'pointer' : 'grab' }}
+                    onMouseDown={e => {
+                      e.stopPropagation()
+                      if (activeTool === 'scissors') {
+                        removeAutomationPoint(lane.id, p.beat)
+                      } else {
+                        dragRef.current = { origBeat: p.beat, isDraggingExisting: true }
+                      }
+                    }}
+                  />
+                  {/* Value tooltip on hover */}
+                  <title>{formatVal(p.value)} @ beat {p.beat.toFixed(2)}</title>
+                </g>
               )
             })}
           </svg>

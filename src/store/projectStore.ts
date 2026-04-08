@@ -148,7 +148,7 @@ export interface ProjectState {
   showPianoRoll: boolean
   showClawbot: boolean
   activePianoRollClipId: string | null
-  activePanel: 'mixer' | 'piano-roll' | 'plugins' | 'midi'
+  activePanel: 'mixer' | 'piano-roll' | 'plugins' | 'midi' | 'automation'
 
   // Tool mode
   activeTool: EditTool
@@ -260,6 +260,12 @@ interface Actions {
   setActiveTake: (clipId: string, takeIndex: number) => void
   deleteTake: (clipId: string, takeIndex: number) => void
 
+  // Send routing
+  addSend: (trackId: string, busId: string) => void
+  removeSend: (trackId: string, sendId: string) => void
+  updateSendLevel: (trackId: string, sendId: string, level: number) => void
+  toggleSendPreFader: (trackId: string, sendId: string) => void
+
   // Automation lanes
   addAutomationLane: (lane: Omit<AutomationLane, 'id' | 'points' | 'visible'>) => void
   removeAutomationLane: (laneId: string) => void
@@ -292,7 +298,7 @@ interface Actions {
   setShowMixer: (v: boolean) => void
   setShowPianoRoll: (v: boolean, clipId?: string) => void
   setShowClawbot: (v: boolean) => void
-  setActivePanel: (v: ProjectState['activePanel']) => void
+  setActivePanel: (v: 'mixer' | 'piano-roll' | 'plugins' | 'midi' | 'automation') => void
   setActiveTool: (tool: EditTool) => void
 
   setAiLevel: (v: number) => void
@@ -628,6 +634,50 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
         return { ...c, takes, activeTakeIndex: newActive >= 0 ? newActive : undefined }
       }),
     })),
+    isDirty: true,
+  })),
+
+  // ── Send routing ─────────────────────────────────────────────────────────
+  addSend: (trackId, busId) => set(st => ({
+    tracks: st.tracks.map(t => {
+      if (t.id !== trackId) return t
+      // Don't add duplicate sends to same bus
+      if (t.sends.some(s => s.busId === busId)) return t
+      const send: Send = {
+        id: `send-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        busId,
+        level: 1,
+        preFader: false,
+      }
+      return { ...t, sends: [...t.sends, send] }
+    }),
+    isDirty: true,
+  })),
+
+  removeSend: (trackId, sendId) => set(st => ({
+    tracks: st.tracks.map(t =>
+      t.id !== trackId ? t : { ...t, sends: t.sends.filter(s => s.id !== sendId) }
+    ),
+    isDirty: true,
+  })),
+
+  updateSendLevel: (trackId, sendId, level) => set(st => ({
+    tracks: st.tracks.map(t =>
+      t.id !== trackId ? t : {
+        ...t,
+        sends: t.sends.map(s => s.id === sendId ? { ...s, level: Math.max(0, Math.min(1, level)) } : s),
+      }
+    ),
+    isDirty: true,
+  })),
+
+  toggleSendPreFader: (trackId, sendId) => set(st => ({
+    tracks: st.tracks.map(t =>
+      t.id !== trackId ? t : {
+        ...t,
+        sends: t.sends.map(s => s.id === sendId ? { ...s, preFader: !s.preFader } : s),
+      }
+    ),
     isDirty: true,
   })),
 
