@@ -295,30 +295,47 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport
         <CustomSelect value={key} options={KEY_OPTIONS} onChange={setKey} width={110} />
       </div>
 
-      {/* Time sig — click numerator or denominator to change */}
-      <div className="ts-wrap" title="Click numerator/denominator to change time signature">
+      {/* Time signature — inline spin inputs, no prompt() */}
+      <div className="ts-wrap">
         <label className="param-label">Time</label>
         <div className="ts-editor">
-          <button
-            className="ts-part ts-num"
-            title="Click to set beats per bar"
-            onClick={() => {
-              const v = prompt('Beats per bar (1–16):', String(timeSignature[0]))
-              if (!v) return
-              const n = parseInt(v)
-              if (n >= 1 && n <= 16) setTimeSignature(n, timeSignature[1])
-            }}
-          >{timeSignature[0]}</button>
+          {/* Numerator: 1–16, scroll or click +/− */}
+          <div className="ts-spin">
+            <button className="ts-spin-btn" tabIndex={-1}
+              onMouseDown={e => { e.preventDefault()
+                const n = Math.max(1, timeSignature[0] - 1)
+                setTimeSignature(n, timeSignature[1])
+              }}>-</button>
+            <input
+              className="ts-input"
+              type="number" min={1} max={16} step={1}
+              value={timeSignature[0]}
+              onChange={e => {
+                const n = parseInt(e.target.value)
+                if (!isNaN(n) && n >= 1 && n <= 16) setTimeSignature(n, timeSignature[1])
+              }}
+              onWheel={e => {
+                e.preventDefault()
+                const n = Math.max(1, Math.min(16, timeSignature[0] + (e.deltaY < 0 ? 1 : -1)))
+                setTimeSignature(n, timeSignature[1])
+              }}
+              title="Beats per bar (1–16)"
+            />
+            <button className="ts-spin-btn" tabIndex={-1}
+              onMouseDown={e => { e.preventDefault()
+                const n = Math.min(16, timeSignature[0] + 1)
+                setTimeSignature(n, timeSignature[1])
+              }}>+</button>
+          </div>
           <span className="ts-divider">/</span>
+          {/* Denominator: cycle 2→4→8→16 */}
           <button
-            className="ts-part ts-den"
-            title="Click to set note value (2, 4, 8, 16)"
+            className="ts-den-btn"
+            title="Note value — click to cycle 2/4/8/16"
+            onMouseDown={e => e.preventDefault()}
             onClick={() => {
-              const v = prompt('Note value (2, 4, 8, 16):', String(timeSignature[1]))
-              if (!v) return
-              const n = parseInt(v)
-              if ([2,4,8,16].includes(n)) setTimeSignature(timeSignature[0], n)
-              else alert('Note value must be 2, 4, 8, or 16.')
+              const cycle: Record<number,number> = { 2:4, 4:8, 8:16, 16:2 }
+              setTimeSignature(timeSignature[0], cycle[timeSignature[1]] ?? 4)
             }}
           >{timeSignature[1]}</button>
         </div>

@@ -14,6 +14,7 @@ import { MusicalTyping } from './components/MusicalTyping'
 import { ExportModal } from './components/ExportModal'
 import { useExport } from './hooks/useExport'
 import { AudioPreferences, RestartOpts } from './components/AudioPreferences'
+import { useMidiOutput } from './hooks/useMidiOutput'
 
 const FLOWSTATE_HUB = 'https://flowstate-67g.pages.dev'
 
@@ -38,11 +39,24 @@ export default function App() {
   const [showMusicalTyping, setShowMusicalTyping] = useState(false)
   const [showExport, setShowExport] = useState(false)
   const [showAudioPrefs, setShowAudioPrefs] = useState(false)
+  const [freezingTrackId, setFreezingTrackId] = useState<string | null>(null)
+  const [freezeProgress, setFreezeProgress] = useState(0)
 
   // ── Panel widths (resizable) ──────────────────────────────────────────────
   const [inspectorWidth, setInspectorWidth] = useState(240)
   const [tracklistWidth, setTracklistWidth] = useState(220)
   const [clawbotWidth, setClawbotWidth] = useState(280)
+
+  // ── MIDI Output hook ─────────────────────────────────────────────────────
+  const midiOut = useMidiOutput()
+
+  // Combined play-note: Web Audio preview + MIDI output if a port is selected
+  const handlePlayNote = useCallback((pitch: number) => {
+    engine.playPreviewNote(pitch)
+    if (midiOut.selectedPortId) midiOut.noteOn(0, pitch, 100)
+    // Auto note-off after 400ms
+    if (midiOut.selectedPortId) setTimeout(() => midiOut.noteOff(0, pitch), 400)
+  }, [engine, midiOut])
 
   // ── Export hook ─────────────────────────────────────────────────────────
   const exporter = useExport(engine.audioBuffersRef)
@@ -56,6 +70,7 @@ export default function App() {
     engine.startRecording,
     engine.stopRecording,
     engine.registerAudioBuffer,
+    engine.applyAutomation,
   )
 
   // ── VU meter RAF ──────────────────────────────────────────────────────────
@@ -138,21 +153,24 @@ export default function App() {
     const track = useProjectStore.getState().tracks.find(t => t.id === trackId)
     if (!track) return
     if (track.frozen) {
-      // Unfreeze — restore live playback
       useProjectStore.getState().unfreezeTrack(trackId)
       return
     }
-    // Freeze — offline render
-    useProjectStore.getState().updateTrack(trackId, { frozen: false }) // Temporarily mark as rendering
+    if (freezingTrackId) return // already freezing another track
+    setFreezingTrackId(trackId)
+    setFreezeProgress(0)
     try {
-      const frozenUrl = await engine.freezeTrack(trackId)
+      const frozenUrl = await engine.freezeTrack(trackId, (p) => setFreezeProgress(p))
       if (frozenUrl) {
         useProjectStore.getState().freezeTrack(trackId, frozenUrl)
       }
     } catch (err) {
       console.error('Freeze failed:', err)
+    } finally {
+      setFreezingTrackId(null)
+      setFreezeProgress(0)
     }
-  }, [engine])
+  }, [engine, freezingTrackId])
 
   // ── Audio file import ─────────────────────────────────────────────────────
   const handleImportAudio = useCallback(async (trackId: string, file: File, startBeat: number) => {
@@ -599,6 +617,8 @@ export default function App() {
             onPanChange={handlePanChange}
             onArmClick={handleArmClick}
             onFreezeTrack={handleFreezeTrack}
+            freezingTrackId={freezingTrackId}
+            freezeProgress={freezeProgress}
           />
           <PanelResizer onDrag={d => setTracklistWidth(w => Math.max(40, Math.min(360, w + d)))} />
         </div>
@@ -606,7 +626,7 @@ export default function App() {
         {/* Center */}
         <div className="center-area">
           {store.activePanel === 'piano-roll' && store.showPianoRoll ? (
-            <PianoRoll clipId={store.activePianoRollClipId} onPlayNote={engine.playPreviewNote} />
+            <PianoRoll clipId={store.activePianoRollClipId} onPlayNote={handlePlayNote} />
           ) : (
             <Timeline
               playheadX={Math.max(0, playheadX)}
@@ -657,6 +677,7 @@ export default function App() {
         isOpen={showAudioPrefs}
         onClose={() => setShowAudioPrefs(false)}
         onRestartAudioContext={handleRestartAudioContext}
+        getAudioContext={() => { try { return engine.getCtx() } catch { return null } }}
       />
     </div>
   )

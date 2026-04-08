@@ -1,5 +1,7 @@
 import React, { useRef, useState, useCallback } from 'react'
 import { useProjectStore, Track } from '../store/projectStore'
+import { PluginRack, PLUGIN_DEFAULTS } from './plugins/BuiltInPlugins'
+import { MidiOutputPanel } from './MidiOutputPanel'
 
 // ── VU Meter ──────────────────────────────────────────────────────────────────
 const VU_SEGS = 20
@@ -54,7 +56,7 @@ function ChannelStrip({
   onVolumeChange: (id: string, v: number) => void
   onPanChange: (id: string, v: number) => void
 }) {
-  const { updateTrack, selectTrack, selectedTrackId, addPlugin } = useProjectStore()
+  const { updateTrack, selectTrack, selectedTrackId, addPlugin, setActivePanel } = useProjectStore()
   const [showPluginMenu, setShowPluginMenu] = useState<number | null>(null)
   const [eqGains] = useState<[number,number,number]>([0,0,0])
 
@@ -76,8 +78,6 @@ function ChannelStrip({
     onPanChange(track.id, v)
   }
 
-  const PLUGIN_TYPES = ['eq','compressor','reverb','delay','limiter','chorus','distortion'] as const
-
   return (
     <div
       className={`mixer-channel ${isMaster ? 'master-channel' : ''} ${isSelected ? 'mixer-ch-selected' : ''}`}
@@ -96,17 +96,35 @@ function ChannelStrip({
             <div
               key={i}
               className={`insert-slot ${plugin ? (plugin.enabled ? 'has-plugin' : 'disabled') : ''}`}
-              onClick={(e) => { e.stopPropagation(); setShowPluginMenu(showPluginMenu === i ? null : i) }}
-              title={plugin ? `${plugin.name} — click to ${plugin.enabled ? 'bypass' : 'enable'}` : 'Add plugin'}
+              onClick={(e) => {
+                e.stopPropagation()
+                if (plugin) {
+                  // open rack for this track
+                  selectTrack(track.id)
+                  setActivePanel('plugins')
+                  setShowPluginMenu(null)
+                } else {
+                  setShowPluginMenu(showPluginMenu === i ? null : i)
+                }
+              }}
+              title={plugin ? `${plugin.name} — click to open rack` : 'Add plugin'}
             >
               {plugin ? plugin.name : `—`}
               {showPluginMenu === i && !plugin && (
                 <div className="plugin-dropdown" onClick={e => e.stopPropagation()}>
-                  {PLUGIN_TYPES.map(t => (
-                    <div key={t} className="plugin-option" onClick={() => {
-                      addPlugin(track.id, { id:`p-${Date.now()}`, name: t.charAt(0).toUpperCase()+t.slice(1), type: t, enabled: true, params: {} })
+                  {Object.entries(PLUGIN_DEFAULTS).map(([key, def]) => (
+                    <div key={key} className="plugin-option" onClick={() => {
+                      addPlugin(track.id, {
+                        id: `p-${Date.now()}`,
+                        name: def.name,
+                        type: def.type,
+                        enabled: true,
+                        params: { ...def.params },
+                      })
                       setShowPluginMenu(null)
-                    }}>{t}</div>
+                      selectTrack(track.id)
+                      setActivePanel('plugins')
+                    }}>{def.name}</div>
                   ))}
                 </div>
               )}
@@ -216,6 +234,7 @@ export function Mixer({
         <button className={`btab ${activePanel === 'mixer' ? 'active' : ''}`} onClick={() => setActivePanel('mixer')}>Mixer</button>
         <button className={`btab ${activePanel === 'piano-roll' ? 'active' : ''}`} onClick={() => { setActivePanel('piano-roll'); setShowPianoRoll(true) }}>Piano Roll</button>
         <button className={`btab ${activePanel === 'plugins' ? 'active' : ''}`} onClick={() => setActivePanel('plugins')}>Smart Controls</button>
+        <button className={`btab ${activePanel === 'midi' ? 'active' : ''}`} onClick={() => setActivePanel('midi')}>MIDI Out</button>
         <button className="btab btab-close" style={{ marginLeft:'auto' }} onClick={() => setShowMixer(false)}>✕</button>
       </div>
 
@@ -242,79 +261,34 @@ export function Mixer({
       )}
 
       {activePanel === 'plugins' && (
-        <SmartControls />
+        <PluginControlsPanel />
+      )}
+
+      {activePanel === 'midi' && (
+        <div style={{ flex:1, overflowY:'auto', padding:'8px 16px' }}>
+          <MidiOutputPanel />
+        </div>
       )}
     </div>
   )
 }
 
-// ── Smart Controls ─────────────────────────────────────────────────────────────
-function SmartControls() {
-  const { tracks, selectedTrackId, updatePlugin } = useProjectStore()
+// ── Plugin Controls Panel (replaces SmartControls) ────────────────────────────
+function PluginControlsPanel() {
+  const { tracks, selectedTrackId } = useProjectStore()
   const track = tracks.find(t => t.id === selectedTrackId)
-  const plugin = track?.plugins.find(p => p.enabled)
 
-  if (!track || !plugin) {
+  if (!track) {
     return (
       <div style={{ display:'flex', alignItems:'center', justifyContent:'center', flex:1, color:'#6b7280', fontSize:13 }}>
-        Select a track with a plugin to show Smart Controls
+        Select a track to view its plugin rack
       </div>
     )
   }
 
-  const defaults: Record<string, { min: number; max: number; default: number; unit: string }> = {
-    threshold: { min: -60, max: 0, default: -24, unit: 'dB' },
-    ratio: { min: 1, max: 20, default: 4, unit: ':1' },
-    attack: { min: 0.001, max: 1, default: 0.003, unit: 's' },
-    release: { min: 0.01, max: 5, default: 0.25, unit: 's' },
-    mix: { min: 0, max: 1, default: 1, unit: '' },
-    gain: { min: -20, max: 20, default: 0, unit: 'dB' },
-    time: { min: 0, max: 2, default: 0.3, unit: 's' },
-    feedback: { min: 0, max: 0.99, default: 0.3, unit: '' },
-    depth: { min: 0, max: 1, default: 0.5, unit: '' },
-    rate: { min: 0.1, max: 10, default: 1, unit: 'Hz' },
-  }
-
-  const knobKeys: Record<Plugin['type'], string[]> = {
-    compressor: ['threshold','ratio','attack','release'],
-    eq: ['gain'],
-    reverb: ['mix','time'],
-    delay: ['time','feedback','mix'],
-    limiter: ['threshold','gain'],
-    chorus: ['rate','depth','mix'],
-    distortion: ['gain','mix'],
-    vst: [],
-  }
-
-  const keys = knobKeys[plugin.type] ?? []
-
   return (
-    <div style={{ display:'flex', alignItems:'center', gap:20, padding:'0 20px', flex:1, overflowX:'auto' }}>
-      <div style={{ fontSize:12, fontWeight:800, color:'#a855f7', marginRight:8, flexShrink:0 }}>
-        {plugin.name}
-      </div>
-      {keys.map(k => {
-        const def = defaults[k] ?? { min:0, max:1, default:0.5, unit:'' }
-        const val = plugin.params[k] ?? def.default
-        return (
-          <div key={k} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
-            <input
-              type="range"
-              min={def.min} max={def.max} step={(def.max - def.min) / 200}
-              value={val}
-              style={{ WebkitAppearance:'slider-vertical', writingMode:'vertical-rl', height:70, width:20, accentColor:'#a855f7' } as React.CSSProperties}
-              onChange={e => updatePlugin(track.id, plugin.id, { [k]: parseFloat(e.target.value) })}
-            />
-            <div style={{ fontSize:9, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'.5px' }}>{k}</div>
-            <div style={{ fontSize:10, color:'#f0f0f0', fontVariantNumeric:'tabular-nums' }}>
-              {val.toFixed(k === 'ratio' ? 0 : 2)}{def.unit}
-            </div>
-          </div>
-        )
-      })}
+    <div style={{ flex:1, overflowY:'auto', padding:'8px 16px' }}>
+      <PluginRack track={track} />
     </div>
   )
 }
-
-// Type alias for Plugin to fix the SmartControls reference
-type Plugin = import('../store/projectStore').Plugin

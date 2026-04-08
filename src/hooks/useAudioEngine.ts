@@ -6,6 +6,9 @@ interface TrackNodes {
   panner: StereoPannerNode
   analyser: AnalyserNode
   eq: BiquadFilterNode[]
+  lowShelf?: BiquadFilterNode
+  midPeak?: BiquadFilterNode
+  highShelf?: BiquadFilterNode
   compressor: DynamicsCompressorNode
   reverb?: ConvolverNode
   reverbGain?: GainNode
@@ -142,7 +145,10 @@ export function useAudioEngine() {
     analyser.connect(masterGainRef.current!)
 
     const nodes: TrackNodes = {
-      gain, panner, analyser, eq: [lowShelf, midPeak, highShelf], compressor,
+      gain, panner, analyser,
+      eq: [lowShelf, midPeak, highShelf],
+      lowShelf, midPeak, highShelf,
+      compressor,
       reverb, reverbGain, delay, delayFeedback, delayWet,
     }
     trackNodesRef.current.set(trackId, nodes)
@@ -775,6 +781,66 @@ export function useAudioEngine() {
     return frozenUrl
   }, [getCtx, audioBuffersRef])
 
+  // ── Automation playback (called per RAF frame during playback) ─────────────
+  const applyAutomation = useCallback((currentBeat: number) => {
+    const { automationLanes, tracks } = useProjectStore.getState()
+    if (!automationLanes.length) return
+
+    for (const lane of automationLanes) {
+      if (!lane.visible || lane.points.length === 0) continue
+      const nodes = trackNodesRef.current.get(lane.trackId)
+      if (!nodes) continue
+
+      // Interpolate value
+      const pts = lane.points
+      let value = lane.defaultValue
+      if (pts.length === 1) {
+        value = pts[0].value
+      } else if (currentBeat <= pts[0].beat) {
+        value = pts[0].value
+      } else if (currentBeat >= pts[pts.length - 1].beat) {
+        value = pts[pts.length - 1].value
+      } else {
+        let lo = 0
+        for (let i = 0; i < pts.length - 1; i++) {
+          if (pts[i].beat <= currentBeat && currentBeat <= pts[i + 1].beat) { lo = i; break }
+        }
+        const a = pts[lo], b = pts[lo + 1]
+        const t = (currentBeat - a.beat) / (b.beat - a.beat)
+        if (lane.curve === 'step') value = a.value
+        else if (lane.curve === 'smooth') value = a.value + (b.value - a.value) * t * t * (3 - 2 * t)
+        else value = a.value + (b.value - a.value) * t
+      }
+
+      // Apply to appropriate node
+      switch (lane.param) {
+        case 'volume': {
+          const track = tracks.find(t => t.id === lane.trackId)
+          if (track && !track.muted) nodes.gain.gain.setTargetAtTime(value, ctxRef.current!.currentTime, 0.02)
+          break
+        }
+        case 'pan':
+          nodes.panner.pan.setTargetAtTime(value, ctxRef.current!.currentTime, 0.02)
+          break
+        case 'eq-low':
+          nodes.lowShelf?.gain.setTargetAtTime(value, ctxRef.current!.currentTime, 0.02)
+          break
+        case 'eq-mid':
+          nodes.midPeak?.gain.setTargetAtTime(value, ctxRef.current!.currentTime, 0.02)
+          break
+        case 'eq-high':
+          nodes.highShelf?.gain.setTargetAtTime(value, ctxRef.current!.currentTime, 0.02)
+          break
+        case 'reverb':
+          nodes.reverbGain?.gain.setTargetAtTime(value, ctxRef.current!.currentTime, 0.02)
+          break
+        case 'delay':
+          nodes.delayWet?.gain.setTargetAtTime(value, ctxRef.current!.currentTime, 0.02)
+          break
+      }
+    }
+  }, [])
+
   useEffect(() => {
     return () => {
       stopAll()
@@ -791,6 +857,7 @@ export function useAudioEngine() {
     stopAll,
     playClip,
     applySoloMute,
+    applyAutomation,
     startMetronome,
     stopMetronome,
     startRecording,

@@ -1,5 +1,6 @@
 import React, { useRef, useCallback, useState } from 'react'
 import { useProjectStore, Track } from '../store/projectStore'
+import { AddAutomationLaneButton } from './AutomationLaneView'
 
 const COLORS = ['#a855f7','#ec4899','#3b82f6','#10b981','#f59e0b','#06b6d4','#ef4444','#8b5cf6','#14b8a6','#f97316','#84cc16','#e879f9']
 
@@ -71,6 +72,7 @@ interface DragState {
 function TrackHeader({
   track, idx, dragState, onDragStart, onDragOver, onDragEnd,
   onVolumeChange, onPanChange, onArmClick, onFreezeTrack,
+  isFreezing, freezeProgress,
 }: {
   track: Track
   idx: number
@@ -82,6 +84,8 @@ function TrackHeader({
   onPanChange: (id: string, v: number) => void
   onArmClick: (trackId: string) => void
   onFreezeTrack?: (trackId: string) => void
+  isFreezing?: boolean
+  freezeProgress?: number
 }) {
   const { updateTrack, removeTrack, selectTrack, selectedTrackId } = useProjectStore()
   const nameRef = useRef<HTMLInputElement>(null)
@@ -157,11 +161,19 @@ function TrackHeader({
         <button className={`track-btn ${track.solo ? 'soloed' : ''}`} onClick={e => { e.stopPropagation(); updateTrack(track.id, { solo: !track.solo }) }} title="Solo (S)">S</button>
         {!isMaster && track.type === 'audio' && (
           <button
-            className={`track-btn freeze-btn ${track.frozen ? 'frozen' : ''}`}
-            onClick={e => { e.stopPropagation(); onFreezeTrack?.(track.id) }}
-            title={track.frozen ? 'Unfreeze track (releases CPU)' : 'Freeze track (renders to audio)'}
+            className={`track-btn freeze-btn ${track.frozen ? 'frozen' : ''} ${isFreezing ? 'freezing' : ''}`}
+            onClick={e => { e.stopPropagation(); if (!isFreezing) onFreezeTrack?.(track.id) }}
+            disabled={isFreezing}
+            title={isFreezing ? `Freezing… ${Math.round((freezeProgress ?? 0) * 100)}%` : track.frozen ? 'Unfreeze track' : 'Freeze track'}
           >
-            {track.frozen ? (
+            {isFreezing ? (
+              // Spinning arc while rendering
+              <svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="currentColor" strokeWidth="1.4">
+                <circle cx="4.5" cy="4.5" r="3.5" strokeOpacity="0.2"/>
+                <path d="M4.5 1A3.5 3.5 0 0 1 8 4.5" strokeLinecap="round"
+                  style={{ animation: 'ap-spin .7s linear infinite' }}/>
+              </svg>
+            ) : track.frozen ? (
               <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
                 <path d="M4 0v8M0 4h8M1.2 1.2l5.6 5.6M6.8 1.2L1.2 6.8" stroke="currentColor" strokeWidth="1.2" fill="none"/>
               </svg>
@@ -172,6 +184,12 @@ function TrackHeader({
             )}
           </button>
         )}
+        {/* Freeze progress bar — appears below controls while freezing */}
+        {isFreezing && (
+          <div className="track-freeze-progress">
+            <div className="track-freeze-bar" style={{ width: `${Math.round((freezeProgress ?? 0) * 100)}%` }} />
+          </div>
+        )}
         {!isMaster && (
           <button
             className={`track-btn arm-btn ${track.armed ? 'armed' : ''}`}
@@ -180,6 +198,11 @@ function TrackHeader({
           >
             <svg width="7" height="7" viewBox="0 0 7 7"><circle cx="3.5" cy="3.5" r="3" fill="currentColor"/></svg>
           </button>
+        )}
+
+        {/* Automation lane add button */}
+        {!isMaster && (
+          <AddAutomationLaneButton trackId={track.id} />
         )}
 
         {/* Volume */}
@@ -229,11 +252,13 @@ function TrackHeader({
   )
 }
 
-export function TrackList({ onVolumeChange, onPanChange, onArmClick, onFreezeTrack, width }: {
+export function TrackList({ onVolumeChange, onPanChange, onArmClick, onFreezeTrack, freezingTrackId, freezeProgress, width }: {
   onVolumeChange: (id: string, v: number) => void
   onPanChange: (id: string, v: number) => void
   onArmClick: (trackId: string) => void
   onFreezeTrack?: (trackId: string) => void
+  freezingTrackId?: string | null
+  freezeProgress?: number
   width?: number
 }) {
   const { tracks, addTrack, moveTrack } = useProjectStore()
@@ -281,6 +306,8 @@ export function TrackList({ onVolumeChange, onPanChange, onArmClick, onFreezeTra
             onPanChange={onPanChange}
             onArmClick={onArmClick}
             onFreezeTrack={onFreezeTrack}
+            isFreezing={freezingTrackId === track.id}
+            freezeProgress={freezingTrackId === track.id ? freezeProgress : 0}
           />
         ))}
       </div>

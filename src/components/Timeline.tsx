@@ -1,6 +1,7 @@
 import React, { useRef, useCallback, useEffect, useState } from 'react'
 import { useProjectStore, Clip, Track, EditTool } from '../store/projectStore'
 import { ContextMenu, ContextMenuItem } from './ContextMenu'
+import { AutomationLaneView, AddAutomationLaneButton } from './AutomationLaneView'
 
 // ── Flat centerline for audio clips with no waveform data ─────────────────────
 function FlatLine({ width, height, color }: { width: number; height: number; color: string }) {
@@ -128,7 +129,7 @@ function ClipView({
   onContextMenu: (e: React.MouseEvent, clip: Clip) => void
   activeTool: EditTool
 }) {
-  const { updateClip, setShowPianoRoll, snapEnabled, snapValue, setClipFadeIn, setClipFadeOut, splitClipAtBeat } = useProjectStore()
+  const { updateClip, setShowPianoRoll, snapEnabled, snapValue, setClipFadeIn, setClipFadeOut, splitClipAtBeat, setActiveTake, deleteTake } = useProjectStore()
   const isDragging = useRef(false)
   const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null)
@@ -394,6 +395,50 @@ function ClipView({
         />
       </div>
       {tooltipPos && <ClipTooltip clip={clip} x={tooltipPos.x} y={tooltipPos.y} bpm={bpm} />}
+
+      {/* Visual Take Lanes — shown when clip has multiple takes */}
+      {(clip.takes?.length ?? 0) > 1 && (
+        <div
+          className="take-lanes"
+          style={{ left: x, width: w }}
+          onMouseDown={e => e.stopPropagation()}
+        >
+          {clip.takes!.map((take, i) => {
+            const isActive = i === (clip.activeTakeIndex ?? 0)
+            return (
+              <div
+                key={i}
+                className={`take-lane-row ${isActive ? 'take-lane-active' : ''}`}
+                onClick={e => { e.stopPropagation(); setActiveTake(clip.id, i) }}
+                title={`Take ${i + 1}: ${take.name} — click to activate`}
+              >
+                <span className="take-lane-num">{i + 1}</span>
+                <span className="take-lane-name">{take.name}</span>
+                {/* Mini waveform */}
+                {take.waveformPeaks && take.waveformPeaks.length > 0 ? (
+                  <svg width={Math.max(10, w - 40)} height={18} style={{ flex:1, overflow:'hidden' }}>
+                    {take.waveformPeaks.map((pk, j) => {
+                      const sx = (j / take.waveformPeaks!.length) * (w - 40)
+                      const sh = Math.max(1, pk * 16)
+                      return <rect key={j} x={sx} y={9 - sh / 2} width={1.5} height={sh}
+                        fill={isActive ? '#a855f7' : '#4b5563'} />
+                    })}
+                  </svg>
+                ) : (
+                  <div className="take-lane-flat" />
+                )}
+                {!isActive && (
+                  <button
+                    className="take-lane-del"
+                    onClick={e => { e.stopPropagation(); deleteTake(clip.id, i) }}
+                    title="Delete take"
+                  >✕</button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </>
   )
 }
@@ -601,6 +646,7 @@ export function Timeline({
   const {
     tracks, pixelsPerBeat, scrollLeft, setScrollLeft, bpm, loopStart, loopEnd, isLooping,
     timeSignature, isRecording, currentTime, zoom, setZoom, snapValue, setSnapValue, activeTool,
+    automationLanes,
   } = store
   const scrollRef = useRef<HTMLDivElement>(null)
   const TOTAL_BARS = 96
@@ -921,17 +967,33 @@ export function Timeline({
       {/* Lanes + grid */}
       <div style={{ position:'relative', width: totalWidth, minWidth:'100%' }}>
         {gridLines}
-        {tracks.map(track => (
-          <TrackLane
-            key={track.id} track={track}
-            pixelsPerBeat={pixelsPerBeat} scrollLeft={scrollLeft}
-            onImportAudio={onImportAudio}
-            isRecording={isRecording} recordingMicLevel={recordingMicLevel}
-            currentBeat={currentBeat} recordStartBeat={recordStartBeatRef.current}
-            onClipContextMenu={handleClipContextMenu} onLaneContextMenu={handleLaneContextMenu}
-            activeTool={activeTool}
-          />
-        ))}
+        {tracks.map(track => {
+          const trackAutoLanes = automationLanes.filter(l => l.trackId === track.id)
+          return (
+            <React.Fragment key={track.id}>
+              <TrackLane
+                track={track}
+                pixelsPerBeat={pixelsPerBeat} scrollLeft={scrollLeft}
+                onImportAudio={onImportAudio}
+                isRecording={isRecording} recordingMicLevel={recordingMicLevel}
+                currentBeat={currentBeat} recordStartBeat={recordStartBeatRef.current}
+                onClipContextMenu={handleClipContextMenu} onLaneContextMenu={handleLaneContextMenu}
+                activeTool={activeTool}
+              />
+              {/* Automation lanes for this track */}
+              {trackAutoLanes.map(lane => (
+                <AutomationLaneView
+                  key={lane.id}
+                  lane={lane}
+                  pixelsPerBeat={pixelsPerBeat}
+                  scrollLeft={scrollLeft}
+                  totalBeats={totalBeats}
+                  activeTool={activeTool}
+                />
+              ))}
+            </React.Fragment>
+          )
+        })}
 
         <TimelineDropZone onDropCreateTrack={onDropCreateTrack} />
 

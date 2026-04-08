@@ -91,9 +91,20 @@ export interface AutomationPoint {
   value: number
 }
 
+export type AutomationCurve = 'linear' | 'smooth' | 'step'
+
 export interface AutomationLane {
+  id: string
   trackId: string
+  /** e.g. 'volume', 'pan', 'eq-low', 'reverb', 'delay' */
   param: string
+  label: string
+  /** 0–1 normalized range */
+  minValue: number
+  maxValue: number
+  defaultValue: number
+  curve: AutomationCurve
+  visible: boolean
   points: AutomationPoint[]
 }
 
@@ -135,7 +146,7 @@ export interface ProjectState {
   showPianoRoll: boolean
   showClawbot: boolean
   activePianoRollClipId: string | null
-  activePanel: 'mixer' | 'piano-roll' | 'plugins'
+  activePanel: 'mixer' | 'piano-roll' | 'plugins' | 'midi'
 
   // Tool mode
   activeTool: EditTool
@@ -246,6 +257,15 @@ interface Actions {
   addTakeToClip: (clipId: string, take: Take) => void
   setActiveTake: (clipId: string, takeIndex: number) => void
   deleteTake: (clipId: string, takeIndex: number) => void
+
+  // Automation lanes
+  addAutomationLane: (lane: Omit<AutomationLane, 'id' | 'points' | 'visible'>) => void
+  removeAutomationLane: (laneId: string) => void
+  addAutomationPoint: (laneId: string, point: AutomationPoint) => void
+  removeAutomationPoint: (laneId: string, beat: number) => void
+  updateAutomationPoint: (laneId: string, beat: number, value: number) => void
+  setAutomationCurve: (laneId: string, curve: AutomationCurve) => void
+  toggleAutomationLane: (laneId: string) => void
 
   addPlugin: (trackId: string, plugin: Plugin) => void
   removePlugin: (trackId: string, pluginId: string) => void
@@ -606,6 +626,58 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
         return { ...c, takes, activeTakeIndex: newActive >= 0 ? newActive : undefined }
       }),
     })),
+    isDirty: true,
+  })),
+
+  // ── Automation Lane actions ────────────────────────────────────────────────
+  addAutomationLane: (laneDef) => set(st => ({
+    automationLanes: [
+      ...st.automationLanes,
+      { ...laneDef, id: `al-${Date.now()}-${Math.random().toString(36).slice(2)}`, points: [], visible: true },
+    ],
+    isDirty: true,
+  })),
+
+  removeAutomationLane: (laneId) => set(st => ({
+    automationLanes: st.automationLanes.filter(l => l.id !== laneId),
+    isDirty: true,
+  })),
+
+  addAutomationPoint: (laneId, point) => set(st => ({
+    automationLanes: st.automationLanes.map(l => {
+      if (l.id !== laneId) return l
+      // Insert sorted by beat, replacing any existing point at same beat
+      const filtered = l.points.filter(p => Math.abs(p.beat - point.beat) > 0.01)
+      const pts = [...filtered, point].sort((a, b) => a.beat - b.beat)
+      return { ...l, points: pts }
+    }),
+    isDirty: true,
+  })),
+
+  removeAutomationPoint: (laneId, beat) => set(st => ({
+    automationLanes: st.automationLanes.map(l =>
+      l.id !== laneId ? l : { ...l, points: l.points.filter(p => Math.abs(p.beat - beat) > 0.01) }
+    ),
+    isDirty: true,
+  })),
+
+  updateAutomationPoint: (laneId, beat, value) => set(st => ({
+    automationLanes: st.automationLanes.map(l =>
+      l.id !== laneId ? l : {
+        ...l,
+        points: l.points.map(p => Math.abs(p.beat - beat) <= 0.01 ? { ...p, value } : p),
+      }
+    ),
+    isDirty: true,
+  })),
+
+  setAutomationCurve: (laneId, curve) => set(st => ({
+    automationLanes: st.automationLanes.map(l => l.id !== laneId ? l : { ...l, curve }),
+    isDirty: true,
+  })),
+
+  toggleAutomationLane: (laneId) => set(st => ({
+    automationLanes: st.automationLanes.map(l => l.id !== laneId ? l : { ...l, visible: !l.visible }),
     isDirty: true,
   })),
 

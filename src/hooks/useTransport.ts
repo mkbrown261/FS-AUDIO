@@ -9,6 +9,7 @@ export function useTransport(
   onStartRecording: () => Promise<void>,
   onStopRecording: () => Promise<AudioBuffer | null>,
   onRegisterAudioBuffer?: (key: string, buffer: AudioBuffer) => void,
+  onApplyAutomation?: (beat: number) => void,
 ) {
   const rafRef = useRef<number | null>(null)
   const startedAtRef = useRef<number | null>(null)
@@ -55,6 +56,7 @@ export function useTransport(
       }
 
       store.getState().setCurrentTime(timeSec)
+      onApplyAutomation?.(beat)
       rafRef.current = requestAnimationFrame(step)
     }
     rafRef.current = requestAnimationFrame(step)

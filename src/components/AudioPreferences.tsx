@@ -34,6 +34,8 @@ interface AudioPreferencesProps {
   onClose: () => void
   /** Called when audio context needs a full restart (SR/buffer/device changed) */
   onRestartAudioContext: (opts: RestartOpts) => Promise<void>
+  /** Optional: returns the live engine AudioContext for accurate latency reading */
+  getAudioContext?: () => AudioContext | null
 }
 
 export interface RestartOpts {
@@ -53,7 +55,7 @@ function useDebounce<T>(value: T, ms: number): T {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export function AudioPreferences({ isOpen, onClose, onRestartAudioContext }: AudioPreferencesProps) {
+export function AudioPreferences({ isOpen, onClose, onRestartAudioContext, getAudioContext }: AudioPreferencesProps) {
   const store = useProjectStore()
   const {
     sampleRate, setSampleRate,
@@ -150,18 +152,25 @@ export function AudioPreferences({ isOpen, onClose, onRestartAudioContext }: Aud
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen])
 
-  // ── Read latency from AudioContext ─────────────────────────────────────────
+  // ── Read latency from the live engine AudioContext ─────────────────────────
   const readLatency = useCallback(() => {
     try {
-      // Access the current AudioContext via a temporary one to read properties
-      // We can't hold a ref to it here, so we create a temp read-only probe
-      const probe = new AudioContext()
-      setMeasuredInputLatency(probe.baseLatency * 1000)
-      setMeasuredOutputLatency(probe.outputLatency * 1000)
-      setMeasuredSampleRate(probe.sampleRate)
-      probe.close()
+      // Prefer the real engine context — accurate, no wasted object creation
+      const ctx = getAudioContext ? getAudioContext() : null
+      if (ctx && ctx.state !== 'closed') {
+        setMeasuredInputLatency(ctx.baseLatency * 1000)
+        setMeasuredOutputLatency(ctx.outputLatency * 1000)
+        setMeasuredSampleRate(ctx.sampleRate)
+      } else {
+        // Fallback probe only when engine hasn't initialised yet
+        const probe = new AudioContext()
+        setMeasuredInputLatency(probe.baseLatency * 1000)
+        setMeasuredOutputLatency(probe.outputLatency * 1000)
+        setMeasuredSampleRate(probe.sampleRate)
+        probe.close()
+      }
     } catch {}
-  }, [])
+  }, [getAudioContext])
 
   useEffect(() => {
     if (isOpen) readLatency()
