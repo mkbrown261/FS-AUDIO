@@ -411,13 +411,13 @@ export function useAudioEngine() {
     // Panner after transient
     transientMakeup.connect(panner)
 
-    // Classic Reverb branch (original)
-    compressor.connect(reverb)
+    // Classic Reverb branch — post-panner so it benefits from the full chain
+    panner.connect(reverb)
     reverb.connect(reverbGain)
     reverbGain.connect(analyser)
 
-    // Classic Delay branch (original)
-    compressor.connect(delay)
+    // Classic Delay branch — post-panner
+    panner.connect(delay)
     delay.connect(delayFeedback)
     delayFeedback.connect(delay)
     delay.connect(delayWet)
@@ -459,9 +459,11 @@ export function useAudioEngine() {
     panner.connect(vibeDelay)
     vibeDelay.connect(vibeWet)
 
-    // FS-Phase (stereo width): tap from panner
+    // FS-Phase (stereo width): parallel mid+side summed into phaseWidthOut
+    // Both tap from panner independently; phaseWidthOut is the sum output
     panner.connect(phaseMid)
-    phaseMid.connect(phaseSide)
+    panner.connect(phaseSide)
+    phaseMid.connect(phaseWidthOut)
     phaseSide.connect(phaseWidthOut)
 
     // FS-Oxide tape: parallel on panner output
@@ -477,7 +479,8 @@ export function useAudioEngine() {
     hadesLP.connect(hadesWS)
     hadesWS.connect(hadesSubGain)
 
-    // FS-Shield gate: on panner output
+    // FS-Shield gate: parallel path — makeup connects to analyser only when active
+    // panner→analyser direct path handles bypass (shieldMakeup starts at 0)
     panner.connect(shieldComp)
     shieldComp.connect(shieldMakeup)
 
@@ -897,9 +900,10 @@ export function useAudioEngine() {
           curve[i] = Math.tanh(k * x) / Math.tanh(k)
           break
         case 1: // Tube — asymmetric warmth, triode character
+          // Positive half: standard tanh; negative half: softer knee → triode character
           curve[i] = x > 0
             ? Math.tanh(k * x) / Math.tanh(k)
-            : (Math.tanh(k * x * 0.7) / Math.tanh(k * 0.7)) * 1.05
+            : (Math.tanh(k * x * 0.7) / Math.tanh(k)) * 1.05
           break
         case 2: // Clip — hard clipping with soft knee
           { const knee = 0.7 - drive * 0.04
@@ -951,35 +955,33 @@ export function useAudioEngine() {
       const pressPlugin = track.plugins.find(p => p.type === 'bus_compressor' && p.enabled)
       if (pressPlugin && nodes.pressureComp) {
         const pp = pressPlugin.params
-        const RATIOS  = [1.5, 2, 4, 10]
-        const ATTACKS = [0.0001, 0.0003, 0.001, 0.003, 0.01, 0.03]
-        const ratio   = RATIOS[Math.round(pp.ratio ?? 1)] ?? 4
-        const attack  = ATTACKS[Math.round((pp.attack ?? 2) * 10)] ?? 0.001
-        const release = pp.release === -1 ? 0.5 : (pp.release ?? 0.1) // auto = 500ms
+        // ratio param is a direct value (1.5–20), not an index
+        const ratio   = Math.max(1, Math.min(20, pp.ratio ?? 4))
+        // attack param is a direct value in seconds (0.0001–0.03)
+        const attack  = Math.max(0.0001, Math.min(0.3, pp.attack ?? 0.001))
+        const release = pp.release === -1 ? 0.5 : Math.max(0.01, pp.release ?? 0.1) // auto = 500ms
 
         nodes.pressureComp.threshold.setTargetAtTime(pp.threshold ?? -12, ctx.currentTime, 0.01)
         nodes.pressureComp.ratio.setTargetAtTime(ratio, ctx.currentTime, 0.01)
         nodes.pressureComp.attack.setTargetAtTime(attack, ctx.currentTime, 0.01)
         nodes.pressureComp.release.setTargetAtTime(release, ctx.currentTime, 0.01)
 
-        // Color: add subtle EQ character
-        // Clean(0): flat, SSL(1): presence boost ~3kHz, Neve(2): low-end warmth
+        // Color: knee character — Clean(0) tight knee, SSL(1) medium, Neve(2) soft
         const color = Math.round(pp.color ?? 1)
-        if (nodes.satMidWS === undefined) { // reuse check — just apply knee emulation
-          nodes.pressureComp.knee.setTargetAtTime(color === 0 ? 2 : color === 1 ? 6 : 10, ctx.currentTime, 0.01)
-        }
+        nodes.pressureComp.knee.setTargetAtTime(color === 0 ? 2 : color === 1 ? 6 : 10, ctx.currentTime, 0.01)
 
-        // Auto-gain: compensate for GR
+        // Auto-gain: compensate for GR using standard makeup formula
         let makeup = pp.makeup ?? 0
         if (pp.autoGain) {
-          // Rough estimate: GR ≈ (threshold * (1 - 1/ratio)) / ratio  → makeup ≈ GR * 0.5
+          // GR at threshold: |thresh| * (1 - 1/ratio), makeup = GR * 0.45
           const thresh = pp.threshold ?? -12
           makeup = Math.max(0, Math.abs(thresh) * (1 - 1 / ratio) * 0.45)
         }
         const makeupLin = Math.pow(10, makeup / 20)
         nodes.pressureMakeup!.gain.setTargetAtTime(makeupLin, ctx.currentTime, 0.01)
 
-        const mix = pp.mix ?? 1
+        // Parallel mix: dry=1-mix (NY compression style)
+        const mix = Math.max(0, Math.min(1, pp.mix ?? 1))
         nodes.pressureDry!.gain.setTargetAtTime(1 - mix, ctx.currentTime, 0.01)
         nodes.pressureWet!.gain.setTargetAtTime(mix, ctx.currentTime, 0.01)
       }
@@ -1076,18 +1078,22 @@ export function useAudioEngine() {
         const pp = prismPlugin.params
         nodes.prismHP.frequency.setTargetAtTime(pp.freq ?? 3000, ctx.currentTime, 0.01)
         nodes.prismHP.Q.setTargetAtTime(pp.q ?? 0.7, ctx.currentTime, 0.01)
-        // Harmonic amount (drive)
-        const harmonicAmt = pp.drive ?? 0.3
-        nodes.prismHarmonicGain!.gain.setTargetAtTime(harmonicAmt, ctx.currentTime, 0.01)
-        // Exciter curve — use drive to scale 2nd+3rd harmonic generation
+        // Drive: scale harmonic waveshaper curve
+        const harmonicAmt = Math.max(0, Math.min(1, pp.drive ?? 0.3))
+        // prismHarmonicGain is fixed at 1 — the waveshaper curve already encodes the drive amount
+        // Setting it to harmonicAmt would double-attenuate the wet signal
+        nodes.prismHarmonicGain!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+        // Exciter curve — drive shapes 2nd+3rd harmonic generation; k=1 (no drive) → k=6 (full)
         const excCurve = new Float32Array(256)
         const k = 1 + harmonicAmt * 5
         for (let i = 0; i < 256; i++) {
           const x = (i * 2) / 256 - 1
+          // tanh normalised so output stays within [-1,+1] regardless of k
           excCurve[i] = Math.tanh(k * x) / Math.tanh(k) * 0.6
         }
         if (nodes.prismWS) nodes.prismWS.curve = excCurve
-        nodes.prismWet!.gain.setTargetAtTime(pp.mix ?? 0.4, ctx.currentTime, 0.01)
+        // mix param (0–1) is the wet blend level
+        nodes.prismWet!.gain.setTargetAtTime(Math.max(0, Math.min(1, pp.mix ?? 0.4)), ctx.currentTime, 0.01)
         nodes.prismDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       } else if (nodes.prismWet) {
         nodes.prismWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
@@ -1098,14 +1104,16 @@ export function useAudioEngine() {
       const vibePlugin = track.plugins.find(p => p.type === 'vibrato' && p.enabled)
       if (vibePlugin && nodes.vibeDelay) {
         const vp = vibePlugin.params
-        const depth = vp.depth ?? 0.003 // in seconds (max 10ms typical)
+        const depth = Math.max(0.0001, Math.min(0.01, vp.depth ?? 0.003)) // ±0.1ms–±10ms
         const mix   = vp.mix ?? 0.5
         const rate  = Math.max(0.1, Math.min(20, vp.rate ?? 5))
-        // Update LFO rate and depth
+        // LFO rate and depth
         if (nodes.vibeLFO) nodes.vibeLFO.frequency.setTargetAtTime(rate, ctx.currentTime, 0.01)
         if (nodes.vibeLFOGain) nodes.vibeLFOGain.gain.setTargetAtTime(depth, ctx.currentTime, 0.01)
-        // Set center delay: 5ms base
-        nodes.vibeDelay.delayTime.setTargetAtTime(0.005, ctx.currentTime, 0.01)
+        // Center delay must be >= depth so delayTime (center - LFO*depth) never goes negative
+        // Using 2×depth as minimum center ensures headroom for modulation
+        const centerDelay = Math.max(0.005, depth * 2)
+        nodes.vibeDelay.delayTime.setTargetAtTime(centerDelay, ctx.currentTime, 0.02)
         nodes.vibeWet!.gain.setTargetAtTime(mix, ctx.currentTime, 0.01)
         nodes.vibeDry!.gain.setTargetAtTime(1 - mix, ctx.currentTime, 0.01)
       } else if (nodes.vibeWet) {
@@ -1178,15 +1186,22 @@ export function useAudioEngine() {
       }
 
       // ── FS-Shield: Noise Gate ─────────────────────────────────────────────
+      // Note: Web Audio DynamicsCompressor is a downward compressor, not a gate.
+      // With ratio=20 and very low threshold it acts as a hard expander/limiter.
+      // The gating effect is achieved by using it as a parallel path: when active,
+      // the gated signal (shieldMakeup) is set to 0.5 so the direct panner path
+      // and the gated path sum to the correct level without doubling.
       const shieldPlugin = track.plugins.find(p => p.type === 'noise_gate' && p.enabled)
       if (shieldPlugin && nodes.shieldComp) {
         const sp = shieldPlugin.params
         nodes.shieldComp.threshold.setTargetAtTime(sp.threshold ?? -60, ctx.currentTime, 0.01)
-        nodes.shieldComp.ratio.setTargetAtTime(20, ctx.currentTime, 0.01) // hard gate
+        nodes.shieldComp.ratio.setTargetAtTime(20, ctx.currentTime, 0.01) // hard limiting above threshold
         nodes.shieldComp.attack.setTargetAtTime(sp.attack ?? 0.001, ctx.currentTime, 0.01)
         nodes.shieldComp.release.setTargetAtTime(sp.release ?? 0.2, ctx.currentTime, 0.01)
         nodes.shieldComp.knee.setTargetAtTime(sp.hysteresis ?? 3, ctx.currentTime, 0.01)
-        const makeup = Math.pow(10, (sp.makeup ?? 0) / 20)
+        // Makeup at 0.5 compensates for the parallel doubling with panner→analyser direct path
+        const makeupDb = sp.makeup ?? 0
+        const makeup = Math.pow(10, makeupDb / 20) * 0.5
         nodes.shieldMakeup!.gain.setTargetAtTime(makeup, ctx.currentTime, 0.01)
       } else if (nodes.shieldMakeup) {
         // Inactive: zero out — panner→analyser handles signal directly
@@ -1220,8 +1235,10 @@ export function useAudioEngine() {
         nodes.forgeComp.knee.setTargetAtTime(fp.knee ?? 10, ctx.currentTime, 0.01)
         const makeup = Math.pow(10, (fp.makeup ?? 0) / 20)
         nodes.forgeMakeup!.gain.setTargetAtTime(makeup, ctx.currentTime, 0.01)
-        const blend = fp.blend ?? 0.5  // 0 = full dry, 1 = full wet (NY compression)
-        nodes.forgeDry!.gain.setTargetAtTime(1 - blend * 0.5, ctx.currentTime, 0.01)
+        const blend = Math.max(0, Math.min(1, fp.blend ?? 0.5))  // 0 = dry only, 1 = full NY comp
+        // NY (parallel) compression: dry is always at unity, wet is blended in additively
+        // This preserves transient integrity while adding compressed sustain
+        nodes.forgeDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
         nodes.forgeWet!.gain.setTargetAtTime(blend, ctx.currentTime, 0.01)
       } else if (nodes.forgeWet) {
         nodes.forgeWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
@@ -1303,7 +1320,8 @@ export function useAudioEngine() {
         }
         nodes.spaceReverb.buffer = irBuf
         nodes.spaceReverbGain.gain.setTargetAtTime(wet, ctx.currentTime, 0.01)
-        nodes.spaceShimmerGain!.gain.setTargetAtTime(wet * (cp.shimmer ?? 0), ctx.currentTime, 0.01)
+        // fs_vintage_verb has no shimmer param; shimmer defaults to 0 to avoid extra wash
+        nodes.spaceShimmerGain!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
       } else if (cosmosPlugin === undefined && nodes.spaceReverbGain) {
         // Don't override if spacetime plugin is also present
         const hasSpacetime = track.plugins.find(p => p.type === 'spacetime' && p.enabled)
@@ -1342,60 +1360,77 @@ export function useAudioEngine() {
         nodes.compressor.ratio.setTargetAtTime(mp.cRatio ?? 2, ctx.currentTime, 0.01)
         nodes.compressor.attack.setTargetAtTime(mp.cAttack ?? 0.01, ctx.currentTime, 0.01)
         nodes.compressor.release.setTargetAtTime(mp.cRelease ?? 0.15, ctx.currentTime, 0.01)
-        // Loudness: lufs param — rough gain targeting
+        // Loudness: lufs param — rough gain targeting to hit the target LUFS level
+        // If target is -14 LUFS and reference is -14, gain = 0 dB (no change)
+        // If target is -10 LUFS (louder), gain = +4 dB; if -18 (quieter), gain = -4 dB
         const lufsTarget = mp.lufs ?? -14
-        const lufsGain   = Math.pow(10, (-14 - lufsTarget) / 20)
+        const lufsGain   = Math.pow(10, (lufsTarget - (-14)) / 20)
         nodes.gain.gain.setTargetAtTime(Math.max(0, track.volume * lufsGain), ctx.currentTime, 0.05)
       }
 
-      // FS-Crush: Multiband Compressor → maps to pressureComp
+      // FS-Crush: Multiband Compressor → maps to pressureComp (only if FS-Pressure not also active)
       const crushPlugin = track.plugins.find(p => p.type === 'fs_multiband_comp' && p.enabled)
-      if (crushPlugin && nodes.pressureComp) {
+      if (crushPlugin && nodes.pressureComp && !pressPlugin) {
         const ccp = crushPlugin.params
-        // Params: loThresh/loRatio/loAtk/loRel, lmThresh, hmThresh, hiThresh
+        // Average the 4-band thresholds and ratios into a single wideband compressor setting
         const avgThresh = ((ccp.loThresh ?? -20) + (ccp.lmThresh ?? -20) + (ccp.hmThresh ?? -20) + (ccp.hiThresh ?? -20)) / 4
-        const avgRatio  = ((ccp.loRatio  ?? 4)   + (ccp.lmRatio  ?? 4)   + (ccp.hmRatio  ?? 4)   + (ccp.hiRatio  ?? 4))   / 4
+        const avgRatio  = Math.max(1, Math.min(20, ((ccp.loRatio ?? 4) + (ccp.lmRatio ?? 4) + (ccp.hmRatio ?? 4) + (ccp.hiRatio ?? 4)) / 4))
         nodes.pressureComp.threshold.setTargetAtTime(avgThresh, ctx.currentTime, 0.01)
         nodes.pressureComp.ratio.setTargetAtTime(avgRatio, ctx.currentTime, 0.01)
-        nodes.pressureComp.attack.setTargetAtTime(ccp.loAtk ?? 0.01, ctx.currentTime, 0.01)
-        nodes.pressureComp.release.setTargetAtTime(ccp.loRel ?? 0.15, ctx.currentTime, 0.01)
+        nodes.pressureComp.attack.setTargetAtTime(Math.max(0.0001, ccp.loAtk ?? 0.01), ctx.currentTime, 0.01)
+        nodes.pressureComp.release.setTargetAtTime(Math.max(0.01, ccp.loRel ?? 0.15), ctx.currentTime, 0.01)
+        nodes.pressureComp.knee.setTargetAtTime(6, ctx.currentTime, 0.01)
         nodes.pressureMakeup!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+        // Full wet mode: only compressed signal passes to transient designer
         nodes.pressureDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
         nodes.pressureWet!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       }
 
-      // FS-Apex: True-Peak Limiter → maps to master limiter compensation
+      // FS-Apex: True-Peak Limiter → maps to track compressor as a per-track hard limiter
+      // Only applied if FS-Master is not also active (they both use the compressor node)
       const apexPlugin = track.plugins.find(p => p.type === 'fs_peak_limiter' && p.enabled)
-      if (apexPlugin && nodes.compressor) {
+      if (apexPlugin && nodes.compressor && !masterPlugin) {
         const ap = apexPlugin.params
-        // Use the track compressor as a per-track limiter
         nodes.compressor.threshold.setTargetAtTime(ap.threshold ?? -1, ctx.currentTime, 0.01)
         nodes.compressor.ratio.setTargetAtTime(20, ctx.currentTime, 0.01) // hard limit
         nodes.compressor.attack.setTargetAtTime(0.0001, ctx.currentTime, 0.01)
-        nodes.compressor.release.setTargetAtTime(ap.release ?? 0.05, ctx.currentTime, 0.01)
+        nodes.compressor.release.setTargetAtTime(Math.max(0.001, ap.release ?? 0.05), ctx.currentTime, 0.01)
         nodes.compressor.knee.setTargetAtTime(0, ctx.currentTime, 0.01)
         const inputGain = Math.pow(10, (ap.input ?? 0) / 20)
-        nodes.gain.gain.setTargetAtTime(track.volume * inputGain, ctx.currentTime, 0.01)
+        nodes.gain.gain.setTargetAtTime(Math.max(0, track.volume * inputGain), ctx.currentTime, 0.01)
+      } else if (!apexPlugin && !masterPlugin && nodes.compressor) {
+        // Reset compressor to default track settings when neither Apex nor Master is active
+        nodes.compressor.threshold.setTargetAtTime(-24, ctx.currentTime, 0.05)
+        nodes.compressor.ratio.setTargetAtTime(4, ctx.currentTime, 0.05)
+        nodes.compressor.attack.setTargetAtTime(0.003, ctx.currentTime, 0.05)
+        nodes.compressor.release.setTargetAtTime(0.25, ctx.currentTime, 0.05)
+        nodes.compressor.knee.setTargetAtTime(30, ctx.currentTime, 0.05)
       }
 
-      // FS-Spacer: Spectral Carver → maps to prism exciter (sidechain carving)
+      // FS-Spacer: Spectral Carver → uses hadesLP as a notch-approximation band-cut
+      // The idea: LP-filter the signal at rangeHz, then blend dry with LP-filtered
+      // giving a high-frequency reduction ("carving space" for other instruments)
       const spacerPlugin = track.plugins.find(p => p.type === 'fs_spacer' && p.enabled)
-      if (spacerPlugin && nodes.prismHP) {
+      if (spacerPlugin && nodes.hadesLP && !hadesPlugin) {
         const sp3 = spacerPlugin.params
-        // Frequency-targeted reduction using HP filter + inverted wet (carve out high freqs)
-        nodes.prismHP.frequency.setTargetAtTime(sp3.rangeHz ?? 3000, ctx.currentTime, 0.01)
-        nodes.prismHP.Q.setTargetAtTime(0.7, ctx.currentTime, 0.01)
-        // The carving effect: reduce high-freq content proportional to depth
-        const carveAmt = (sp3.depth ?? 0.5) * 0.4
-        nodes.prismWet!.gain.setTargetAtTime(0, ctx.currentTime, 0.01) // don't add harmonics
-        nodes.prismDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        const rangeHz = Math.max(200, Math.min(18000, sp3.rangeHz ?? 3000))
+        const depth   = Math.max(0, Math.min(1, sp3.depth ?? 0.5))
+        // Use hadesLP as the band-cut filter: LP below rangeHz = preserve lows, cut highs
+        nodes.hadesLP.frequency.setTargetAtTime(rangeHz, ctx.currentTime, 0.01)
+        nodes.hadesLP.Q.setTargetAtTime(0.5, ctx.currentTime, 0.01)
+        // hadesSubGain = wet (LP-filtered = the "carved" signal, replacing highs)
+        // hadesDry = original; blend: depth controls how much to cut highs
+        nodes.hadesSubGain!.gain.setTargetAtTime(depth, ctx.currentTime, 0.01)
+        nodes.hadesDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       }
 
-      // FS-Reel: Analog Tape Delay → maps to oxideWS + spacePingDelay
+      // FS-Reel: Analog Tape Delay → tape saturation via oxideWS + spacePingDelay for delay
       const reelPlugin = track.plugins.find(p => p.type === 'fs_tape_delay' && p.enabled)
       if (reelPlugin && nodes.oxideWS && nodes.spacePingDelay) {
         const rp = reelPlugin.params
-        const satAmt = rp.saturation ?? 0.3
+        const satAmt = Math.max(0, Math.min(1, rp.saturation ?? 0.3))
+        const wetAmt = Math.max(0, Math.min(1, rp.wet ?? 0.35))
+        // Tape saturation curve: tanh normalised, k=1..7 based on saturation amount
         const tapeCurve2 = new Float32Array(256)
         const k2 = 1 + satAmt * 6
         for (let i = 0; i < 256; i++) {
@@ -1403,25 +1438,39 @@ export function useAudioEngine() {
           tapeCurve2[i] = Math.tanh(k2 * x) / Math.tanh(k2)
         }
         nodes.oxideWS.curve = tapeCurve2
-        nodes.oxideWet!.gain.setTargetAtTime(rp.wet ?? 0.35, ctx.currentTime, 0.01)
-        nodes.oxideDry!.gain.setTargetAtTime(1 - (rp.wet ?? 0.35), ctx.currentTime, 0.01)
-        // Tape delay time
+        nodes.oxideWet!.gain.setTargetAtTime(wetAmt, ctx.currentTime, 0.01)
+        nodes.oxideDry!.gain.setTargetAtTime(1 - wetAmt, ctx.currentTime, 0.01)
+        // Tape delay time (sync uses 1/2 note = 0.5 beat multiplier)
         const bpm3 = useProjectStore.getState().bpm
-        const dlyT = rp.sync ? (60 / bpm3) * 0.5 : (rp.time ?? 0.5)
-        nodes.spacePingDelay.delayTime.setTargetAtTime(Math.min(3, dlyT), ctx.currentTime, 0.01)
-        nodes.spaceDlyWet!.gain.setTargetAtTime(rp.wet ?? 0.35, ctx.currentTime, 0.01)
-        nodes.spacePingGain!.gain.setTargetAtTime(rp.feedback ?? 0.4, ctx.currentTime, 0.01)
+        const dlyT = rp.sync ? Math.max(0.001, Math.min(3, (60 / bpm3) * 0.5)) : Math.max(0.001, Math.min(3, rp.time ?? 0.5))
+        nodes.spacePingDelay.delayTime.setTargetAtTime(dlyT, ctx.currentTime, 0.01)
+        nodes.spaceDlyWet!.gain.setTargetAtTime(wetAmt, ctx.currentTime, 0.01)
+        nodes.spacePingGain!.gain.setTargetAtTime(Math.max(0, Math.min(0.98, rp.feedback ?? 0.4)), ctx.currentTime, 0.01)
       }
 
       // FS-Aura: Vocal Enhancer → maps to prismHP exciter (air/presence boost)
+      // air/presence params are in dB (-12..+12); normalize to 0..1 for frequency/amount mapping
       const auraPlugin = track.plugins.find(p => p.type === 'fs_vocal_enhance' && p.enabled)
       if (auraPlugin && nodes.prismHP && !spacerPlugin && !reelPlugin) {
         const auP = auraPlugin.params
-        const airFreq = 8000 + (auP.air ?? 0) * 8000  // 8k-16k
+        // air param: -12..+12 dB → normalize to 0..1 for frequency scaling
+        const airNorm     = ((auP.air ?? 0) + 12) / 24        // 0..1
+        const presNorm    = ((auP.presence ?? 0) + 12) / 24   // 0..1
+        const airFreq     = 8000 + airNorm * 8000              // 8kHz–16kHz
         nodes.prismHP.frequency.setTargetAtTime(airFreq, ctx.currentTime, 0.01)
-        const harmAmt = (auP.air ?? 0) * 0.3 + (auP.presence ?? 0) * 0.2
-        nodes.prismHarmonicGain!.gain.setTargetAtTime(harmAmt, ctx.currentTime, 0.01)
-        nodes.prismWet!.gain.setTargetAtTime(auP.mix ?? 0.5, ctx.currentTime, 0.01)
+        nodes.prismHP.Q.setTargetAtTime(0.7, ctx.currentTime, 0.01)
+        // Harmonic content amount: air and presence normalized to 0..1
+        const harmAmt = airNorm * 0.3 + presNorm * 0.2
+        nodes.prismHarmonicGain!.gain.setTargetAtTime(1, ctx.currentTime, 0.01) // curve handles drive
+        // Rebuild exciter curve based on air/presence amount
+        const excCurve2 = new Float32Array(256)
+        const k2 = 1 + harmAmt * 5
+        for (let i = 0; i < 256; i++) {
+          const x = (i * 2) / 256 - 1
+          excCurve2[i] = Math.tanh(k2 * x) / Math.tanh(k2) * 0.6
+        }
+        if (nodes.prismWS) nodes.prismWS.curve = excCurve2
+        nodes.prismWet!.gain.setTargetAtTime(Math.max(0, Math.min(1, auP.mix ?? 0.5)), ctx.currentTime, 0.01)
         nodes.prismDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       }
 
@@ -1460,36 +1509,46 @@ export function useAudioEngine() {
         nodes.vibeDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
       }
 
-      // FS-Mutate: Vocal Transformer → maps to forgeComp (pitched parallel path)
+      // FS-Mutate: Vocal Transformer → maps to forgeComp (parallel harmonic path)
+      // Uses moderate parallel compression to thicken vocals/add character
       const mutatePlugin = track.plugins.find(p => p.type === 'fs_alter' && p.enabled)
       if (mutatePlugin && nodes.forgeComp && !forgePlugin) {
         const muP = mutatePlugin.params
         // Params: mode/pitch/formant/mix/detune/output/algo/voice
-        nodes.forgeComp.threshold.setTargetAtTime(-40, ctx.currentTime, 0.01)
-        nodes.forgeComp.ratio.setTargetAtTime(12, ctx.currentTime, 0.01)
-        nodes.forgeComp.attack.setTargetAtTime(0.001, ctx.currentTime, 0.01)
-        nodes.forgeComp.release.setTargetAtTime(0.05, ctx.currentTime, 0.01)
-        const formAmt = muP.formant ?? 0
-        const mixAmt  = muP.mix ?? 1
-        nodes.forgeMakeup!.gain.setTargetAtTime(1 + Math.abs(formAmt) * 0.3, ctx.currentTime, 0.01)
-        nodes.forgeDry!.gain.setTargetAtTime(1 - mixAmt * 0.4, ctx.currentTime, 0.01)
-        nodes.forgeWet!.gain.setTargetAtTime(mixAmt * 0.4, ctx.currentTime, 0.01)
+        // Moderate settings: -20dB threshold, ratio 4 — parallel adds presence without distorting
+        nodes.forgeComp.threshold.setTargetAtTime(-20, ctx.currentTime, 0.01)
+        nodes.forgeComp.ratio.setTargetAtTime(4, ctx.currentTime, 0.01)
+        nodes.forgeComp.attack.setTargetAtTime(0.003, ctx.currentTime, 0.01)
+        nodes.forgeComp.release.setTargetAtTime(0.1, ctx.currentTime, 0.01)
+        nodes.forgeComp.knee.setTargetAtTime(6, ctx.currentTime, 0.01)
+        const formAmt = Math.abs(muP.formant ?? 0) // 0..1 range
+        const mixAmt  = Math.max(0, Math.min(1, muP.mix ?? 1))
+        // Output gain: formant shifts color (subtle +/- 0 to +30% gain)
+        const outGainLin = Math.pow(10, (muP.output ?? 0) / 20)
+        nodes.forgeMakeup!.gain.setTargetAtTime(outGainLin * (1 + formAmt * 0.2), ctx.currentTime, 0.01)
+        // Dry always 1 (preserve original), wet adds the parallel-processed signal
+        nodes.forgeDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+        nodes.forgeWet!.gain.setTargetAtTime(mixAmt * 0.5, ctx.currentTime, 0.01)
       }
 
-      // FS-Resonate: Resonance Suppressor → maps to shield (gate out resonances)
+      // FS-Resonate: Resonance Suppressor → maps to shield (gate/compress resonances)
       const resonPlugin = track.plugins.find(p => p.type === 'fs_resonance' && p.enabled)
       if (resonPlugin && nodes.shieldComp && !shieldPlugin) {
         const rp2 = resonPlugin.params
         // Params: depth(dB)/sharpness/speed/sensitivity/mix/focus/delta/mode
-        const sens  = rp2.sensitivity ?? 0.5
-        const depth = rp2.depth ?? 5        // depth in dB
-        const speed2 = rp2.speed ?? 5       // response speed Hz
-        nodes.shieldComp.threshold.setTargetAtTime(-60 + sens * 30, ctx.currentTime, 0.01)
-        nodes.shieldComp.ratio.setTargetAtTime(Math.min(20, 2 + depth), ctx.currentTime, 0.01)
-        nodes.shieldComp.attack.setTargetAtTime(1 / Math.max(0.1, speed2) * 0.05, ctx.currentTime, 0.01)
+        const resSens  = rp2.sensitivity ?? 0.5   // 0..1 — renamed to avoid shadowing
+        const resDepth = rp2.depth ?? 5            // dB of suppression (0..24)
+        const resSpeed = Math.max(0.1, rp2.speed ?? 5)  // Hz — response speed
+        // Map sensitivity to threshold: higher sensitivity = lower threshold (catch more)
+        nodes.shieldComp.threshold.setTargetAtTime(-60 + resSens * 30, ctx.currentTime, 0.01)
+        // Ratio: depth controls how hard the resonance is clamped (2=gentle, up to 20=gate)
+        nodes.shieldComp.ratio.setTargetAtTime(Math.min(20, 2 + resDepth), ctx.currentTime, 0.01)
+        // Attack: 1/speed * 50ms gives fast response at high speed, slow at low speed
+        nodes.shieldComp.attack.setTargetAtTime(0.05 / resSpeed, ctx.currentTime, 0.01)
         nodes.shieldComp.release.setTargetAtTime(0.1, ctx.currentTime, 0.01)
-        const mixAmt = rp2.mix ?? 1
-        nodes.shieldMakeup!.gain.setTargetAtTime(mixAmt, ctx.currentTime, 0.01)
+        nodes.shieldComp.knee.setTargetAtTime(3, ctx.currentTime, 0.01)
+        const resMix = Math.max(0, Math.min(1, rp2.mix ?? 1))
+        nodes.shieldMakeup!.gain.setTargetAtTime(resMix, ctx.currentTime, 0.01)
       }
 
       // FS-Glitch / FS-Spectrum / FS-Wavetable: stepseq/synth plugins
