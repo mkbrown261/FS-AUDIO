@@ -21,7 +21,7 @@ export interface Plugin {
     // Experimental AI Suite
     | 'fs_ghost' | 'fs_prophet' | 'fs_void' | 'fs_alchemy'
     // Instrument Plugins
-    | 'fs_analog' | 'fs_sampler' | 'fs_drum_machine'
+    | 'fs_analog' | 'fs_sampler'
   enabled: boolean
   params: Record<string, number | string>  // Allow string for waveform types, etc.
   vstPath?: string

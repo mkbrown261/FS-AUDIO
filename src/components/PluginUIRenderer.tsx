@@ -1,6 +1,7 @@
 import React from 'react'
 import { Plugin } from '../store/projectStore'
 import { AnalogSynthUI } from './instruments/AnalogSynthUI'
+import { DrumSamplerUI } from './instruments/DrumSamplerUI'
 
 interface PluginUIRendererProps {
   plugin: Plugin
@@ -594,6 +595,10 @@ export function PluginUIRenderer({ plugin, trackId, onUpdateParams }: PluginUIRe
   // Custom UI for instrument plugins
   if (plugin.type === 'fs_analog') {
     return <AnalogSynthUI params={plugin.params} onUpdate={onUpdateParams} />
+  }
+  
+  if (plugin.type === 'fs_sampler') {
+    return <DrumSamplerUI params={plugin.params} onUpdate={onUpdateParams} />
   }
   
   const theme = getPluginTheme(plugin)

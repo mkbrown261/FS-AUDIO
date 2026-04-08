@@ -403,6 +403,29 @@ export const PLUGIN_DEFAULTS: Record<string, { params: Record<string, number | s
       master_volume: 0.7,
     },
   },
+
+  fs_sampler: {
+    name: 'FS-Sampler',
+    type: 'fs_sampler',
+    params: {
+      // Master
+      masterVolume: 0.8,
+      masterPitch: 0,
+      // 16 pads - we'll store each pad's params as flat structure
+      ...Array.from({ length: 16 }).reduce((acc, _, i) => ({
+        ...acc,
+        [`pad${i}_volume`]: 0.8,
+        [`pad${i}_pan`]: 0,
+        [`pad${i}_pitch`]: 0,
+        [`pad${i}_attack`]: 0.001,
+        [`pad${i}_decay`]: 0.1,
+        [`pad${i}_sustain`]: 0.7,
+        [`pad${i}_release`]: 0.2,
+        [`pad${i}_loaded`]: 0,
+        [`pad${i}_name`]: `Pad ${i + 1}`,
+      }), {})
+    },
+  },
 }
 
 // ── Per-plugin UI ─────────────────────────────────────────────────────────────
