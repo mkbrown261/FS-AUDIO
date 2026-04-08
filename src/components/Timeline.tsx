@@ -982,6 +982,7 @@ export function Timeline({
 
           const handleStartDrag = (e: React.MouseEvent) => {
             e.stopPropagation()
+            e.preventDefault() // Prevent text selection
             const startX = e.clientX
             const orig   = useProjectStore.getState().loopStart
             const mv = (me: MouseEvent) => {
@@ -996,6 +997,7 @@ export function Timeline({
 
           const handleEndDrag = (e: React.MouseEvent) => {
             e.stopPropagation()
+            e.preventDefault() // Prevent text selection
             const startX = e.clientX
             const orig   = useProjectStore.getState().loopEnd
             const mv = (me: MouseEvent) => {
@@ -1010,6 +1012,7 @@ export function Timeline({
 
           const handleRegionDrag = (e: React.MouseEvent) => {
             e.stopPropagation()
+            e.preventDefault() // Prevent text selection
             const startX   = e.clientX
             const origStart = useProjectStore.getState().loopStart
             const origEnd   = useProjectStore.getState().loopEnd

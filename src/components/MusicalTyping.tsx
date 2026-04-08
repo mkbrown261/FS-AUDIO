@@ -83,19 +83,20 @@ export function MusicalTyping({ isOpen, onClose, onNoteOn, onNoteOff, onPlayNote
 
     // ── Capture-phase blocker: intercepts ALL keyboard events first ──────────
     const captureBlocker = (e: KeyboardEvent) => {
-      // Always stop propagation — nothing below us in the capture chain
-      // (App.tsx bubble-phase handler) should see this event while MT is open.
-      e.stopImmediatePropagation()
-      e.preventDefault()
+      // Stop propagation to prevent App.tsx shortcuts while MT is open
+      // BUT do NOT call preventDefault() — let our own bubble handler process the event
+      e.stopPropagation()
 
       // Shift+P → close the Musical Typing window
       if (e.shiftKey && (e.key === 'P' || e.key === 'p')) {
+        e.preventDefault()
         onClose()
         return
       }
 
       // Escape → also closes the window
       if (e.key === 'Escape') {
+        e.preventDefault()
         onClose()
         return
       }

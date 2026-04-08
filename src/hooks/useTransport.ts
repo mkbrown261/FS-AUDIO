@@ -79,15 +79,6 @@ export function useTransport(
     startRaf(fromBeat)
   }, [onStartPlayback, onStartMetronome, startRaf, store])
 
-  const pause = useCallback(() => {
-    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
-    startedAtRef.current = null
-    lastTimestampRef.current = null
-    store.getState().setPlaying(false)
-    onStopAll()
-    onStopMetronome()
-  }, [onStopAll, onStopMetronome, store])
-
   // ── Stop recording and save clip (does NOT reset playhead) ─────────────────
   const stopRecord = useCallback(async () => {
     // Cancel any pending count-in
@@ -166,6 +157,22 @@ export function useTransport(
     // Don't stop playback - just stop metronome
     onStopMetronome()
   }, [onStopRecording, onRegisterAudioBuffer, onStopMetronome, store])
+
+  const pause = useCallback(async () => {
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
+    startedAtRef.current = null
+    lastTimestampRef.current = null
+    
+    // If recording is active, stop and render the clip immediately
+    const st = store.getState()
+    if (st.isRecording) {
+      await stopRecord()
+    }
+    
+    store.getState().setPlaying(false)
+    onStopAll()
+    onStopMetronome()
+  }, [onStopAll, onStopMetronome, store, stopRecord])
 
   const stop = useCallback(async () => {
     // If recording, stop it and save the clip

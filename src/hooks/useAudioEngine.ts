@@ -569,14 +569,16 @@ export function useAudioEngine() {
 
   // Register a pre-decoded AudioBuffer under a synthetic key (e.g. blob: URL or recording id)
   const registerAudioBuffer = useCallback((key: string, buffer: AudioBuffer) => {
+    console.log('registerAudioBuffer: Registering buffer', key, 'duration:', buffer.duration, 'channels:', buffer.numberOfChannels)
     audioBuffersRef.current.set(key, buffer)
+    console.log('registerAudioBuffer: Total cached buffers:', audioBuffersRef.current.size)
   }, [])
 
   const loadAudioBuffer = useCallback(async (url: string): Promise<AudioBuffer | null> => {
     const cached = audioBuffersRef.current.get(url)
     if (cached) return cached
     if (!url.startsWith('http')) {
-      console.warn('loadAudioBuffer: no cached buffer for key:', url)
+      console.error('loadAudioBuffer: MISSING cached buffer for key:', url, 'Available keys:', Array.from(audioBuffersRef.current.keys()))
       return null
     }
     try {
@@ -700,6 +702,7 @@ export function useAudioEngine() {
     playheadBeat: number,
     volume: number,
     pan: number,
+    loopEndBeat: number = Infinity,
   ) => {
     const ctx = getCtx()
     const nodes = getTrackNodes(trackId, volume, pan)
@@ -708,7 +711,12 @@ export function useAudioEngine() {
 
     const beatDuration = 60 / bpm
     const clipStartSec = clip.startBeat * beatDuration
-    const clipDurSec = clip.durationBeats * beatDuration
+    let clipDurBeats = clip.durationBeats
+    // Clip duration to loop end if looping is active
+    if (loopEndBeat < Infinity && clip.startBeat + clipDurBeats > loopEndBeat) {
+      clipDurBeats = Math.max(0, loopEndBeat - clip.startBeat)
+    }
+    const clipDurSec = clipDurBeats * beatDuration
     const playheadSec = playheadBeat * beatDuration
     const clipOffset = Math.max(0, playheadSec - clipStartSec)
     if (clipOffset >= clipDurSec) return null
@@ -761,6 +769,7 @@ export function useAudioEngine() {
     bpm: number,
     fromBeat: number,
     volume: number,
+    loopEndBeat: number = Infinity,
   ) => {
     const ctx = getCtx()
     const nodes = getTrackNodes(trackId, volume, 0)
@@ -774,6 +783,9 @@ export function useAudioEngine() {
 
       // Skip notes entirely before playhead
       if (noteEndBeat * secPerBeat <= fromBeat * secPerBeat) continue
+      
+      // Skip notes that start at or after loop end
+      if (loopEndBeat < Infinity && noteStartBeat >= loopEndBeat) continue
 
       // Compute absolute schedule times
       const absStartSec = (noteStartBeat - fromBeat) * secPerBeat
@@ -810,7 +822,7 @@ export function useAudioEngine() {
   const startPlayback = useCallback(async (fromBeat: number) => {
     const ctx = getCtx()
     if (ctx.state === 'suspended') await ctx.resume()
-    const { tracks, bpm } = useProjectStore.getState()
+    const { tracks, bpm, isLooping, loopStart, loopEnd } = useProjectStore.getState()
     const anySolo = tracks.some(t => t.solo && t.type !== 'master')
 
     for (const track of tracks) {
@@ -825,12 +837,15 @@ export function useAudioEngine() {
         const clipEndBeat = clip.startBeat + clip.durationBeats
         if (clipEndBeat <= fromBeat) continue
 
+        // When looping, skip clips that start after loop end
+        if (isLooping && clip.startBeat >= loopEnd) continue
+
         if (clip.type === 'midi' && clip.midiNotes?.length) {
-          // MIDI clip — schedule notes through the Web Audio synth
-          scheduleMidiClip(track.id, clip, bpm, fromBeat, effectiveVol)
+          // MIDI clip — schedule notes through the Web Audio synth (respects loop)
+          scheduleMidiClip(track.id, clip, bpm, fromBeat, effectiveVol, isLooping ? loopEnd : Infinity)
         } else if (clip.audioUrl) {
-          // Audio clip
-          await playClip(clip.audioUrl, track.id, clip, bpm, fromBeat, effectiveVol, track.pan)
+          // Audio clip (respects loop)
+          await playClip(clip.audioUrl, track.id, clip, bpm, fromBeat, effectiveVol, track.pan, isLooping ? loopEnd : Infinity)
         }
       }
     }

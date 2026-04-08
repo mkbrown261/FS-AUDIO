@@ -355,6 +355,7 @@ html, body, #root {
 .loop-locator {
   position: absolute; top: 0; bottom: 0; width: 14px;
   cursor: ew-resize; z-index: 6; transform: translateX(-7px);
+  user-select: none;
 }
 .loop-locator:hover::after { background: #fff; }
 .loop-locator::after {
