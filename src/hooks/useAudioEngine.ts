@@ -1653,7 +1653,11 @@ export function useAudioEngine() {
       micSourceRef.current = micSource
       micAnalyserRef.current = micAnalyser
 
-      const recorder = new MediaRecorder(stream, { mimeType })
+      // Use high bitrate to reduce compression artifacts
+      const recorder = new MediaRecorder(stream, { 
+        mimeType,
+        audioBitsPerSecond: 256000 // 256 kbps for better quality
+      })
       mediaRecorderRef.current = recorder
 
       recorder.ondataavailable = (e) => {
@@ -1662,7 +1666,7 @@ export function useAudioEngine() {
         }
       }
 
-      recorder.start(100)
+      recorder.start(1000) // Record in 1-second chunks for better quality
     } catch (err: any) {
       const msg = err?.name === 'NotAllowedError'
         ? 'Microphone access denied. Please allow microphone access in your browser settings.'
