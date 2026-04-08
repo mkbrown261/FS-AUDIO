@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react'
-import { useProjectStore, Track, Plugin } from '../store/projectStore'
+import { useProjectStore, Track, Plugin, Clip } from '../store/projectStore'
 import { PluginRack } from './plugins/BuiltInPlugins'
 
 function volToDb(v: number): string {
@@ -239,10 +239,20 @@ interface InspectorPanelProps {
 }
 
 export function InspectorPanel({ onSetTrackEQ, onSetTrackVolume, onSetTrackPan, onSetTrackCompressor }: InspectorPanelProps) {
-  const { tracks, selectedTrackId, updateTrack } = useProjectStore()
+  const { tracks, selectedTrackId, selectedClipIds, updateTrack, updateClip, setActiveTake, deleteTake, setClipFadeIn, setClipFadeOut } = useProjectStore()
   const [eqGains, setEqGains] = useState<Record<string, [number, number, number]>>({})
 
   const track = tracks.find(t => t.id === selectedTrackId) ?? null
+
+  // Find selected clip (first selected clip wins)
+  const selectedClip: Clip | null = (() => {
+    if (!selectedClipIds.length) return null
+    for (const t of tracks) {
+      const c = t.clips.find(cl => selectedClipIds.includes(cl.id))
+      if (c) return c
+    }
+    return null
+  })()
 
   if (!track) {
     return (
@@ -341,6 +351,90 @@ export function InspectorPanel({ onSetTrackEQ, onSetTrackVolume, onSetTrackPan, 
           )}
         </div>
       </div>
+
+      {/* ── Clip section (shows when a clip is selected) ── */}
+      {selectedClip && (
+        <div className="inspector-section">
+          <div className="inspector-section-title">
+            Clip
+            <span style={{ fontWeight: 400, color: 'var(--text-m)', marginLeft: 6, fontSize: 9 }}>
+              {selectedClip.name}
+            </span>
+          </div>
+
+          {/* Gain */}
+          <div className="inspector-vol-row">
+            <span className="inspector-label">Gain</span>
+            <input
+              type="range" min={0} max={200} step={1}
+              value={Math.round((selectedClip.gain ?? 1) * 100)}
+              className="inspector-slider"
+              onChange={e => updateClip(selectedClip.id, { gain: parseInt(e.target.value) / 100 })}
+            />
+            <span className="inspector-val">{Math.round((selectedClip.gain ?? 1) * 100)}%</span>
+          </div>
+
+          {/* Fade In */}
+          <div className="inspector-vol-row">
+            <span className="inspector-label">Fade In</span>
+            <input
+              type="range" min={0} max={Math.max(1, selectedClip.durationBeats * 0.95)} step={0.01}
+              value={selectedClip.fadeIn ?? 0}
+              className="inspector-slider"
+              onChange={e => setClipFadeIn(selectedClip.id, parseFloat(e.target.value))}
+            />
+            <span className="inspector-val">{(selectedClip.fadeIn ?? 0).toFixed(2)} b</span>
+          </div>
+
+          {/* Fade Out */}
+          <div className="inspector-vol-row">
+            <span className="inspector-label">Fade Out</span>
+            <input
+              type="range" min={0} max={Math.max(1, selectedClip.durationBeats * 0.95)} step={0.01}
+              value={selectedClip.fadeOut ?? 0}
+              className="inspector-slider"
+              onChange={e => setClipFadeOut(selectedClip.id, parseFloat(e.target.value))}
+            />
+            <span className="inspector-val">{(selectedClip.fadeOut ?? 0).toFixed(2)} b</span>
+          </div>
+
+          {/* Takes section */}
+          {(selectedClip.takes?.length ?? 0) > 0 && (
+            <>
+              <div className="inspector-section-title" style={{ marginTop: 8 }}>
+                Takes
+                <span style={{ fontWeight: 400, color: 'var(--text-m)', marginLeft: 6, fontSize: 9 }}>
+                  {(selectedClip.takes?.length ?? 0)} total
+                </span>
+              </div>
+              <div className="inspector-takes">
+                {selectedClip.takes!.map((take, i) => {
+                  const isActive = i === (selectedClip.activeTakeIndex ?? 0)
+                  return (
+                    <div
+                      key={i}
+                      className={`inspector-take-row${isActive ? ' active' : ''}`}
+                      onClick={() => setActiveTake(selectedClip.id, i)}
+                      title={`Click to activate Take ${i + 1}`}
+                    >
+                      <div className="inspector-take-num">{i + 1}</div>
+                      <div className="inspector-take-name">{take.name}</div>
+                      {isActive && (
+                        <div className="inspector-take-active-badge">ACTIVE</div>
+                      )}
+                      <button
+                        className="inspector-take-del"
+                        title="Delete take"
+                        onClick={e => { e.stopPropagation(); deleteTake(selectedClip.id, i) }}
+                      >✕</button>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* EQ */}
       <div className="inspector-section">

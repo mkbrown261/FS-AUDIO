@@ -318,69 +318,136 @@ function ClipView({
           <CrossfadeOverlay width={xfadePx} height={laneHeight - 6} color={track.color} />
         )}
 
-        {/* Fade-in drag handle */}
+        {/* ── Fade-in: shaded region + draggable right-edge handle ── */}
         {fadeInPx > 0 && (
-          <div
-            className="fade-in-handle"
-            style={{
-              position:'absolute', left:0, top:0, width: fadeInPx, bottom:0,
-              borderRight: `2px solid ${track.color}`,
-              cursor: 'ew-resize',
-              zIndex: 3,
-            }}
-            onMouseDown={e => {
-              e.stopPropagation()
-              const startX = e.clientX
-              const orig = clip.fadeIn ?? 0
-              const mv = (me: MouseEvent) => {
-                const newFade = Math.max(0, Math.min(orig + (me.clientX - startX) / pixelsPerBeat, clip.durationBeats * 0.9))
-                setClipFadeIn(clip.id, newFade)
-              }
-              const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up) }
-              window.addEventListener('mousemove', mv)
-              window.addEventListener('mouseup', up)
-            }}
-          />
+          <>
+            {/* Shaded fade-in region with diagonal line */}
+            <svg
+              width={Math.min(fadeInPx, w)} height={laneHeight - 6}
+              style={{ position:'absolute', top:0, left:0, pointerEvents:'none', zIndex:2 }}
+            >
+              <defs>
+                <linearGradient id={`fgi-${clip.id}`} x1="0" x2="1" y1="0" y2="0">
+                  <stop offset="0%" stopColor={track.color} stopOpacity="0.45" />
+                  <stop offset="100%" stopColor={track.color} stopOpacity="0.05" />
+                </linearGradient>
+              </defs>
+              <polygon
+                points={`0,${laneHeight-6} ${Math.min(fadeInPx,w)},0 ${Math.min(fadeInPx,w)},${laneHeight-6}`}
+                fill={`url(#fgi-${clip.id})`}
+              />
+              <line x1="0" y1={laneHeight-6} x2={Math.min(fadeInPx,w)} y2="0"
+                stroke={track.color} strokeWidth="1.5" strokeOpacity="0.7" />
+            </svg>
+            {/* Draggable right edge of fade-in */}
+            <div
+              className="fade-in-handle"
+              style={{
+                position:'absolute', left: Math.min(fadeInPx, w) - 5, top:0, width: 10, bottom:0,
+                cursor: 'ew-resize', zIndex: 5,
+              }}
+              onMouseDown={e => {
+                e.stopPropagation()
+                const startX = e.clientX
+                const orig = clip.fadeIn ?? 0
+                const mv = (me: MouseEvent) => {
+                  const newFade = Math.max(0, Math.min(orig + (me.clientX - startX) / pixelsPerBeat, clip.durationBeats * 0.95))
+                  setClipFadeIn(clip.id, newFade)
+                }
+                const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up) }
+                window.addEventListener('mousemove', mv)
+                window.addEventListener('mouseup', up)
+              }}
+            />
+          </>
         )}
 
-        {/* Fade-out drag handle */}
+        {/* ── Fade-out: shaded region + draggable left-edge handle ── */}
         {fadeOutPx > 0 && (
-          <div
-            className="fade-out-handle"
-            style={{
-              position:'absolute', right:0, top:0, width: fadeOutPx, bottom:0,
-              borderLeft: `2px solid ${track.color}`,
-              cursor: 'ew-resize',
-              zIndex: 3,
-            }}
-            onMouseDown={e => {
-              e.stopPropagation()
-              const startX = e.clientX
-              const orig = clip.fadeOut ?? 0
-              const mv = (me: MouseEvent) => {
-                const newFade = Math.max(0, Math.min(orig - (me.clientX - startX) / pixelsPerBeat, clip.durationBeats * 0.9))
-                setClipFadeOut(clip.id, newFade)
-              }
-              const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up) }
-              window.addEventListener('mousemove', mv)
-              window.addEventListener('mouseup', up)
-            }}
-          />
+          <>
+            <svg
+              width={Math.min(fadeOutPx, w)} height={laneHeight - 6}
+              style={{ position:'absolute', top:0, right:0, pointerEvents:'none', zIndex:2 }}
+            >
+              <defs>
+                <linearGradient id={`fgo-${clip.id}`} x1="1" x2="0" y1="0" y2="0">
+                  <stop offset="0%" stopColor={track.color} stopOpacity="0.45" />
+                  <stop offset="100%" stopColor={track.color} stopOpacity="0.05" />
+                </linearGradient>
+              </defs>
+              <polygon
+                points={`0,0 ${Math.min(fadeOutPx,w)},${laneHeight-6} 0,${laneHeight-6}`}
+                fill={`url(#fgo-${clip.id})`}
+              />
+              <line x1={Math.min(fadeOutPx,w)} y1={laneHeight-6} x2="0" y2="0"
+                stroke={track.color} strokeWidth="1.5" strokeOpacity="0.7" />
+            </svg>
+            {/* Draggable left edge of fade-out */}
+            <div
+              className="fade-out-handle"
+              style={{
+                position:'absolute', right: Math.min(fadeOutPx, w) - 5, top:0, width: 10, bottom:0,
+                cursor: 'ew-resize', zIndex: 5,
+              }}
+              onMouseDown={e => {
+                e.stopPropagation()
+                const startX = e.clientX
+                const orig = clip.fadeOut ?? 0
+                const mv = (me: MouseEvent) => {
+                  const newFade = Math.max(0, Math.min(orig - (me.clientX - startX) / pixelsPerBeat, clip.durationBeats * 0.95))
+                  setClipFadeOut(clip.id, newFade)
+                }
+                const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up) }
+                window.addEventListener('mousemove', mv)
+                window.addEventListener('mouseup', up)
+              }}
+            />
+          </>
         )}
 
-        {/* Fade-in indicator triangle */}
-        {(clip.fadeIn ?? 0) > 0 && (
-          <svg width={Math.min(fadeInPx, w)} height={16} style={{ position:'absolute', top:18, left:0, pointerEvents:'none', zIndex:2 }}>
-            <polygon points={`0,16 ${Math.min(fadeInPx, w)},0 ${Math.min(fadeInPx, w)},16`} fill={track.color} fillOpacity={0.25} />
+        {/* ── Always-visible fade corner nubs (drag to create / adjust fades) ── */}
+        {/* Top-left nub = fade-in */}
+        <div
+          className="fade-nub fade-nub-in"
+          title="Drag right to set fade-in (or use Fade tool)"
+          onMouseDown={e => {
+            e.stopPropagation()
+            const startX = e.clientX
+            const orig = clip.fadeIn ?? 0
+            const mv = (me: MouseEvent) => {
+              const newFade = Math.max(0, Math.min(orig + (me.clientX - startX) / pixelsPerBeat, clip.durationBeats * 0.95))
+              setClipFadeIn(clip.id, newFade)
+            }
+            const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up) }
+            window.addEventListener('mousemove', mv)
+            window.addEventListener('mouseup', up)
+          }}
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" style={{ display:'block' }}>
+            <polygon points="0,0 10,0 0,10" fill={track.color} fillOpacity="0.85" />
           </svg>
-        )}
-
-        {/* Fade-out indicator triangle */}
-        {(clip.fadeOut ?? 0) > 0 && (
-          <svg width={Math.min(fadeOutPx, w)} height={16} style={{ position:'absolute', top:18, right:0, pointerEvents:'none', zIndex:2 }}>
-            <polygon points={`0,0 ${Math.min(fadeOutPx, w)},16 0,16`} fill={track.color} fillOpacity={0.25} />
+        </div>
+        {/* Top-right nub = fade-out */}
+        <div
+          className="fade-nub fade-nub-out"
+          title="Drag left to set fade-out (or use Fade tool)"
+          onMouseDown={e => {
+            e.stopPropagation()
+            const startX = e.clientX
+            const orig = clip.fadeOut ?? 0
+            const mv = (me: MouseEvent) => {
+              const newFade = Math.max(0, Math.min(orig - (me.clientX - startX) / pixelsPerBeat, clip.durationBeats * 0.95))
+              setClipFadeOut(clip.id, newFade)
+            }
+            const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up) }
+            window.addEventListener('mousemove', mv)
+            window.addEventListener('mouseup', up)
+          }}
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" style={{ display:'block' }}>
+            <polygon points="10,0 0,0 10,10" fill={track.color} fillOpacity="0.85" />
           </svg>
-        )}
+        </div>
 
         {/* Resize handle */}
         <div

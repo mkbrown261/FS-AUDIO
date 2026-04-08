@@ -33,6 +33,27 @@ function PanelResizer({ onDrag, direction = 'right' }: { onDrag: (delta: number)
   return <div className="panel-resizer" onMouseDown={onMouseDown} />
 }
 
+// ── Lightweight toast helper ─────────────────────────────────────────────────
+interface Toast { id: number; msg: string; kind: 'info' | 'warn' | 'error' | 'ok' }
+let _toastId = 0
+
+function ToastStack({ toasts, onRemove }: { toasts: Toast[]; onRemove: (id: number) => void }) {
+  return (
+    <div style={{
+      position: 'fixed', bottom: 90, left: '50%', transform: 'translateX(-50%)',
+      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+      zIndex: 9500, pointerEvents: 'none',
+    }}>
+      {toasts.map(t => (
+        <div key={t.id} className={`app-toast app-toast-${t.kind}`}>
+          {t.kind === 'ok' ? '✅' : t.kind === 'warn' ? '⚠️' : t.kind === 'error' ? '❌' : 'ℹ️'}
+          {' '}{t.msg}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function App() {
   const store = useProjectStore()
   const engine = useAudioEngine()
@@ -43,6 +64,13 @@ export default function App() {
   const [showAudioPrefs, setShowAudioPrefs] = useState(false)
   const [freezingTrackId, setFreezingTrackId] = useState<string | null>(null)
   const [freezeProgress, setFreezeProgress] = useState(0)
+  const [toasts, setToasts] = useState<Toast[]>([])
+
+  const showToast = useCallback((msg: string, kind: Toast['kind'] = 'info', ms = 3200) => {
+    const id = ++_toastId
+    setToasts(prev => [...prev, { id, msg, kind }])
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), ms)
+  }, [])
 
   // ── Panel widths (resizable) ──────────────────────────────────────────────
   const [inspectorWidth, setInspectorWidth] = useState(240)
@@ -303,10 +331,25 @@ export default function App() {
     const targetClipId = clipId ?? st.selectedClipIds[0]
 
     if (targetClipId) {
+      // Check if the target clip exists but is audio (not MIDI) — give helpful message
+      let foundClip = null
+      for (const track of tracks) {
+        const c = track.clips.find(c => c.id === targetClipId)
+        if (c) { foundClip = c; break }
+      }
+      if (foundClip && foundClip.type !== 'midi') {
+        showToast(`"${foundClip.name}" is an audio clip — MIDI export only works on MIDI clips.`, 'warn', 4000)
+        return
+      }
       for (const track of tracks) {
         const clip = track.clips.find(c => c.id === targetClipId && c.type === 'midi')
         if (clip && clip.midiNotes?.length) {
           downloadMidiFile(clip.midiNotes, bpm, clip.name || 'midi-clip')
+          showToast(`Exported "${clip.name}" as MIDI`, 'ok')
+          return
+        }
+        if (clip && (!clip.midiNotes || clip.midiNotes.length === 0)) {
+          showToast(`"${clip.name}" is a MIDI clip but has no notes yet.`, 'warn')
           return
         }
       }
@@ -325,9 +368,13 @@ export default function App() {
         }
       }
     }
-    if (allNotes.length === 0) { alert('No MIDI clips to export.'); return }
+    if (allNotes.length === 0) {
+      showToast('No MIDI clips found to export. Create a MIDI clip first.', 'warn')
+      return
+    }
     downloadMidiFile(allNotes, bpm, st.name || 'project')
-  }, [])
+    showToast(`Exported ${allNotes.length} MIDI notes from all tracks`, 'ok')
+  }, [showToast])
 
   // ── Warn before closing if unsaved ───────────────────────────────────────
   useEffect(() => {
@@ -780,6 +827,9 @@ export default function App() {
 
       {/* ── Clawflow floating chat bubble — fixed overlay, never blocks DAW UI ── */}
       <ClawflowBubble />
+
+      {/* ── Toast notifications ── */}
+      <ToastStack toasts={toasts} onRemove={id => setToasts(prev => prev.filter(t => t.id !== id))} />
     </div>
   )
 }

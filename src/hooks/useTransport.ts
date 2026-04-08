@@ -65,7 +65,14 @@ export function useTransport(
   const play = useCallback(async () => {
     const st = store.getState()
     if (st.isPlaying) return
-    const fromBeat = st.currentTime * (st.bpm / 60)
+    // When loop is active, clamp start beat to within the loop region
+    let fromBeat = st.currentTime * (st.bpm / 60)
+    if (st.isLooping) {
+      if (fromBeat < st.loopStart || fromBeat >= st.loopEnd) {
+        fromBeat = st.loopStart
+        store.getState().setCurrentTime(st.loopStart * (60 / st.bpm))
+      }
+    }
     store.getState().setPlaying(true)
     await onStartPlayback(fromBeat)
     if (st.metronomeEnabled) onStartMetronome(st.bpm, st.metronomeVolume)
@@ -260,11 +267,15 @@ export function useTransport(
     }
   }, [])
 
-  // ── toStart — stop playback and return playhead to beat 0 ───────────────
+  // ── toStart — stop playback and return playhead to loop start (or beat 0) ──
   const toStart = useCallback(() => {
     pause()
-    store.getState().setCurrentTime(0)
-    anchorBeatRef.current = 0
+    const st = store.getState()
+    // When looping, "to start" means go to loopStart, not absolute 0
+    const targetBeat = st.isLooping ? st.loopStart : 0
+    const targetTime = targetBeat * (60 / st.bpm)
+    store.getState().setCurrentTime(targetTime)
+    anchorBeatRef.current = targetBeat
   }, [pause, store])
 
   return { play, pause, stop, toStart, togglePlay, record, seekToTime, seekToBeat }
