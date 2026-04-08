@@ -208,14 +208,167 @@ export const PLUGIN_DEFAULTS: Record<string, { params: Record<string, number>; n
     name: 'FS-Transient',
     type: 'transient',
     params: {
-      attack: 0,        // -24 to +24 dB — punch the transient
-      sustain: 0,       // -24 to +24 dB — shape the tail
-      gain: 0,          // output gain
-      // Mode: 0 = drum (fast), 1 = general, 2 = smooth
+      attack: 0, sustain: 0, gain: 0, mode: 1, sensitivity: 0.5, clipProtect: 1,
+    },
+  },
+
+  // ── 10 New Elite Plugins ────────────────────────────────────────────────────
+
+  expander: {
+    name: 'FS-Nova',
+    type: 'expander',
+    params: {
+      threshold: -50,   // dBFS below which expansion/gating occurs
+      ratio: 10,        // expansion ratio (2–20)
+      attack: 0.001,    // attack time (s)
+      release: 0.1,     // release time (s)
+      range: 40,        // max attenuation dB before full gate
+      makeup: 0,        // makeup gain dB
+      // Band selector: 0=full, 1=lo, 2=mid, 3=hi
+      band: 0,
+      lookahead: 0,     // lookahead ms (0=off)
+    },
+  },
+
+  exciter: {
+    name: 'FS-Prism',
+    type: 'exciter',
+    params: {
+      freq: 3000,       // exciter frequency crossover Hz
+      q: 0.7,           // HP filter Q
+      drive: 0.3,       // harmonic drive amount (0-1)
+      mix: 0.3,         // blend of harmonics into output
+      // Mode: 0=Air, 1=Presence, 2=Warmth
+      mode: 0,
+      oddOnly: 0,       // prefer odd harmonics (1=on, tube-like)
+      color: 0,         // 0=bright (4k), 1=upper-mid (2k), 2=air (8k)
+    },
+  },
+
+  vibrato: {
+    name: 'FS-Vibe',
+    type: 'vibrato',
+    params: {
+      rate: 5,          // LFO rate Hz (0.1–20)
+      depth: 0.003,     // pitch depth in seconds (±0–15ms)
+      mix: 0.5,         // wet/dry
+      // Waveform: 0=sine, 1=triangle, 2=random (wow)
+      waveform: 0,
+      stereo: 0.5,      // stereo offset (L vs R phase)
+      // Mode: 0=Vibrato, 1=Chorus-Pitch, 2=Wow (tape)
+      mode: 0,
+    },
+  },
+
+  stereo_width: {
+    name: 'FS-Phase',
+    type: 'stereo_width',
+    params: {
+      width: 1.0,       // 0=mono, 1=normal, 2=extra wide
+      // Balance: -1 to +1 (L→R pan)
+      balance: 0,
+      // MS Mode: 0=width only, 1=M/S EQ
+      msMode: 0,
+      midGain: 0,       // M channel gain dB
+      sideGain: 0,      // S channel gain dB
+      output: 0,        // output trim dB
+      bassMonoFreq: 120,// below this freq collapse to mono (0=off)
+    },
+  },
+
+  tape: {
+    name: 'FS-Oxide',
+    type: 'tape',
+    params: {
+      saturation: 0.3,  // tape saturation amount (0-1)
+      brightness: 16000,// HF rolloff frequency (3k-20k)
+      bass: 30,         // HPF frequency (20-200 Hz)
+      mix: 0.6,         // wet/dry blend
+      // Tape speed: 0=7.5ips, 1=15ips, 2=30ips (affects tone)
+      speed: 1,
+      noise: 0,         // tape hiss amount (0-1)
+      age: 0.2,         // tape age: increases distortion + flutter (0-1)
+    },
+  },
+
+  sub_enhancer: {
+    name: 'FS-Hades',
+    type: 'sub_enhancer',
+    params: {
+      freq: 80,         // sub frequency center Hz (30-200)
+      amount: 0.4,      // sub harmonic generation amount (0-1)
+      // Mode: 0=Sub Octave (octave below), 1=Harmonic Bass (2nd har), 2=Deep (both)
       mode: 1,
-      // Sensitivity (detection threshold)
-      sensitivity: 0.5,
-      clipProtect: 1,   // enable automatic output clip protection
+      attack: 0.005,    // envelope follower attack
+      release: 0.1,     // envelope follower release
+      output: 0,        // output trim dB
+      sidechain: 0,     // sidechain HP filter (0=off, 1=on)
+    },
+  },
+
+  noise_gate: {
+    name: 'FS-Shield',
+    type: 'noise_gate',
+    params: {
+      threshold: -60,   // gate threshold dBFS
+      attack: 0.001,    // open time (s)
+      release: 0.2,     // close time (s)
+      hysteresis: 3,    // hysteresis dB (prevents chatter)
+      hold: 0.05,       // hold time after signal drops below threshold (s)
+      makeup: 0,        // makeup gain dB
+      // Mode: 0=Gate, 1=Expander (soft), 2=Duck
+      mode: 0,
+      flip: 0,          // 1=invert (keep quiet, cut signal)
+    },
+  },
+
+  pitch_correct: {
+    name: 'FS-Flux',
+    type: 'pitch_correct',
+    params: {
+      speed: 0.5,       // correction speed (0=slow natural, 1=hard tune)
+      amount: 0.8,      // correction amount (0-1)
+      // Key: 0=C, 1=Db, 2=D ... 11=B
+      key: 0,
+      // Scale: 0=Chromatic, 1=Major, 2=Minor, 3=Pentatonic
+      scale: 1,
+      formant: 0,       // formant preservation (-1 to +1 shift)
+      detune: 0,        // fine detune cents (-50 to +50)
+      bypass: 0,        // hard bypass
+    },
+  },
+
+  parallel_comp: {
+    name: 'FS-Forge',
+    type: 'parallel_comp',
+    params: {
+      threshold: -20,   // compressor threshold dB
+      ratio: 6,         // compression ratio
+      attack: 0.005,    // attack s
+      release: 0.2,     // release s
+      knee: 10,         // knee dB
+      makeup: 3,        // makeup gain dB
+      blend: 0.5,       // parallel blend (0=dry, 1=crushed)
+      // Color: 0=Clean, 1=Vintage, 2=Punchy
+      color: 1,
+      // Band: 0=Wideband, 1=Low only, 2=Mid only, 3=High only
+      band: 0,
+    },
+  },
+
+  granular: {
+    name: 'FS-Crystal',
+    type: 'granular',
+    params: {
+      mix: 0.3,         // freeze/reverb blend
+      size: 4,          // freeze cloud size (0.5–12s)
+      decay: 0.7,       // decay / freeze flatness (0=decay, 1=freeze)
+      pitch: 0,         // pitch shift of frozen signal (semitones -12 to +12)
+      scatter: 0.3,     // granular scatter/randomness
+      // Mode: 0=Freeze, 1=Shimmer, 2=Stutter
+      mode: 0,
+      reverse: 0,       // play grains in reverse
+      density: 0.8,     // grain density (0-1)
     },
   },
 }
@@ -498,6 +651,349 @@ function TransientEditor({ plugin, onChange }: PluginEditorProps) {
   )
 }
 
+// ── FS-Nova — Multiband Expander / Gate ──────────────────────────────────────
+const NOVA_BANDS  = ['FULL', 'LOW', 'MID', 'HIGH']
+
+function NovaEditor({ plugin, onChange }: PluginEditorProps) {
+  const p = plugin.params
+  return (
+    <div className="plugin-nova-wrap">
+      <div className="plugin-knobs-row">
+        <Knob label="THRESH"  value={p.threshold ?? -50} min={-80} max={0}   unit=" dB" onChange={v => onChange({ ...p, threshold: v })} />
+        <Knob label="RATIO"   value={p.ratio ?? 10}      min={1}   max={20}  step={0.5} unit=":1" onChange={v => onChange({ ...p, ratio: v })} />
+        <Knob label="ATTACK"  value={(p.attack ?? 0.001) * 1000} min={0.1} max={200} step={0.1} unit=" ms" onChange={v => onChange({ ...p, attack: v / 1000 })} />
+        <Knob label="RELEASE" value={(p.release ?? 0.1) * 1000}  min={10}  max={2000} step={10} unit=" ms" onChange={v => onChange({ ...p, release: v / 1000 })} />
+        <Knob label="RANGE"   value={p.range ?? 40}      min={0}   max={80}  unit=" dB" onChange={v => onChange({ ...p, range: v })} />
+        <Knob label="MAKEUP"  value={p.makeup ?? 0}      min={0}   max={18}  unit=" dB" onChange={v => onChange({ ...p, makeup: v })} />
+      </div>
+      <div className="plugin-step-row">
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">BAND</span>
+          {NOVA_BANDS.map((b, i) => (
+            <button key={b} className={`plugin-step-btn ${Math.round(p.band ?? 0) === i ? 'active' : ''}`}
+              onClick={() => onChange({ ...p, band: i })}>{b}</button>
+          ))}
+        </div>
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">LOOK-AHD</span>
+          <Knob label="ms" value={p.lookahead ?? 0} min={0} max={20} step={1} unit=" ms" onChange={v => onChange({ ...p, lookahead: v })} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── FS-Prism — Harmonic Exciter ───────────────────────────────────────────────
+const PRISM_COLORS = ['BRIGHT', 'PRESENCE', 'AIR']
+const PRISM_MODES  = ['WARM', 'SMOOTH', 'CRISP']
+
+function PrismEditor({ plugin, onChange }: PluginEditorProps) {
+  const p = plugin.params
+  return (
+    <div className="plugin-prism-wrap">
+      <div className="plugin-knobs-row">
+        <Knob label="FREQ"  value={p.freq ?? 3000}   min={500}  max={16000} step={100} unit=" Hz" onChange={v => onChange({ ...p, freq: v })} />
+        <Knob label="DRIVE" value={p.drive ?? 0.3}   min={0}    max={1}    step={0.01} onChange={v => onChange({ ...p, drive: v })} />
+        <Knob label="Q"     value={p.q ?? 0.7}       min={0.1}  max={5}    step={0.1}  onChange={v => onChange({ ...p, q: v })} />
+        <Knob label="MIX"   value={p.mix ?? 0.3}     min={0}    max={1}    step={0.01} onChange={v => onChange({ ...p, mix: v })} />
+      </div>
+      <div className="plugin-step-row">
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">RANGE</span>
+          {PRISM_COLORS.map((c, i) => (
+            <button key={c} className={`plugin-step-btn ${Math.round(p.color ?? 0) === i ? 'active' : ''}`}
+              onClick={() => onChange({ ...p, color: i })}>{c}</button>
+          ))}
+        </div>
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">CHARACTER</span>
+          {PRISM_MODES.map((m, i) => (
+            <button key={m} className={`plugin-step-btn ${Math.round(p.mode ?? 0) === i ? 'active' : ''}`}
+              onClick={() => onChange({ ...p, mode: i })}>{m}</button>
+          ))}
+        </div>
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">ODD HARM</span>
+          <button className={`plugin-step-btn ${p.oddOnly ? 'active' : ''}`}
+            onClick={() => onChange({ ...p, oddOnly: p.oddOnly ? 0 : 1 })}>{p.oddOnly ? 'ON' : 'OFF'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── FS-Vibe — Tape Vibrato / Chorus Modulation ───────────────────────────────
+const VIBE_WAVEFORMS = ['SINE', 'TRI', 'WOW']
+const VIBE_MODES     = ['VIBRATO', 'CHORUS', 'TAPE']
+
+function VibeEditor({ plugin, onChange }: PluginEditorProps) {
+  const p = plugin.params
+  return (
+    <div className="plugin-vibe-wrap">
+      <div className="plugin-knobs-row">
+        <Knob label="RATE"   value={p.rate ?? 5}         min={0.1}  max={20}   step={0.1}  unit=" Hz" onChange={v => onChange({ ...p, rate: v })} />
+        <Knob label="DEPTH"  value={(p.depth ?? 0.003) * 1000} min={0.1} max={15} step={0.1} unit=" ms" onChange={v => onChange({ ...p, depth: v / 1000 })} />
+        <Knob label="MIX"    value={p.mix ?? 0.5}        min={0}    max={1}    step={0.01} onChange={v => onChange({ ...p, mix: v })} />
+        <Knob label="STEREO" value={p.stereo ?? 0.5}     min={0}    max={1}    step={0.01} onChange={v => onChange({ ...p, stereo: v })} />
+      </div>
+      <div className="plugin-step-row">
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">WAVEFORM</span>
+          {VIBE_WAVEFORMS.map((w, i) => (
+            <button key={w} className={`plugin-step-btn ${Math.round(p.waveform ?? 0) === i ? 'active' : ''}`}
+              onClick={() => onChange({ ...p, waveform: i })}>{w}</button>
+          ))}
+        </div>
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">MODE</span>
+          {VIBE_MODES.map((m, i) => (
+            <button key={m} className={`plugin-step-btn ${Math.round(p.mode ?? 0) === i ? 'active' : ''}`}
+              onClick={() => onChange({ ...p, mode: i })}>{m}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── FS-Phase — Stereo Width / M-S Processor ──────────────────────────────────
+function PhaseEditor({ plugin, onChange }: PluginEditorProps) {
+  const p = plugin.params
+  const widthPct = Math.round((p.width ?? 1) * 100)
+  return (
+    <div className="plugin-phase-wrap">
+      {/* Width visualizer */}
+      <div className="plugin-phase-vis">
+        <div className="plugin-phase-meter">
+          <div className="plugin-phase-bar" style={{ width: `${Math.min(100, widthPct / 2)}%`, background: widthPct > 100 ? '#a855f7' : '#3b82f6' }} />
+          <span className="plugin-phase-pct">{widthPct}%</span>
+        </div>
+      </div>
+      <div className="plugin-knobs-row">
+        <Knob label="WIDTH"    value={p.width ?? 1}       min={0}   max={2}   step={0.01} onChange={v => onChange({ ...p, width: v })} />
+        <Knob label="BALANCE"  value={p.balance ?? 0}     min={-1}  max={1}   step={0.01} onChange={v => onChange({ ...p, balance: v })} />
+        <Knob label="MID dB"   value={p.midGain ?? 0}     min={-18} max={18}  unit=" dB"  onChange={v => onChange({ ...p, midGain: v })} />
+        <Knob label="SIDE dB"  value={p.sideGain ?? 0}    min={-18} max={18}  unit=" dB"  onChange={v => onChange({ ...p, sideGain: v })} />
+        <Knob label="OUTPUT"   value={p.output ?? 0}      min={-12} max={12}  unit=" dB"  onChange={v => onChange({ ...p, output: v })} />
+      </div>
+      <div className="plugin-step-row">
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">BASS MONO ≤</span>
+          <Knob label="Hz" value={p.bassMonoFreq ?? 0} min={0} max={300} step={10} unit=" Hz" onChange={v => onChange({ ...p, bassMonoFreq: v })} />
+        </div>
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">M/S MODE</span>
+          <button className={`plugin-step-btn ${p.msMode ? 'active' : ''}`}
+            onClick={() => onChange({ ...p, msMode: p.msMode ? 0 : 1 })}>{p.msMode ? 'M/S EQ' : 'WIDTH'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── FS-Oxide — Tape Emulation ─────────────────────────────────────────────────
+const OXIDE_SPEEDS = ['7.5 ips', '15 ips', '30 ips']
+
+function OxideEditor({ plugin, onChange }: PluginEditorProps) {
+  const p = plugin.params
+  return (
+    <div className="plugin-oxide-wrap">
+      <div className="plugin-knobs-row">
+        <Knob label="SAT"      value={p.saturation ?? 0.3}  min={0}     max={1}     step={0.01} onChange={v => onChange({ ...p, saturation: v })} />
+        <Knob label="BRIGHT"   value={p.brightness ?? 16000} min={3000}  max={20000} step={100}  unit=" Hz" onChange={v => onChange({ ...p, brightness: v })} />
+        <Knob label="BASS"     value={p.bass ?? 30}          min={20}    max={200}   step={5}    unit=" Hz" onChange={v => onChange({ ...p, bass: v })} />
+        <Knob label="MIX"      value={p.mix ?? 0.6}          min={0}     max={1}     step={0.01} onChange={v => onChange({ ...p, mix: v })} />
+        <Knob label="AGE"      value={p.age ?? 0.2}          min={0}     max={1}     step={0.01} onChange={v => onChange({ ...p, age: v })} />
+        <Knob label="NOISE"    value={p.noise ?? 0}          min={0}     max={1}     step={0.01} onChange={v => onChange({ ...p, noise: v })} />
+      </div>
+      <div className="plugin-step-row">
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">TAPE SPEED</span>
+          {OXIDE_SPEEDS.map((s, i) => (
+            <button key={s} className={`plugin-step-btn ${Math.round(p.speed ?? 1) === i ? 'active' : ''}`}
+              onClick={() => onChange({ ...p, speed: i })}>{s}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── FS-Hades — Sub Enhancer ───────────────────────────────────────────────────
+const HADES_MODES = ['SUB OCT', 'HARMONIC', 'DEEP']
+
+function HadesEditor({ plugin, onChange }: PluginEditorProps) {
+  const p = plugin.params
+  return (
+    <div className="plugin-hades-wrap">
+      <div className="plugin-knobs-row">
+        <Knob label="FREQ"    value={p.freq ?? 80}      min={20}   max={250}  step={5}    unit=" Hz" onChange={v => onChange({ ...p, freq: v })} />
+        <Knob label="AMOUNT"  value={p.amount ?? 0.4}   min={0}    max={1}    step={0.01} onChange={v => onChange({ ...p, amount: v })} />
+        <Knob label="ATTACK"  value={(p.attack ?? 0.005) * 1000} min={0.1} max={100} step={0.1} unit=" ms" onChange={v => onChange({ ...p, attack: v / 1000 })} />
+        <Knob label="RELEASE" value={(p.release ?? 0.1) * 1000}  min={10}  max={500}  step={10}  unit=" ms" onChange={v => onChange({ ...p, release: v / 1000 })} />
+        <Knob label="OUTPUT"  value={p.output ?? 0}     min={-12}  max={12}   unit=" dB" onChange={v => onChange({ ...p, output: v })} />
+      </div>
+      <div className="plugin-step-row">
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">MODE</span>
+          {HADES_MODES.map((m, i) => (
+            <button key={m} className={`plugin-step-btn ${Math.round(p.mode ?? 1) === i ? 'active' : ''}`}
+              onClick={() => onChange({ ...p, mode: i })}>{m}</button>
+          ))}
+        </div>
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">SC HPF</span>
+          <button className={`plugin-step-btn ${p.sidechain ? 'active' : ''}`}
+            onClick={() => onChange({ ...p, sidechain: p.sidechain ? 0 : 1 })}>{p.sidechain ? 'ON' : 'OFF'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── FS-Shield — Noise Gate ────────────────────────────────────────────────────
+const SHIELD_MODES = ['GATE', 'EXPANDER', 'DUCK']
+
+function ShieldEditor({ plugin, onChange }: PluginEditorProps) {
+  const p = plugin.params
+  return (
+    <div className="plugin-shield-wrap">
+      <div className="plugin-knobs-row">
+        <Knob label="THRESH"   value={p.threshold ?? -60} min={-90} max={0}    unit=" dB" onChange={v => onChange({ ...p, threshold: v })} />
+        <Knob label="ATTACK"   value={(p.attack ?? 0.001) * 1000}  min={0.1} max={200} step={0.1} unit=" ms" onChange={v => onChange({ ...p, attack: v / 1000 })} />
+        <Knob label="HOLD"     value={(p.hold ?? 0.05) * 1000}     min={0}   max={500} step={5}   unit=" ms" onChange={v => onChange({ ...p, hold: v / 1000 })} />
+        <Knob label="RELEASE"  value={(p.release ?? 0.2) * 1000}   min={10}  max={2000} step={10} unit=" ms" onChange={v => onChange({ ...p, release: v / 1000 })} />
+        <Knob label="HYST"     value={p.hysteresis ?? 3}  min={0}   max={20}   unit=" dB" onChange={v => onChange({ ...p, hysteresis: v })} />
+        <Knob label="MAKEUP"   value={p.makeup ?? 0}      min={0}   max={18}   unit=" dB" onChange={v => onChange({ ...p, makeup: v })} />
+      </div>
+      <div className="plugin-step-row">
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">MODE</span>
+          {SHIELD_MODES.map((m, i) => (
+            <button key={m} className={`plugin-step-btn ${Math.round(p.mode ?? 0) === i ? 'active' : ''}`}
+              onClick={() => onChange({ ...p, mode: i })}>{m}</button>
+          ))}
+        </div>
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">FLIP GATE</span>
+          <button className={`plugin-step-btn ${p.flip ? 'active' : ''}`}
+            onClick={() => onChange({ ...p, flip: p.flip ? 0 : 1 })}>{p.flip ? 'ON' : 'OFF'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── FS-Flux — Pitch Corrector ─────────────────────────────────────────────────
+const FLUX_KEYS   = ['C','Db','D','Eb','E','F','F#','G','Ab','A','Bb','B']
+const FLUX_SCALES = ['CHROM', 'MAJOR', 'MINOR', 'PENTA']
+
+function FluxEditor({ plugin, onChange }: PluginEditorProps) {
+  const p = plugin.params
+  return (
+    <div className="plugin-flux-wrap">
+      <div className="plugin-knobs-row">
+        <Knob label="SPEED"    value={p.speed ?? 0.5}   min={0}   max={1}   step={0.01} onChange={v => onChange({ ...p, speed: v })} />
+        <Knob label="AMOUNT"   value={p.amount ?? 0.8}  min={0}   max={1}   step={0.01} onChange={v => onChange({ ...p, amount: v })} />
+        <Knob label="FORMANT"  value={p.formant ?? 0}   min={-1}  max={1}   step={0.01} onChange={v => onChange({ ...p, formant: v })} />
+        <Knob label="DETUNE"   value={p.detune ?? 0}    min={-50} max={50}  step={1}    unit=" c" onChange={v => onChange({ ...p, detune: v })} />
+      </div>
+      <div className="plugin-step-row">
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">KEY</span>
+          {FLUX_KEYS.map((k, i) => (
+            <button key={k} className={`plugin-step-btn plugin-step-btn-sm ${Math.round(p.key ?? 0) === i ? 'active' : ''}`}
+              onClick={() => onChange({ ...p, key: i })}>{k}</button>
+          ))}
+        </div>
+      </div>
+      <div className="plugin-step-row">
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">SCALE</span>
+          {FLUX_SCALES.map((s, i) => (
+            <button key={s} className={`plugin-step-btn ${Math.round(p.scale ?? 1) === i ? 'active' : ''}`}
+              onClick={() => onChange({ ...p, scale: i })}>{s}</button>
+          ))}
+        </div>
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">BYPASS</span>
+          <button className={`plugin-step-btn ${p.bypass ? 'active' : ''}`}
+            onClick={() => onChange({ ...p, bypass: p.bypass ? 0 : 1 })}>{p.bypass ? 'ON' : 'OFF'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── FS-Forge — Parallel Mix Compressor ───────────────────────────────────────
+const FORGE_COLORS = ['CLEAN', 'VINTAGE', 'PUNCHY']
+const FORGE_BANDS  = ['WIDE', 'LOW', 'MID', 'HIGH']
+
+function ForgeEditor({ plugin, onChange }: PluginEditorProps) {
+  const p = plugin.params
+  return (
+    <div className="plugin-forge-wrap">
+      <div className="plugin-knobs-row">
+        <Knob label="THRESH"  value={p.threshold ?? -20} min={-60} max={0}   unit=" dB" onChange={v => onChange({ ...p, threshold: v })} />
+        <Knob label="RATIO"   value={p.ratio ?? 6}       min={1}   max={20}  step={0.5} unit=":1" onChange={v => onChange({ ...p, ratio: v })} />
+        <Knob label="ATTACK"  value={(p.attack ?? 0.005) * 1000} min={0.1} max={300} step={0.1} unit=" ms" onChange={v => onChange({ ...p, attack: v / 1000 })} />
+        <Knob label="RELEASE" value={(p.release ?? 0.2) * 1000}  min={10}  max={2000} step={10}  unit=" ms" onChange={v => onChange({ ...p, release: v / 1000 })} />
+        <Knob label="MAKEUP"  value={p.makeup ?? 3}      min={0}   max={24}  unit=" dB" onChange={v => onChange({ ...p, makeup: v })} />
+        <Knob label="BLEND"   value={p.blend ?? 0.5}     min={0}   max={1}   step={0.01} onChange={v => onChange({ ...p, blend: v })} />
+      </div>
+      <div className="plugin-step-row">
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">COLOR</span>
+          {FORGE_COLORS.map((c, i) => (
+            <button key={c} className={`plugin-step-btn ${Math.round(p.color ?? 1) === i ? 'active' : ''}`}
+              onClick={() => onChange({ ...p, color: i })}>{c}</button>
+          ))}
+        </div>
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">BAND</span>
+          {FORGE_BANDS.map((b, i) => (
+            <button key={b} className={`plugin-step-btn ${Math.round(p.band ?? 0) === i ? 'active' : ''}`}
+              onClick={() => onChange({ ...p, band: i })}>{b}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── FS-Crystal — Granular Freeze ──────────────────────────────────────────────
+const CRYSTAL_MODES = ['FREEZE', 'SHIMMER', 'STUTTER']
+
+function CrystalEditor({ plugin, onChange }: PluginEditorProps) {
+  const p = plugin.params
+  return (
+    <div className="plugin-crystal-wrap">
+      <div className="plugin-knobs-row">
+        <Knob label="MIX"     value={p.mix ?? 0.3}     min={0}   max={1}   step={0.01} onChange={v => onChange({ ...p, mix: v })} />
+        <Knob label="SIZE"    value={p.size ?? 4}       min={0.5} max={12}  step={0.1}  unit=" s" onChange={v => onChange({ ...p, size: v })} />
+        <Knob label="DECAY"   value={p.decay ?? 0.7}   min={0}   max={1}   step={0.01} onChange={v => onChange({ ...p, decay: v })} />
+        <Knob label="PITCH"   value={p.pitch ?? 0}     min={-12} max={12}  step={1}    unit=" st" onChange={v => onChange({ ...p, pitch: v })} />
+        <Knob label="SCATTER" value={p.scatter ?? 0.3} min={0}   max={1}   step={0.01} onChange={v => onChange({ ...p, scatter: v })} />
+        <Knob label="DENSITY" value={p.density ?? 0.8} min={0.1} max={1}   step={0.01} onChange={v => onChange({ ...p, density: v })} />
+      </div>
+      <div className="plugin-step-row">
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">MODE</span>
+          {CRYSTAL_MODES.map((m, i) => (
+            <button key={m} className={`plugin-step-btn ${Math.round(p.mode ?? 0) === i ? 'active' : ''}`}
+              onClick={() => onChange({ ...p, mode: i })}>{m}</button>
+          ))}
+        </div>
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">REVERSE</span>
+          <button className={`plugin-step-btn ${p.reverse ? 'active' : ''}`}
+            onClick={() => onChange({ ...p, reverse: p.reverse ? 0 : 1 })}>{p.reverse ? 'ON' : 'OFF'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Plugin Slot ───────────────────────────────────────────────────────────────
 interface PluginSlotProps {
   trackId: string
@@ -522,22 +1018,45 @@ function PluginSlot({ trackId, plugin, slotIndex }: PluginSlotProps) {
       case 'delay':        return <DelayEditor plugin={plugin} onChange={handleChange} />
       case 'chorus':       return <ChorusEditor plugin={plugin} onChange={handleChange} />
       case 'distortion':   return <DistortionEditor plugin={plugin} onChange={handleChange} />
-      // Elite Suite
+      // Elite Suite — Original 4
       case 'saturation':   return <SaturnEditor plugin={plugin} onChange={handleChange} />
       case 'bus_compressor': return <PressureEditor plugin={plugin} onChange={handleChange} />
       case 'spacetime':    return <SpacetimeEditor plugin={plugin} onChange={handleChange} />
       case 'transient':    return <TransientEditor plugin={plugin} onChange={handleChange} />
+      // Elite Suite — New 10
+      case 'expander':     return <NovaEditor plugin={plugin} onChange={handleChange} />
+      case 'exciter':      return <PrismEditor plugin={plugin} onChange={handleChange} />
+      case 'vibrato':      return <VibeEditor plugin={plugin} onChange={handleChange} />
+      case 'stereo_width': return <PhaseEditor plugin={plugin} onChange={handleChange} />
+      case 'tape':         return <OxideEditor plugin={plugin} onChange={handleChange} />
+      case 'sub_enhancer': return <HadesEditor plugin={plugin} onChange={handleChange} />
+      case 'noise_gate':   return <ShieldEditor plugin={plugin} onChange={handleChange} />
+      case 'pitch_correct':return <FluxEditor plugin={plugin} onChange={handleChange} />
+      case 'parallel_comp':return <ForgeEditor plugin={plugin} onChange={handleChange} />
+      case 'granular':     return <CrystalEditor plugin={plugin} onChange={handleChange} />
       default: return null
     }
   }
 
   const typeColors: Record<string, string> = {
+    // Classic
     eq: '#06b6d4', compressor: '#10b981', limiter: '#ef4444',
     reverb: '#a855f7', delay: '#3b82f6', chorus: '#ec4899',
     distortion: '#f59e0b',
-    // Elite
+    // Elite — Original 4
     saturation: '#f97316', bus_compressor: '#22d3ee',
     spacetime: '#c084fc', transient: '#4ade80',
+    // Elite — New 10
+    expander: '#84cc16',       // lime
+    exciter: '#f0abfc',        // fuchsia
+    vibrato: '#fb923c',        // orange
+    stereo_width: '#38bdf8',   // sky
+    tape: '#d97706',           // amber
+    sub_enhancer: '#7c3aed',   // violet
+    noise_gate: '#14b8a6',     // teal
+    pitch_correct: '#e879f9',  // pink
+    parallel_comp: '#facc15',  // yellow
+    granular: '#818cf8',       // indigo
   }
   const color = typeColors[plugin.type] ?? '#6b7280'
 
@@ -574,7 +1093,11 @@ interface PluginRackProps {
 }
 
 const CLASSIC_PLUGINS = ['eq','compressor','limiter','reverb','delay','chorus','distortion']
-const ELITE_PLUGINS   = ['saturation','bus_compressor','spacetime','transient']
+const ELITE_PLUGINS   = [
+  'saturation','bus_compressor','spacetime','transient',
+  'expander','exciter','vibrato','stereo_width','tape',
+  'sub_enhancer','noise_gate','pitch_correct','parallel_comp','granular',
+]
 
 const PLUGIN_MENU = Object.entries(PLUGIN_DEFAULTS).map(([key, def]) => ({
   key, name: def.name, type: def.type,

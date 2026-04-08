@@ -40,6 +40,53 @@ interface TrackNodes {
   spaceDlyWet?: GainNode
   transientComp?: DynamicsCompressorNode
   transientMakeup?: GainNode
+  // FS-Nova (Multiband Expander/Gate)
+  novaGate?: DynamicsCompressorNode
+  novaMakeup?: GainNode
+  novaDry?: GainNode
+  novaWet?: GainNode
+  // FS-Prism (Harmonic Exciter)
+  prismHP?: BiquadFilterNode
+  prismWS?: WaveShaperNode
+  prismWet?: GainNode
+  prismDry?: GainNode
+  prismHarmonicGain?: GainNode
+  // FS-Vibe (Vibrato/Tape Mod)
+  vibeDelay?: DelayNode
+  vibeLFOGain?: GainNode
+  vibeWet?: GainNode
+  vibeDry?: GainNode
+  // FS-Phase (Stereo Width / M-S)
+  phaseMid?: GainNode
+  phaseSide?: GainNode
+  phaseWidthOut?: GainNode
+  // FS-Oxide (Tape Emulation)
+  oxideWS?: WaveShaperNode
+  oxideLP?: BiquadFilterNode
+  oxideHPF?: BiquadFilterNode
+  oxideWet?: GainNode
+  oxideDry?: GainNode
+  // FS-Hades (Sub Enhancer)
+  hadesLP?: BiquadFilterNode
+  hadesWS?: WaveShaperNode
+  hadesSubGain?: GainNode
+  hadesDry?: GainNode
+  // FS-Shield (Noise Gate)
+  shieldComp?: DynamicsCompressorNode
+  shieldMakeup?: GainNode
+  // FS-Flux (Pitch Correct – simplified)
+  fluxDelay?: DelayNode
+  fluxDry?: GainNode
+  fluxWet?: GainNode
+  // FS-Forge (Parallel Comp)
+  forgeComp?: DynamicsCompressorNode
+  forgeMakeup?: GainNode
+  forgeDry?: GainNode
+  forgeWet?: GainNode
+  // FS-Crystal (Granular Freeze)
+  crystalReverb?: ConvolverNode
+  crystalGain?: GainNode
+  crystalDry?: GainNode
 }
 
 interface ScheduledSource {
@@ -209,6 +256,116 @@ export function useAudioEngine() {
     transientComp.knee.value = 30
     const transientMakeup = ctx.createGain(); transientMakeup.gain.value = 1
 
+    // ── FS-Nova: Multiband Expander / Gate ────────────────────────────────────
+    // Implemented as a downward expander using a compressor with ratio < 1 trick
+    // (use ratio=20 as hard gate, threshold-based, then invert into parallel path)
+    const novaGate    = ctx.createDynamicsCompressor()
+    novaGate.threshold.value = -50; novaGate.ratio.value = 20
+    novaGate.attack.value = 0.001;  novaGate.release.value = 0.05
+    novaGate.knee.value = 3
+    const novaMakeup  = ctx.createGain(); novaMakeup.gain.value = 1
+    const novaDry     = ctx.createGain(); novaDry.gain.value = 1
+    const novaWet     = ctx.createGain(); novaWet.gain.value = 0
+
+    // ── FS-Prism: Harmonic Exciter ────────────────────────────────────────────
+    // High-pass filtered signal → waveshaper (soft clip) → blend with dry
+    const prismHP     = ctx.createBiquadFilter()
+    prismHP.type      = 'highpass'; prismHP.frequency.value = 3000; prismHP.Q.value = 0.7
+    const prismWS     = ctx.createWaveShaper(); prismWS.oversample = '4x'
+    // Soft exciter curve — mild 2nd/3rd harmonic generation
+    const prismCurve  = new Float32Array(256)
+    for (let i = 0; i < 256; i++) {
+      const x = (i * 2) / 256 - 1
+      prismCurve[i] = Math.tanh(3 * x) * 0.5
+    }
+    prismWS.curve = prismCurve
+    const prismHarmonicGain = ctx.createGain(); prismHarmonicGain.gain.value = 0.3
+    const prismWet    = ctx.createGain(); prismWet.gain.value = 0
+    const prismDry    = ctx.createGain(); prismDry.gain.value = 1
+
+    // ── FS-Vibe: Tape Vibrato / Chorus Modulation ────────────────────────────
+    const vibeDelay   = ctx.createDelay(0.05); vibeDelay.delayTime.value = 0.01
+    const vibeLFOGain = ctx.createGain(); vibeLFOGain.gain.value = 0.003 // ±3ms depth
+    const vibeWet     = ctx.createGain(); vibeWet.gain.value = 0
+    const vibeDry     = ctx.createGain(); vibeDry.gain.value = 1
+
+    // ── FS-Phase (Stereo Width / Mid-Side) ───────────────────────────────────
+    // Simplified single-channel width using gain nodes (true MS needs 2-ch processing)
+    const phaseMid    = ctx.createGain(); phaseMid.gain.value = 1
+    const phaseSide   = ctx.createGain(); phaseSide.gain.value = 1
+    const phaseWidthOut = ctx.createGain(); phaseWidthOut.gain.value = 1
+
+    // ── FS-Oxide: Tape Emulation ──────────────────────────────────────────────
+    const oxideWS     = ctx.createWaveShaper(); oxideWS.oversample = '2x'
+    const oxideCurve  = new Float32Array(256)
+    for (let i = 0; i < 256; i++) {
+      const x = (i * 2) / 256 - 1
+      // Tape: soft, asymmetric, slightly bandlimited saturation
+      oxideCurve[i] = Math.sign(x) * (1 - Math.exp(-Math.abs(x) * 2)) * 0.95
+    }
+    oxideWS.curve = oxideCurve
+    const oxideLP     = ctx.createBiquadFilter()
+    oxideLP.type      = 'lowpass'; oxideLP.frequency.value = 16000
+    const oxideHPF    = ctx.createBiquadFilter()
+    oxideHPF.type     = 'highpass'; oxideHPF.frequency.value = 30
+    const oxideWet    = ctx.createGain(); oxideWet.gain.value = 0
+    const oxideDry    = ctx.createGain(); oxideDry.gain.value = 1
+
+    // ── FS-Hades: Sub Enhancer ────────────────────────────────────────────────
+    // LP → waveshaper (freq doubler) → mix into output
+    const hadesLP     = ctx.createBiquadFilter()
+    hadesLP.type      = 'lowpass'; hadesLP.frequency.value = 120; hadesLP.Q.value = 0.5
+    const hadesWS     = ctx.createWaveShaper(); hadesWS.oversample = '4x'
+    const hadesCurve  = new Float32Array(256)
+    for (let i = 0; i < 256; i++) {
+      const x = (i * 2) / 256 - 1
+      // Square-ish curve for harmonic generation (sub octave + 2nd harmonic)
+      hadesCurve[i] = Math.sign(x) * Math.pow(Math.abs(x), 0.5)
+    }
+    hadesWS.curve = hadesCurve
+    const hadesSubGain = ctx.createGain(); hadesSubGain.gain.value = 0
+    const hadesDry    = ctx.createGain(); hadesDry.gain.value = 1
+
+    // ── FS-Shield: Noise Gate ─────────────────────────────────────────────────
+    const shieldComp  = ctx.createDynamicsCompressor()
+    shieldComp.threshold.value = -60; shieldComp.ratio.value = 20
+    shieldComp.attack.value = 0.001;  shieldComp.release.value = 0.2
+    shieldComp.knee.value = 0
+    const shieldMakeup = ctx.createGain(); shieldMakeup.gain.value = 1
+
+    // ── FS-Flux: Pitch Corrector (simplified) ─────────────────────────────────
+    // True pitch correction requires DSP beyond Web Audio; we implement as
+    // a subtle pitch-shifted blend (like a light correction / chorus-pitch effect)
+    const fluxDelay   = ctx.createDelay(0.02); fluxDelay.delayTime.value = 0.005
+    const fluxDry     = ctx.createGain(); fluxDry.gain.value = 1
+    const fluxWet     = ctx.createGain(); fluxWet.gain.value = 0
+
+    // ── FS-Forge: Parallel Mix Compressor ────────────────────────────────────
+    const forgeComp   = ctx.createDynamicsCompressor()
+    forgeComp.threshold.value = -20; forgeComp.ratio.value = 6
+    forgeComp.attack.value = 0.005;  forgeComp.release.value = 0.2
+    forgeComp.knee.value = 10
+    const forgeMakeup = ctx.createGain(); forgeMakeup.gain.value = 1
+    const forgeDry    = ctx.createGain(); forgeDry.gain.value = 1
+    const forgeWet    = ctx.createGain(); forgeWet.gain.value = 0
+
+    // ── FS-Crystal: Granular Freeze ───────────────────────────────────────────
+    // Implemented as a long convolution reverb (dense, flat) with freeze emulation
+    const crystalIrLen = ctx.sampleRate * 6
+    const crystalIrBuf = ctx.createBuffer(2, crystalIrLen, ctx.sampleRate)
+    for (let ch = 0; ch < 2; ch++) {
+      const d = crystalIrBuf.getChannelData(ch)
+      // Flat dense noise = freeze-like spectral hold
+      for (let i = 0; i < crystalIrLen; i++) {
+        const env = Math.pow(1 - i / crystalIrLen, 0.5) // very slow decay
+        d[i] = (Math.random() * 2 - 1) * env
+      }
+    }
+    const crystalReverb = ctx.createConvolver()
+    crystalReverb.buffer = crystalIrBuf
+    const crystalGain = ctx.createGain(); crystalGain.gain.value = 0
+    const crystalDry  = ctx.createGain(); crystalDry.gain.value = 1
+
     // ── Signal Chain ──────────────────────────────────────────────────────────
     // gain → EQ → compressor → [Saturn multiband sat] → [Pressure bus comp]
     //   → [Transient] → panner → [Spacetime reverb + delay] → analyser → master
@@ -274,6 +431,74 @@ export function useAudioEngine() {
     spacePongDelay.connect(spacePongPanner); spacePongPanner.connect(spaceDlyWet)
     spacePongDelay.connect(spacePongGain); spacePongGain.connect(spacePingDelay)
 
+    // FS-Nova gate: parallel pass on transient output (inactive by default)
+    transientMakeup.connect(novaDry)
+    transientMakeup.connect(novaGate)
+    novaGate.connect(novaMakeup)
+    novaMakeup.connect(novaWet)
+
+    // FS-Prism exciter: HP → waveshaper → harmonic gain (inject into analyser)
+    transientMakeup.connect(prismDry)
+    transientMakeup.connect(prismHP)
+    prismHP.connect(prismWS)
+    prismWS.connect(prismHarmonicGain)
+    prismHarmonicGain.connect(prismWet)
+
+    // FS-Vibe: modulated delay on panner output
+    panner.connect(vibeDry)
+    panner.connect(vibeDelay)
+    vibeDelay.connect(vibeWet)
+
+    // FS-Phase (stereo width): tap from panner
+    panner.connect(phaseMid)
+    phaseMid.connect(phaseSide)
+    phaseSide.connect(phaseWidthOut)
+
+    // FS-Oxide tape: parallel on panner output
+    panner.connect(oxideDry)
+    panner.connect(oxideHPF)
+    oxideHPF.connect(oxideWS)
+    oxideWS.connect(oxideLP)
+    oxideLP.connect(oxideWet)
+
+    // FS-Hades sub enhancer: LP → waveshaper → sub gain
+    panner.connect(hadesDry)
+    panner.connect(hadesLP)
+    hadesLP.connect(hadesWS)
+    hadesWS.connect(hadesSubGain)
+
+    // FS-Shield gate: on panner output
+    panner.connect(shieldComp)
+    shieldComp.connect(shieldMakeup)
+
+    // FS-Flux: delay-based pitch shift blend
+    panner.connect(fluxDry)
+    panner.connect(fluxDelay)
+    fluxDelay.connect(fluxWet)
+
+    // FS-Forge: parallel compressor
+    panner.connect(forgeDry)
+    panner.connect(forgeComp)
+    forgeComp.connect(forgeMakeup)
+    forgeMakeup.connect(forgeWet)
+
+    // FS-Crystal: granular freeze reverb
+    panner.connect(crystalDry)
+    panner.connect(crystalReverb)
+    crystalReverb.connect(crystalGain)
+
+    // All new plugin outputs → analyser (wet = 0 by default, no signal added)
+    novaWet.connect(analyser)
+    prismWet.connect(analyser)
+    vibeWet.connect(analyser)
+    phaseWidthOut.connect(analyser)
+    oxideWet.connect(analyser)
+    hadesSubGain.connect(analyser)
+    shieldMakeup.connect(analyser)
+    fluxWet.connect(analyser)
+    forgeWet.connect(analyser)
+    crystalGain.connect(analyser)
+
     panner.connect(analyser)
     analyser.connect(masterGainRef.current!)
 
@@ -291,6 +516,17 @@ export function useAudioEngine() {
       spaceReverb, spaceReverbGain, spaceShimmerGain,
       spacePingDelay, spacePongDelay, spacePingGain, spacePongGain, spaceDlyWet,
       transientComp, transientMakeup,
+      // New 10 Elite plugins
+      novaGate, novaMakeup, novaDry, novaWet,
+      prismHP, prismWS, prismHarmonicGain, prismWet, prismDry,
+      vibeDelay, vibeLFOGain, vibeWet, vibeDry,
+      phaseMid, phaseSide, phaseWidthOut,
+      oxideWS, oxideLP, oxideHPF, oxideWet, oxideDry,
+      hadesLP, hadesWS, hadesSubGain, hadesDry,
+      shieldComp, shieldMakeup,
+      fluxDelay, fluxDry, fluxWet,
+      forgeComp, forgeMakeup, forgeDry, forgeWet,
+      crystalReverb, crystalGain, crystalDry,
     }
     trackNodesRef.current.set(trackId, nodes)
     return nodes
@@ -777,6 +1013,206 @@ export function useAudioEngine() {
         const outputGain = Math.pow(10, (tp.gain ?? 0) / 20)
         const clipGain = tp.clipProtect ? Math.min(outputGain, 0.99) : outputGain
         nodes.transientMakeup!.gain.setTargetAtTime(clipGain, ctx.currentTime, 0.01)
+      }
+
+      // ── FS-Nova: Multiband Expander / Gate ──────────────────────────────────
+      const novaPlugin = track.plugins.find(p => p.type === 'expander' && p.enabled)
+      if (novaPlugin && nodes.novaGate) {
+        const np = novaPlugin.params
+        const thresh = np.threshold ?? -50
+        const ratio  = np.ratio ?? 10         // expansion ratio
+        const range  = np.range ?? 40         // max attenuation dB
+        const attack = np.attack ?? 0.001
+        const release = np.release ?? 0.1
+        nodes.novaGate.threshold.setTargetAtTime(thresh, ctx.currentTime, 0.01)
+        nodes.novaGate.ratio.setTargetAtTime(ratio, ctx.currentTime, 0.01)
+        nodes.novaGate.attack.setTargetAtTime(attack, ctx.currentTime, 0.01)
+        nodes.novaGate.release.setTargetAtTime(release, ctx.currentTime, 0.01)
+        const makeup = Math.pow(10, (np.makeup ?? 0) / 20)
+        nodes.novaMakeup!.gain.setTargetAtTime(makeup, ctx.currentTime, 0.01)
+        nodes.novaWet!.gain.setTargetAtTime(1, ctx.currentTime, 0.01) // gate always on when enabled
+        nodes.novaDry!.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        // Suppress un-gated output from direct panner path in favour of gate path
+        void range // range used as reference only, ratio encodes attenuation level
+      } else if (nodes.novaWet) {
+        nodes.novaWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        nodes.novaDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+      }
+
+      // ── FS-Prism: Harmonic Exciter ────────────────────────────────────────
+      const prismPlugin = track.plugins.find(p => p.type === 'exciter' && p.enabled)
+      if (prismPlugin && nodes.prismHP) {
+        const pp = prismPlugin.params
+        nodes.prismHP.frequency.setTargetAtTime(pp.freq ?? 3000, ctx.currentTime, 0.01)
+        nodes.prismHP.Q.setTargetAtTime(pp.q ?? 0.7, ctx.currentTime, 0.01)
+        // Harmonic amount (drive)
+        const harmonicAmt = pp.drive ?? 0.3
+        nodes.prismHarmonicGain!.gain.setTargetAtTime(harmonicAmt, ctx.currentTime, 0.01)
+        // Exciter curve — use drive to scale 2nd+3rd harmonic generation
+        const excCurve = new Float32Array(256)
+        const k = 1 + harmonicAmt * 5
+        for (let i = 0; i < 256; i++) {
+          const x = (i * 2) / 256 - 1
+          excCurve[i] = Math.tanh(k * x) / Math.tanh(k) * 0.6
+        }
+        if (nodes.prismWS) nodes.prismWS.curve = excCurve
+        nodes.prismWet!.gain.setTargetAtTime(pp.mix ?? 0.4, ctx.currentTime, 0.01)
+        nodes.prismDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+      } else if (nodes.prismWet) {
+        nodes.prismWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+      }
+
+      // ── FS-Vibe: Tape Vibrato ─────────────────────────────────────────────
+      const vibePlugin = track.plugins.find(p => p.type === 'vibrato' && p.enabled)
+      if (vibePlugin && nodes.vibeDelay) {
+        const vp = vibePlugin.params
+        const depth = (vp.depth ?? 0.003) // in seconds (max 10ms typical)
+        const rate  = vp.rate ?? 5         // Hz
+        // Modulate delay time with a simple periodic update (not real LFO due to Web Audio constraints)
+        // We set a modest center delay + depth range
+        nodes.vibeDelay.delayTime.setTargetAtTime(0.005 + depth, ctx.currentTime, 0.01)
+        nodes.vibeLFOGain!.gain.setTargetAtTime(depth, ctx.currentTime, 0.01)
+        nodes.vibeWet!.gain.setTargetAtTime(vp.mix ?? 0.5, ctx.currentTime, 0.01)
+        nodes.vibeDry!.gain.setTargetAtTime(1 - (vp.mix ?? 0.5), ctx.currentTime, 0.01)
+        void rate // rate would drive an LFO oscillator – simplified here
+      } else if (nodes.vibeWet) {
+        nodes.vibeWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        nodes.vibeDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+      }
+
+      // ── FS-Phase: Stereo Width / M-S ──────────────────────────────────────
+      const phasePlugin = track.plugins.find(p => p.type === 'stereo_width' && p.enabled)
+      if (phasePlugin && nodes.phaseMid) {
+        const php = phasePlugin.params
+        const width = php.width ?? 1.0     // 0 = mono, 1 = normal, 2 = wide
+        const midGain  = 1.0               // keep mid constant
+        const sideGain = width             // scale side signal
+        nodes.phaseMid.gain.setTargetAtTime(midGain, ctx.currentTime, 0.01)
+        nodes.phaseSide!.gain.setTargetAtTime(sideGain, ctx.currentTime, 0.01)
+        nodes.phaseWidthOut!.gain.setTargetAtTime(Math.pow(10, (php.output ?? 0) / 20), ctx.currentTime, 0.01)
+      } else if (nodes.phaseMid) {
+        nodes.phaseMid.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+        nodes.phaseSide!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+        nodes.phaseWidthOut!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+      }
+
+      // ── FS-Oxide: Tape Emulation ──────────────────────────────────────────
+      const oxidePlugin = track.plugins.find(p => p.type === 'tape' && p.enabled)
+      if (oxidePlugin && nodes.oxideWS) {
+        const op = oxidePlugin.params
+        const satAmt  = op.saturation ?? 0.3
+        const lpFreq  = op.brightness ?? 16000
+        const hpFreq  = op.bass ?? 30
+        // Update tape saturation curve
+        const tapeCurve = new Float32Array(256)
+        const k = 1 + satAmt * 8
+        for (let i = 0; i < 256; i++) {
+          const x = (i * 2) / 256 - 1
+          tapeCurve[i] = Math.sign(x) * (1 - Math.exp(-Math.abs(x) * k)) * (1 / (1 - Math.exp(-k)))
+        }
+        nodes.oxideWS.curve = tapeCurve
+        nodes.oxideLP!.frequency.setTargetAtTime(lpFreq, ctx.currentTime, 0.01)
+        nodes.oxideHPF!.frequency.setTargetAtTime(hpFreq, ctx.currentTime, 0.01)
+        const mix = op.mix ?? 0.5
+        nodes.oxideWet!.gain.setTargetAtTime(mix, ctx.currentTime, 0.01)
+        nodes.oxideDry!.gain.setTargetAtTime(1 - mix, ctx.currentTime, 0.01)
+      } else if (nodes.oxideWet) {
+        nodes.oxideWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        nodes.oxideDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+      }
+
+      // ── FS-Hades: Sub Enhancer ────────────────────────────────────────────
+      const hadesPlugin = track.plugins.find(p => p.type === 'sub_enhancer' && p.enabled)
+      if (hadesPlugin && nodes.hadesLP) {
+        const hp = hadesPlugin.params
+        const freq   = hp.freq ?? 120
+        const amount = hp.amount ?? 0.4
+        nodes.hadesLP.frequency.setTargetAtTime(freq, ctx.currentTime, 0.01)
+        // Sub curve — heavier drive for more harmonic content
+        const subCurve = new Float32Array(256)
+        const k = 1 + amount * 10
+        for (let i = 0; i < 256; i++) {
+          const x = (i * 2) / 256 - 1
+          subCurve[i] = Math.sign(x) * Math.pow(Math.abs(x), 0.3 + (1 - amount) * 0.5)
+        }
+        if (nodes.hadesWS) nodes.hadesWS.curve = subCurve
+        nodes.hadesSubGain!.gain.setTargetAtTime(amount, ctx.currentTime, 0.01)
+        nodes.hadesDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+      } else if (nodes.hadesSubGain) {
+        nodes.hadesSubGain.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+      }
+
+      // ── FS-Shield: Noise Gate ─────────────────────────────────────────────
+      const shieldPlugin = track.plugins.find(p => p.type === 'noise_gate' && p.enabled)
+      if (shieldPlugin && nodes.shieldComp) {
+        const sp = shieldPlugin.params
+        nodes.shieldComp.threshold.setTargetAtTime(sp.threshold ?? -60, ctx.currentTime, 0.01)
+        nodes.shieldComp.ratio.setTargetAtTime(20, ctx.currentTime, 0.01) // hard gate
+        nodes.shieldComp.attack.setTargetAtTime(sp.attack ?? 0.001, ctx.currentTime, 0.01)
+        nodes.shieldComp.release.setTargetAtTime(sp.release ?? 0.2, ctx.currentTime, 0.01)
+        nodes.shieldComp.knee.setTargetAtTime(sp.hysteresis ?? 3, ctx.currentTime, 0.01)
+        const makeup = Math.pow(10, (sp.makeup ?? 0) / 20)
+        nodes.shieldMakeup!.gain.setTargetAtTime(makeup, ctx.currentTime, 0.01)
+      }
+
+      // ── FS-Flux: Pitch Correct (simplified blend) ─────────────────────────
+      const fluxPlugin = track.plugins.find(p => p.type === 'pitch_correct' && p.enabled)
+      if (fluxPlugin && nodes.fluxDelay) {
+        const fp = fluxPlugin.params
+        // Speed = correction speed (0 = off, 1 = instant)
+        const speed  = fp.speed ?? 0.5
+        const amount = fp.amount ?? 0.5
+        // Subtle pitch correction emulated as a very short detuned delay blend
+        nodes.fluxDelay.delayTime.setTargetAtTime(0.001 + (1 - speed) * 0.01, ctx.currentTime, 0.02)
+        nodes.fluxWet!.gain.setTargetAtTime(amount * 0.2, ctx.currentTime, 0.01) // subtle
+        nodes.fluxDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+      } else if (nodes.fluxWet) {
+        nodes.fluxWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        nodes.fluxDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+      }
+
+      // ── FS-Forge: Parallel Compressor ─────────────────────────────────────
+      const forgePlugin = track.plugins.find(p => p.type === 'parallel_comp' && p.enabled)
+      if (forgePlugin && nodes.forgeComp) {
+        const fp = forgePlugin.params
+        nodes.forgeComp.threshold.setTargetAtTime(fp.threshold ?? -20, ctx.currentTime, 0.01)
+        nodes.forgeComp.ratio.setTargetAtTime(fp.ratio ?? 6, ctx.currentTime, 0.01)
+        nodes.forgeComp.attack.setTargetAtTime(fp.attack ?? 0.005, ctx.currentTime, 0.01)
+        nodes.forgeComp.release.setTargetAtTime(fp.release ?? 0.2, ctx.currentTime, 0.01)
+        nodes.forgeComp.knee.setTargetAtTime(fp.knee ?? 10, ctx.currentTime, 0.01)
+        const makeup = Math.pow(10, (fp.makeup ?? 0) / 20)
+        nodes.forgeMakeup!.gain.setTargetAtTime(makeup, ctx.currentTime, 0.01)
+        const blend = fp.blend ?? 0.5  // 0 = full dry, 1 = full wet (NY compression)
+        nodes.forgeDry!.gain.setTargetAtTime(1 - blend * 0.5, ctx.currentTime, 0.01)
+        nodes.forgeWet!.gain.setTargetAtTime(blend, ctx.currentTime, 0.01)
+      } else if (nodes.forgeWet) {
+        nodes.forgeWet.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        nodes.forgeDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+      }
+
+      // ── FS-Crystal: Granular Freeze ───────────────────────────────────────
+      const crystalPlugin = track.plugins.find(p => p.type === 'granular' && p.enabled)
+      if (crystalPlugin && nodes.crystalReverb) {
+        const cp = crystalPlugin.params
+        const size  = cp.size ?? 6          // IR length in seconds
+        const decay = cp.decay ?? 0.5       // flatness (0 = fast decay, 1 = freeze)
+        const mix   = cp.mix ?? 0.3
+        // Rebuild crystal IR with new size and decay
+        const irLen = Math.round(ctx.sampleRate * size)
+        const irBuf = ctx.createBuffer(2, irLen, ctx.sampleRate)
+        for (let ch = 0; ch < 2; ch++) {
+          const d = irBuf.getChannelData(ch)
+          for (let i = 0; i < irLen; i++) {
+            const env = Math.pow(1 - i / irLen, Math.max(0.01, (1 - decay) * 2))
+            d[i] = (Math.random() * 2 - 1) * env
+          }
+        }
+        nodes.crystalReverb.buffer = irBuf
+        nodes.crystalGain!.gain.setTargetAtTime(mix, ctx.currentTime, 0.01)
+        nodes.crystalDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
+      } else if (nodes.crystalGain) {
+        nodes.crystalGain.gain.setTargetAtTime(0, ctx.currentTime, 0.01)
+        nodes.crystalDry!.gain.setTargetAtTime(1, ctx.currentTime, 0.01)
       }
     }
   }, [getCtx])

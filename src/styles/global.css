@@ -1920,6 +1920,66 @@ html, body, #root {
 /* FS-Transient layout */
 .plugin-transient-wrap { display: flex; flex-direction: column; gap: 6px; }
 
+/* ── New Elite Plugin layouts ───────────────────────────────────────────────── */
+
+/* FS-Nova (Expander/Gate) */
+.plugin-nova-wrap { display: flex; flex-direction: column; gap: 4px; }
+
+/* FS-Prism (Exciter) */
+.plugin-prism-wrap { display: flex; flex-direction: column; gap: 4px; }
+
+/* FS-Vibe (Vibrato) */
+.plugin-vibe-wrap { display: flex; flex-direction: column; gap: 4px; }
+
+/* FS-Phase (Stereo Width) */
+.plugin-phase-wrap { display: flex; flex-direction: column; gap: 6px; }
+.plugin-phase-vis { padding: 4px 6px 2px; }
+.plugin-phase-meter {
+  position: relative;
+  height: 10px;
+  background: rgba(255,255,255,.06);
+  border-radius: 5px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+.plugin-phase-bar {
+  height: 100%;
+  border-radius: 5px;
+  min-width: 2px;
+  transition: width .15s ease, background .15s ease;
+}
+.plugin-phase-pct {
+  position: absolute;
+  right: 6px;
+  font-size: 9px;
+  font-weight: 700;
+  color: rgba(255,255,255,.7);
+}
+
+/* FS-Oxide (Tape) */
+.plugin-oxide-wrap { display: flex; flex-direction: column; gap: 4px; }
+
+/* FS-Hades (Sub Enhancer) */
+.plugin-hades-wrap { display: flex; flex-direction: column; gap: 4px; }
+
+/* FS-Shield (Noise Gate) */
+.plugin-shield-wrap { display: flex; flex-direction: column; gap: 4px; }
+
+/* FS-Flux (Pitch Correct) */
+.plugin-flux-wrap { display: flex; flex-direction: column; gap: 4px; }
+.plugin-step-btn-sm {
+  padding: 2px 4px !important;
+  font-size: 8px !important;
+  min-width: 0 !important;
+}
+
+/* FS-Forge (Parallel Comp) */
+.plugin-forge-wrap { display: flex; flex-direction: column; gap: 4px; }
+
+/* FS-Crystal (Granular Freeze) */
+.plugin-crystal-wrap { display: flex; flex-direction: column; gap: 4px; }
+
 /* ── LUFS Meter (StatusBar) ─────────────────────────────────────────────────── */
 .status-lufs-wrap {
   display: flex;
