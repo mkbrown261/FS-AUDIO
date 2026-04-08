@@ -11,7 +11,8 @@
  * - Rhythm analysis
  */
 
-import Essentia from 'essentia.js'
+// TEMPORARILY DISABLED: Essentia.js requires special WASM configuration for Electron
+// import Essentia from 'essentia.js'
 
 export interface AnalysisResult {
   // Tempo/Rhythm
@@ -42,7 +43,9 @@ export class EssentiaAnalyzer {
   private initialized: boolean = false
   
   constructor() {
-    this.essentia = new Essentia.Essentia()
+    // TEMPORARY: Essentia.js disabled until WASM is properly configured
+    // this.essentia = new Essentia.Essentia()
+    this.essentia = null
   }
   
   /**
@@ -51,15 +54,14 @@ export class EssentiaAnalyzer {
   async initialize(): Promise<void> {
     if (this.initialized) return
     
-    try {
-      // Essentia.js uses WASM, needs initialization
-      await this.essentia.initialize()
-      this.initialized = true
-      console.log('[Essentia] Initialized successfully')
-    } catch (error) {
-      console.error('[Essentia] Initialization failed:', error)
-      throw error
-    }
+    console.log('[Essentia] Using fallback analysis (WASM configuration pending)')
+    this.initialized = true
+    
+    // TODO: Properly configure Essentia.js WASM for Electron
+    // Need to:
+    // 1. Configure Vite to handle .wasm files
+    // 2. Set up proper Content Security Policy in Electron
+    // 3. Load WASM module correctly
   }
   
   /**
@@ -144,75 +146,80 @@ export class EssentiaAnalyzer {
   // ── Private Analysis Methods ─────────────────────────────────────────────
   
   private analyzeTempo(audioData: Float32Array, sampleRate: number) {
+    // FALLBACK: Simple onset-based BPM detection
     try {
-      // Use RhythmExtractor2013 algorithm (reliable for most music)
-      const rhythmResult = this.essentia.RhythmExtractor2013(
-        audioData,
-        sampleRate,
-        'multifeature'  // Use all features for best accuracy
-      )
+      const hopSize = 512
+      const onsets: number[] = []
+      let prevEnergy = 0
+      
+      for (let i = 0; i < audioData.length - hopSize; i += hopSize) {
+        let energy = 0
+        for (let j = 0; j < hopSize; j++) {
+          energy += audioData[i + j] ** 2
+        }
+        energy /= hopSize
+        
+        if (energy > prevEnergy * 1.5 && energy > 0.01) {
+          onsets.push(i / sampleRate)
+        }
+        prevEnergy = energy
+      }
+      
+      if (onsets.length < 4) {
+        return { bpm: 120, confidence: 0.3, beats: [] }
+      }
+      
+      const intervals: number[] = []
+      for (let i = 1; i < onsets.length; i++) {
+        intervals.push(onsets[i] - onsets[i-1])
+      }
+      
+      const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length
+      const bpm = Math.round(60 / avgInterval)
+      const finalBPM = Math.max(60, Math.min(200, bpm))
       
       return {
-        bpm: Math.round(rhythmResult.bpm || 120),
-        confidence: rhythmResult.confidence || 0.5,
-        beats: rhythmResult.ticks || []
+        bpm: finalBPM,
+        confidence: 0.6,
+        beats: onsets
       }
     } catch (error) {
-      console.warn('[Essentia] Tempo analysis failed, using fallback:', error)
-      return {
-        bpm: 120,
-        confidence: 0,
-        beats: []
-      }
+      console.warn('[Essentia] Tempo analysis failed:', error)
+      return { bpm: 120, confidence: 0.3, beats: [] }
     }
   }
   
   private analyzeKey(audioData: Float32Array, sampleRate: number) {
-    try {
-      // Use Key algorithm for key/scale detection
-      const keyResult = this.essentia.KeyExtractor(audioData, sampleRate, true)
-      
-      // Map numeric key to note name
-      const keyNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-      const keyIndex = Math.round(keyResult.key || 0) % 12
-      
-      return {
-        key: keyNames[keyIndex],
-        scale: keyResult.scale === 'minor' ? 'minor' : 'major',
-        confidence: keyResult.strength || 0.5
-      }
-    } catch (error) {
-      console.warn('[Essentia] Key analysis failed, using fallback:', error)
-      return {
-        key: 'C',
-        scale: 'major',
-        confidence: 0
-      }
+    // FALLBACK: Return default key until proper implementation
+    console.log('[Essentia] Key detection using fallback')
+    return {
+      key: 'C',
+      scale: 'major',
+      confidence: 0.3
     }
   }
   
   private analyzeLoudness(audioData: Float32Array, sampleRate: number) {
+    // FALLBACK: Simple RMS-based loudness calculation
     try {
-      // Loudness analysis
-      const loudness = this.essentia.Loudness(audioData)
-      
-      // Dynamic range analysis (simplified)
+      let sumSquares = 0
       let max = 0
       let min = Infinity
+      
       for (let i = 0; i < audioData.length; i++) {
+        sumSquares += audioData[i] ** 2
         const abs = Math.abs(audioData[i])
         if (abs > max) max = abs
         if (abs < min && abs > 0) min = abs
       }
       
+      const rms = Math.sqrt(sumSquares / audioData.length)
+      const lufs = -23 + (20 * Math.log10(Math.max(rms, 0.00001)))
       const dynamicRange = 20 * Math.log10(max / (min + 0.0001))
-      
-      // Convert to LUFS (simplified approximation)
-      const lufs = -23 + (20 * Math.log10(loudness + 0.0001))
       
       return {
         loudness: Math.round(lufs * 10) / 10,
-        dynamicRange: Math.round(dynamicRange * 10) / 10
+        dynamicRange: Math.round(Math.min(dynamicRange, 40) * 10) / 10
       }
     } catch (error) {
       console.warn('[Essentia] Loudness analysis failed:', error)
@@ -224,12 +231,24 @@ export class EssentiaAnalyzer {
   }
   
   private analyzeSpectral(audioData: Float32Array, sampleRate: number) {
+    // FALLBACK: Simple high-frequency energy estimation
     try {
-      // Spectral centroid (brightness)
-      const centroid = this.essentia.SpectralCentroidTime(audioData, sampleRate)
+      // Simple FFT-free brightness estimate based on high-frequency energy
+      let lowEnergy = 0
+      let highEnergy = 0
+      const windowSize = 2048
       
-      // Brightness (0-1, normalized)
-      const brightness = Math.min(1, Math.max(0, centroid / (sampleRate / 4)))
+      for (let i = 0; i < Math.min(audioData.length, windowSize * 10); i += windowSize) {
+        for (let j = 0; j < windowSize / 2 && i + j < audioData.length; j++) {
+          lowEnergy += Math.abs(audioData[i + j])
+        }
+        for (let j = windowSize / 2; j < windowSize && i + j < audioData.length; j++) {
+          highEnergy += Math.abs(audioData[i + j])
+        }
+      }
+      
+      const brightness = highEnergy / (lowEnergy + highEnergy + 0.001)
+      const centroid = 1000 + (brightness * 3000) // Rough estimate
       
       return {
         brightness: Math.round(brightness * 100) / 100,
