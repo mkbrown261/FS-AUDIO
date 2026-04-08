@@ -11,6 +11,8 @@ import { ClawbotPanel } from './components/ClawbotPanel'
 import { StatusBar } from './components/StatusBar'
 import { InspectorPanel } from './components/InspectorPanel'
 import { MusicalTyping } from './components/MusicalTyping'
+import { ExportModal } from './components/ExportModal'
+import { useExport } from './hooks/useExport'
 
 const FLOWSTATE_HUB = 'https://flowstate-67g.pages.dev'
 
@@ -33,11 +35,15 @@ export default function App() {
   const [trackLevels, setTrackLevels] = useState<Map<string, number>>(new Map())
   const [micLevel, setMicLevel] = useState(0)
   const [showMusicalTyping, setShowMusicalTyping] = useState(false)
+  const [showExport, setShowExport] = useState(false)
 
   // ── Panel widths (resizable) ──────────────────────────────────────────────
   const [inspectorWidth, setInspectorWidth] = useState(240)
   const [tracklistWidth, setTracklistWidth] = useState(220)
   const [clawbotWidth, setClawbotWidth] = useState(280)
+
+  // ── Export hook ─────────────────────────────────────────────────────────
+  const exporter = useExport(engine.audioBuffersRef)
 
   // ── Transport — wired to audio engine ─────────────────────────────────────
   const transport = useTransport(
@@ -73,10 +79,12 @@ export default function App() {
     return () => cancelAnimationFrame(rafId)
   }, [store.isRecording, engine])
 
-  // ── Live volume/pan sync ──────────────────────────────────────────────────
+  // ── Live volume/pan sync + solo/mute logic ────────────────────────────────
   useEffect(() => {
+    // applySoloMute re-computes every track's gain respecting solo bus logic:
+    // if ANY track is soloed, all non-soloed tracks are silenced (Logic Pro)
+    engine.applySoloMute()
     for (const t of store.tracks) {
-      engine.setTrackVolume(t.id, t.muted ? 0 : t.volume)
       engine.setTrackPan(t.id, t.pan)
     }
   }, [store.tracks, engine])
@@ -316,6 +324,16 @@ export default function App() {
           }
           break
 
+        // ── Paste at playhead ────────────────────────────────────────────
+        case 'KeyV':
+          if (meta && !inPianoRoll) {
+            e.preventDefault()
+            const st = useProjectStore.getState()
+            const currentBeatNow = st.currentTime * (st.bpm / 60)
+            store.pasteClip(currentBeatNow)
+          }
+          break
+
         // ── Mute (M) ─────────────────────────────────────────────────────
         case 'KeyM':
           if (!inPianoRoll) {
@@ -445,6 +463,11 @@ export default function App() {
           }
           break
 
+        // ── Export / Bounce ───────────────────────────────────────────────
+        case 'KeyE':
+          if (meta) { e.preventDefault(); setShowExport(true) }
+          break
+
         // ── Normalize gain on selected clips ─────────────────────────────
         case 'KeyN':
           if (meta && !inPianoRoll) {
@@ -466,7 +489,7 @@ export default function App() {
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transport, store, inspectorWidth, tracklistWidth, clawbotWidth, engine, showMusicalTyping])
+  }, [transport, store, inspectorWidth, tracklistWidth, clawbotWidth, engine, showMusicalTyping, showExport])
 
   const currentBeat = store.currentTime * (store.bpm / 60)
   const playheadX = currentBeat * store.pixelsPerBeat - store.scrollLeft
@@ -479,6 +502,7 @@ export default function App() {
         onStop={transport.pause}
         onToStart={transport.toStart}
         onRecord={transport.record}
+        onExport={() => setShowExport(true)}
       />
 
       <div className="main-area">
@@ -547,6 +571,13 @@ export default function App() {
         onNoteOn={engine.noteOn}
         onNoteOff={engine.noteOff}
         onPlayNote={engine.playPreviewNote}
+      />
+
+      <ExportModal
+        isOpen={showExport}
+        onClose={() => setShowExport(false)}
+        onBounce={exporter.bounce}
+        progress={exporter.progress}
       />
     </div>
   )

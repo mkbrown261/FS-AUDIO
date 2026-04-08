@@ -8,6 +8,7 @@ interface ToolbarProps {
   onStop: () => void
   onToStart: () => void
   onRecord: () => void
+  onExport?: () => void
 }
 
 const KEYS = [
@@ -130,7 +131,7 @@ function secToTime(sec: number): string {
   return `${m}:${String(s).padStart(2,'0')}.${String(ms).padStart(3,'0')}`
 }
 
-export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: ToolbarProps) {
+export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport }: ToolbarProps) {
   const {
     bpm, setBpm, key, setKey,
     isPlaying, isRecording, isLooping, metronomeEnabled,
@@ -333,6 +334,13 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord }: Toolba
       {/* Inspector */}
       <button className={`tbt ${inspectorOpen ? 'active' : ''}`} onClick={() => setInspectorOpen(!inspectorOpen)} title="Inspector (I)">
         <svg width="11" height="11" viewBox="0 0 11 11"><rect x="0" y="0" width="4" height="11" fill="currentColor" rx="1"/><rect x="6" y="0" width="5" height="2" fill="currentColor" rx="1"/><rect x="6" y="4" width="5" height="2" fill="currentColor" rx="1"/><rect x="6" y="8" width="3" height="2" fill="currentColor" rx="1"/></svg>
+      </button>
+
+      {/* Export */}
+      <button className="tbt tbt-export" onClick={onExport} title="Export / Bounce to WAV (⌘E)">
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M5.5 1v6M3 5l2.5 2.5L8 5M1 9.5h9"/>
+        </svg>
       </button>
 
       {/* Clawbot */}

@@ -273,24 +273,42 @@ export function useAudioEngine() {
     return source
   }, [getCtx, getTrackNodes, loadAudioBuffer, applyFadeRamps])
 
+
+
   const startPlayback = useCallback(async (fromBeat: number) => {
     const ctx = getCtx()
     if (ctx.state === 'suspended') await ctx.resume()
     const { tracks, bpm } = useProjectStore.getState()
+    const anySolo = tracks.some(t => t.solo && t.type !== 'master')
 
     for (const track of tracks) {
-      if (track.muted || track.type === 'master') continue
+      if (track.type === 'master') continue
+      // Solo logic: if any track is soloed, mute all non-soloed tracks
+      const effectiveVol = track.muted ? 0 : (anySolo && !track.solo) ? 0 : track.volume
       const nodes = getTrackNodes(track.id, track.volume, track.pan)
-      nodes.gain.gain.value = track.muted ? 0 : track.volume
+      nodes.gain.gain.value = effectiveVol
+      if (effectiveVol === 0) continue
 
       for (const clip of track.clips) {
         if (!clip.audioUrl || clip.muted) continue
         const clipEndBeat = clip.startBeat + clip.durationBeats
         if (clipEndBeat <= fromBeat) continue
-        await playClip(clip.audioUrl, track.id, clip, bpm, fromBeat, track.volume, track.pan)
+        await playClip(clip.audioUrl, track.id, clip, bpm, fromBeat, effectiveVol, track.pan)
       }
     }
   }, [getCtx, getTrackNodes, playClip])
+
+  // ── Apply solo/mute state live (called when user toggles solo/mute) ──────
+  const applySoloMute = useCallback(() => {
+    const { tracks } = useProjectStore.getState()
+    const anySolo = tracks.some(t => t.solo && t.type !== 'master')
+    for (const track of tracks) {
+      const nodes = trackNodesRef.current.get(track.id)
+      if (!nodes) continue
+      const effectiveVol = track.muted ? 0 : (anySolo && !track.solo && track.type !== 'master') ? 0 : track.volume
+      nodes.gain.gain.value = effectiveVol
+    }
+  }, [])
 
   const stopAll = useCallback(() => {
     for (const { source } of scheduledSourcesRef.current) {
@@ -580,6 +598,7 @@ export function useAudioEngine() {
     startPlayback,
     stopAll,
     playClip,
+    applySoloMute,
     startMetronome,
     stopMetronome,
     startRecording,
@@ -604,5 +623,6 @@ export function useAudioEngine() {
     noteOff,
     allNotesOff,
     playPreviewNote,
+    audioBuffersRef,
   }
 }

@@ -307,29 +307,48 @@ html, body, #root {
 .ruler-line { width: 1px; background: var(--border); }
 .beat-tick .ruler-line { background: rgba(255,255,255,.04); }
 
+/* ── Loop region ──────────────────────────────────────────────────────────── */
 .loop-region {
   position: absolute; top: 0; bottom: 0;
-  background: rgba(6,182,212,.12); border-left: 2px solid var(--cyan); border-right: 2px solid var(--cyan);
-  pointer-events: none;
+  border-left: 2px solid var(--cyan); border-right: 2px solid var(--cyan);
+  z-index: 3; user-select: none;
 }
+.loop-region-active {
+  background: rgba(6,182,212,.15);
+}
+.loop-region-inactive {
+  background: rgba(6,182,212,.04);
+  border-color: rgba(6,182,212,.3);
+}
+.loop-region-label {
+  position: absolute; top: 2px; left: 50%; transform: translateX(-50%);
+  font-size: 9px; color: var(--cyan); white-space: nowrap; pointer-events: none;
+  text-shadow: 0 1px 3px rgba(0,0,0,.8); font-weight: 600; letter-spacing: .03em;
+}
+
+/* Loop locator handles */
 .loop-locator {
-  position: absolute; top: 0; bottom: 0; width: 10px;
-  cursor: ew-resize; z-index: 5;
+  position: absolute; top: 0; bottom: 0; width: 14px;
+  cursor: ew-resize; z-index: 6; transform: translateX(-7px);
 }
+.loop-locator:hover::after { background: #fff; }
 .loop-locator::after {
-  content: '';
-  position: absolute; top: 0; left: 4px; bottom: 0; width: 2px;
-  background: var(--cyan);
+  content: ''; position: absolute; top: 0; left: 6px; bottom: 0; width: 2px;
+  background: var(--cyan); transition: background .1s;
 }
 .loop-locator::before {
-  content: '';
-  position: absolute; top: 0; left: 1px;
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
+  content: ''; position: absolute; top: 0; left: 2px;
+  border-left: 5px solid transparent; border-right: 5px solid transparent;
   border-top: 8px solid var(--cyan);
 }
-.loop-locator-start { transform: translateX(-5px); }
-.loop-locator-end { transform: translateX(-5px); }
+.loop-locator-inactive::after { background: rgba(6,182,212,.3); }
+.loop-locator-inactive::before { border-top-color: rgba(6,182,212,.3); }
+.loop-handle-label {
+  position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%);
+  font-size: 8px; font-weight: 800; color: var(--cyan); pointer-events: none;
+  text-shadow: 0 1px 3px rgba(0,0,0,.9); line-height: 1;
+}
+.loop-locator-inactive .loop-handle-label { color: rgba(6,182,212,.4); }
 
 .track-lane {
   border-bottom: 1px solid var(--border);
@@ -389,9 +408,34 @@ html, body, #root {
   margin-left: 4px; vertical-align: middle;
   letter-spacing: .04em;
 }
-.clip-badge-ai   { background: rgba(168,85,247,.35); color: #e0b4ff; }
-.clip-badge-loop { background: rgba(16,185,129,.25); color: #6ee7b7; }
-.clip-badge-fade { background: rgba(6,182,212,.2); color: var(--cyan); }
+.clip-badge-ai    { background: rgba(168,85,247,.35); color: #e0b4ff; }
+.clip-badge-loop  { background: rgba(16,185,129,.25); color: #6ee7b7; }
+.clip-badge-fade  { background: rgba(6,182,212,.2);   color: var(--cyan); }
+.clip-badge-muted { background: rgba(239,68,68,.25);  color: #fca5a5; }
+
+/* ── Clip loop toggle button ────────────────────────────────────────────────── */
+.clip-loop-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px;
+  background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.15);
+  border-radius: 3px;
+  color: rgba(255,255,255,.4);
+  font-size: 11px; font-weight: 900; line-height: 1;
+  cursor: pointer; margin-left: 4px; vertical-align: middle;
+  padding: 0; transition: background .1s, color .1s, border-color .1s;
+}
+.clip-loop-btn:hover {
+  background: rgba(16,185,129,.25);
+  border-color: var(--green);
+  color: var(--green);
+}
+.clip-loop-btn-active {
+  background: rgba(16,185,129,.3) !important;
+  border-color: var(--green) !important;
+  color: var(--green) !important;
+  box-shadow: 0 0 0 1px rgba(16,185,129,.3);
+}
 
 /* ─── Fade Handles ────────────────────────────────────────────────────────────── */
 .fade-in-handle {
@@ -1118,3 +1162,139 @@ html, body, #root {
 
 /* ─── EQ freq label ──────────────────────────────────────────────────────────── */
 .eq-freq { display: block; font-size: 8px; color: var(--text-m); margin-top: 1px; }
+
+/* ─── Export Modal ────────────────────────────────────────────────────────────── */
+.export-backdrop {
+  position: fixed; inset: 0; z-index: 9990;
+  background: rgba(0,0,0,0.6); backdrop-filter: blur(2px);
+}
+.export-modal {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  z-index: 9999; width: 480px; max-width: 96vw;
+  background: #111118;
+  border: 1px solid rgba(168,85,247,.3);
+  border-radius: 10px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.8), 0 0 0 1px rgba(168,85,247,.1);
+  display: flex; flex-direction: column;
+  animation: mt-slide-up .18s cubic-bezier(.34,1.56,.64,1);
+}
+.export-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(168,85,247,.06); border-radius: 10px 10px 0 0;
+}
+.export-title {
+  font-size: 13px; font-weight: 700; color: var(--text-p);
+  display: flex; align-items: center;
+}
+.export-close-btn {
+  background: rgba(255,255,255,.06); border: 1px solid var(--border);
+  color: var(--text-s); cursor: pointer; font-size: 12px;
+  padding: 3px 8px; border-radius: 4px; transition: background .15s, color .15s;
+}
+.export-close-btn:hover:not(:disabled) { background: rgba(239,68,68,.2); color: #ef4444; }
+.export-close-btn:disabled { opacity: .4; cursor: default; }
+
+.export-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; }
+.export-section { display: flex; flex-direction: column; gap: 6px; }
+.export-section-label {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  color: var(--text-m); letter-spacing: .06em;
+}
+
+/* Range radio */
+.export-radio-group { display: flex; flex-direction: column; gap: 6px; }
+.export-radio {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 8px 10px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--bg-card);
+  cursor: pointer; transition: border-color .12s, background .12s;
+}
+.export-radio input[type=radio] { display: none; }
+.export-radio.active { border-color: var(--accent); background: rgba(168,85,247,.08); }
+.export-radio-dot {
+  width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; margin-top: 2px;
+  border: 1.5px solid var(--text-m); background: transparent; transition: all .12s;
+}
+.export-radio.active .export-radio-dot {
+  border-color: var(--accent); background: var(--accent);
+  box-shadow: 0 0 0 2px rgba(168,85,247,.25);
+}
+.export-radio-title { font-size: 12px; font-weight: 600; color: var(--text-p); }
+.export-radio-sub   { font-size: 10px; color: var(--text-s); margin-top: 1px; font-family: monospace; }
+
+/* Format */
+.export-format-row { display: flex; gap: 16px; }
+.export-param { display: flex; flex-direction: column; gap: 4px; }
+.export-param label { font-size: 10px; color: var(--text-s); }
+.export-btn-group { display: flex; gap: 4px; }
+.export-fmt-btn {
+  padding: 4px 10px; border-radius: 4px; font-size: 11px; cursor: pointer;
+  background: var(--bg-card); border: 1px solid var(--border); color: var(--text-s);
+  transition: all .1s;
+}
+.export-fmt-btn:hover { border-color: var(--accent); color: var(--text-p); }
+.export-fmt-btn.active { background: rgba(168,85,247,.2); border-color: var(--accent); color: var(--accent); font-weight: 700; }
+
+/* Checkbox */
+.export-checkbox {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  font-size: 12px; color: var(--text-s);
+}
+.export-checkbox input[type=checkbox] { display: none; }
+.export-check-box {
+  width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0;
+  border: 1.5px solid var(--border); background: var(--bg-card); transition: all .1s;
+}
+.export-checkbox:has(input:checked) .export-check-box {
+  background: var(--accent); border-color: var(--accent);
+}
+.export-checkbox:has(input:checked) .export-check-box::after {
+  content: '✓'; display: block; font-size: 10px; color: #fff;
+  text-align: center; line-height: 12px; font-weight: 800;
+}
+
+/* Filename */
+.export-filename-row { display: flex; align-items: center; gap: 6px; }
+.export-filename-input {
+  flex: 1; background: var(--bg-card); border: 1px solid var(--border);
+  color: var(--text-p); border-radius: 4px; padding: 5px 8px;
+  font-size: 12px; outline: none; transition: border-color .1s;
+}
+.export-filename-input:focus { border-color: var(--accent); }
+.export-ext { font-size: 12px; color: var(--text-m); }
+
+/* Progress */
+.export-progress-wrap { display: flex; flex-direction: column; gap: 5px; }
+.export-progress-label { font-size: 11px; color: var(--text-s); }
+.export-progress-bar {
+  height: 4px; background: rgba(255,255,255,.08); border-radius: 2px; overflow: hidden;
+}
+.export-progress-fill {
+  height: 100%; background: var(--accent); border-radius: 2px;
+  transition: width .3s ease; min-width: 8px;
+}
+.export-success { font-size: 12px; color: var(--green); padding: 6px 10px; background: rgba(16,185,129,.1); border-radius: 5px; border: 1px solid rgba(16,185,129,.2); }
+.export-error   { font-size: 12px; color: var(--danger); padding: 6px 10px; background: rgba(239,68,68,.1); border-radius: 5px; border: 1px solid rgba(239,68,68,.2); }
+
+/* Footer */
+.export-footer {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+.export-cancel-btn {
+  padding: 7px 16px; border-radius: 5px; font-size: 12px; font-weight: 600; cursor: pointer;
+  background: transparent; border: 1px solid var(--border); color: var(--text-s);
+  transition: all .1s;
+}
+.export-cancel-btn:hover:not(:disabled) { border-color: var(--text-s); color: var(--text-p); }
+.export-cancel-btn:disabled { opacity: .4; cursor: default; }
+.export-bounce-btn {
+  padding: 7px 20px; border-radius: 5px; font-size: 12px; font-weight: 700; cursor: pointer;
+  background: var(--accent); border: none; color: #fff;
+  box-shadow: 0 2px 8px rgba(168,85,247,.4); transition: all .1s;
+}
+.export-bounce-btn:hover:not(:disabled) { background: #9333ea; box-shadow: 0 4px 12px rgba(168,85,247,.5); }
+.export-bounce-btn:disabled { opacity: .4; cursor: default; box-shadow: none; }

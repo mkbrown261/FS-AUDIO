@@ -245,6 +245,7 @@ interface Actions {
   setSnapValue: (v: string) => void
   setInspectorOpen: (v: boolean) => void
   setClipboardClip: (clip: Clip | null) => void
+  pasteClip: (atBeat: number) => void
 
   newProject: () => void
   saveSnapshot: () => void
@@ -551,6 +552,30 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
   setSnapValue: (v) => set({ snapValue: v }),
   setInspectorOpen: (v) => set({ inspectorOpen: v }),
   setClipboardClip: (clip) => set({ clipboardClip: clip }),
+
+  pasteClip: (atBeat) => {
+    const st = get()
+    const src = st.clipboardClip
+    if (!src) return
+    // Paste onto the selected track, or the clipboard clip's original track
+    const targetTrackId = st.selectedTrackId ?? src.trackId
+    const track = st.tracks.find(t => t.id === targetTrackId)
+    if (!track) return
+    get().saveSnapshot()
+    const pasted: Clip = {
+      ...src,
+      id: `clip-paste-${Date.now()}`,
+      trackId: targetTrackId,
+      startBeat: atBeat,
+    }
+    set(s => ({
+      tracks: s.tracks.map(t => t.id === targetTrackId
+        ? { ...t, clips: [...t.clips, pasted] }
+        : t),
+      selectedClipIds: [pasted.id],
+      isDirty: true,
+    }))
+  },
 
   // ── Project ────────────────────────────────────────────────────────────────
   newProject: () => set({

@@ -269,9 +269,19 @@ function ClipView({
         <div className="clip-name">
           {clip.name}
           {clip.aiGenerated && <span className="clip-badge clip-badge-ai">AI</span>}
-          {clip.looped && <span className="clip-badge clip-badge-loop">LOOP</span>}
+          {/* Loop toggle button — click ∞ to toggle looping */}
+          <button
+            className={`clip-loop-btn${clip.looped ? ' clip-loop-btn-active' : ''}`}
+            title={clip.looped ? 'Looping — click to disable' : 'Click to loop clip'}
+            onMouseDown={e => e.stopPropagation()}
+            onClick={e => {
+              e.stopPropagation()
+              updateClip(clip.id, { looped: !clip.looped })
+            }}
+          >∞</button>
           {(clip.fadeIn ?? 0) > 0 && <span className="clip-badge clip-badge-fade">FI</span>}
           {(clip.fadeOut ?? 0) > 0 && <span className="clip-badge clip-badge-fade">FO</span>}
+          {clip.muted && <span className="clip-badge clip-badge-muted">MUTE</span>}
         </div>
 
         {clip.type === 'audio' && clip.waveformPeaks && clip.waveformPeaks.length > 0 && (
@@ -787,29 +797,100 @@ export function Timeline({
         }}
       >
         {ticks}
-        {isLooping && (
-          <>
-            <div className="loop-region" style={{ left: loopStart * pixelsPerBeat, width: (loopEnd - loopStart) * pixelsPerBeat }} />
-            <div className="loop-locator loop-locator-start" style={{ left: loopStart * pixelsPerBeat }}
-              onMouseDown={e => {
-                e.stopPropagation()
-                const startX = e.clientX; const orig = loopStart
-                const mv = (me: MouseEvent) => useProjectStore.getState().setLoopRange(Math.max(0, Math.min(loopEnd - 1, orig + (me.clientX - startX) / pixelsPerBeat)), loopEnd)
-                const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up) }
-                window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up)
-              }}
-            />
-            <div className="loop-locator loop-locator-end" style={{ left: loopEnd * pixelsPerBeat }}
-              onMouseDown={e => {
-                e.stopPropagation()
-                const startX = e.clientX; const orig = loopEnd
-                const mv = (me: MouseEvent) => useProjectStore.getState().setLoopRange(loopStart, Math.max(loopStart + 1, orig + (me.clientX - startX) / pixelsPerBeat))
-                const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up) }
-                window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up)
-              }}
-            />
-          </>
-        )}
+
+        {/* ── Loop region — always rendered, dimmed when loop is off ──────── */}
+        {(() => {
+          const loopActive = isLooping
+          const regionLeft  = loopStart * pixelsPerBeat
+          const regionWidth = Math.max(0, (loopEnd - loopStart) * pixelsPerBeat)
+          const beatsToLabel = (b: number) => {
+            const bar  = Math.floor(b / BEATS_PER_BAR) + 1
+            const beat = Math.floor(b % BEATS_PER_BAR) + 1
+            return `${bar}:${beat}`
+          }
+
+          const handleStartDrag = (e: React.MouseEvent) => {
+            e.stopPropagation()
+            const startX = e.clientX
+            const orig   = useProjectStore.getState().loopStart
+            const mv = (me: MouseEvent) => {
+              const st = useProjectStore.getState()
+              const raw = Math.max(0, orig + (me.clientX - startX) / pixelsPerBeat)
+              const snapped = snapBeat(raw, st.snapValue, st.snapEnabled)
+              st.setLoopRange(Math.min(snapped, st.loopEnd - 0.5), st.loopEnd)
+            }
+            const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up) }
+            window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up)
+          }
+
+          const handleEndDrag = (e: React.MouseEvent) => {
+            e.stopPropagation()
+            const startX = e.clientX
+            const orig   = useProjectStore.getState().loopEnd
+            const mv = (me: MouseEvent) => {
+              const st = useProjectStore.getState()
+              const raw = Math.max(st.loopStart + 0.5, orig + (me.clientX - startX) / pixelsPerBeat)
+              const snapped = snapBeat(raw, st.snapValue, st.snapEnabled)
+              st.setLoopRange(st.loopStart, snapped)
+            }
+            const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up) }
+            window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up)
+          }
+
+          const handleRegionDrag = (e: React.MouseEvent) => {
+            e.stopPropagation()
+            const startX   = e.clientX
+            const origStart = useProjectStore.getState().loopStart
+            const origEnd   = useProjectStore.getState().loopEnd
+            const dur = origEnd - origStart
+            const mv = (me: MouseEvent) => {
+              const st = useProjectStore.getState()
+              const rawStart = Math.max(0, origStart + (me.clientX - startX) / pixelsPerBeat)
+              const snapped = snapBeat(rawStart, st.snapValue, st.snapEnabled)
+              st.setLoopRange(snapped, snapped + dur)
+            }
+            const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up) }
+            window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up)
+          }
+
+          return (
+            <>
+              {/* Shaded region body — drag to move entire loop range */}
+              <div
+                className={`loop-region${loopActive ? ' loop-region-active' : ' loop-region-inactive'}`}
+                style={{ left: regionLeft, width: regionWidth, pointerEvents: 'auto', cursor: 'move' }}
+                onMouseDown={handleRegionDrag}
+                title="Drag to move loop region"
+              >
+                {regionWidth > 48 && (
+                  <span className="loop-region-label">
+                    {beatsToLabel(loopStart)}–{beatsToLabel(loopEnd)}
+                  </span>
+                )}
+              </div>
+
+              {/* Start handle */}
+              <div
+                className={`loop-locator loop-locator-start${loopActive ? '' : ' loop-locator-inactive'}`}
+                style={{ left: regionLeft, pointerEvents: 'auto' }}
+                onMouseDown={handleStartDrag}
+                title={`Loop start: ${beatsToLabel(loopStart)} — drag to move`}
+              >
+                <span className="loop-handle-label">S</span>
+              </div>
+
+              {/* End handle */}
+              <div
+                className={`loop-locator loop-locator-end${loopActive ? '' : ' loop-locator-inactive'}`}
+                style={{ left: regionLeft + regionWidth, pointerEvents: 'auto' }}
+                onMouseDown={handleEndDrag}
+                title={`Loop end: ${beatsToLabel(loopEnd)} — drag to move`}
+              >
+                <span className="loop-handle-label">E</span>
+              </div>
+            </>
+          )
+        })()}
       </div>
 
       {/* Lanes + grid */}
