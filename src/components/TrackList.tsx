@@ -1,4 +1,4 @@
-import React, { useRef, useCallback } from 'react'
+import React, { useRef, useCallback, useState } from 'react'
 import { useProjectStore, Track } from '../store/projectStore'
 
 const COLORS = ['#a855f7','#ec4899','#3b82f6','#10b981','#f59e0b','#06b6d4','#ef4444','#8b5cf6','#14b8a6','#f97316','#84cc16','#e879f9']
@@ -62,8 +62,22 @@ function TrackTypeIcon({ type }: { type: string }) {
   }
 }
 
-function TrackHeader({ track, onVolumeChange, onPanChange, onArmClick }: {
+// ── Drag-reorder state (shared between TrackHeader and TrackList) ─────────────
+interface DragState {
+  dragIdx: number
+  overIdx: number
+}
+
+function TrackHeader({
+  track, idx, dragState, onDragStart, onDragOver, onDragEnd,
+  onVolumeChange, onPanChange, onArmClick,
+}: {
   track: Track
+  idx: number
+  dragState: DragState | null
+  onDragStart: (idx: number) => void
+  onDragOver: (idx: number) => void
+  onDragEnd: () => void
   onVolumeChange: (id: string, v: number) => void
   onPanChange: (id: string, v: number) => void
   onArmClick: (trackId: string) => void
@@ -73,9 +87,15 @@ function TrackHeader({ track, onVolumeChange, onPanChange, onArmClick }: {
   const isMaster = track.type === 'master'
   const isSelected = selectedTrackId === track.id
 
+  // Visual drag feedback
+  const isDragging = dragState?.dragIdx === idx
+  const isDropTarget = dragState !== null && dragState.overIdx === idx && dragState.dragIdx !== idx
+  const dropAbove = isDropTarget && dragState!.overIdx < dragState!.dragIdx
+  const dropBelow = isDropTarget && dragState!.overIdx > dragState!.dragIdx
+
   function cycleColor() {
-    const idx = COLORS.indexOf(track.color)
-    updateTrack(track.id, { color: COLORS[(idx + 1) % COLORS.length] })
+    const cidx = COLORS.indexOf(track.color)
+    updateTrack(track.id, { color: COLORS[(cidx + 1) % COLORS.length] })
   }
 
   const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
@@ -83,27 +103,39 @@ function TrackHeader({ track, onVolumeChange, onPanChange, onArmClick }: {
     e.stopPropagation()
     const startY = e.clientY
     const startHeight = track.height
-
     const mv = (me: MouseEvent) => {
-      const dy = me.clientY - startY
-      const newHeight = Math.max(56, Math.min(200, startHeight + dy))
-      updateTrack(track.id, { height: newHeight })
+      updateTrack(track.id, { height: Math.max(56, Math.min(200, startHeight + (me.clientY - startY))) })
     }
-    const up = () => {
-      window.removeEventListener('mousemove', mv)
-      window.removeEventListener('mouseup', up)
-    }
+    const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up) }
     window.addEventListener('mousemove', mv)
     window.addEventListener('mouseup', up)
   }, [track.id, track.height, updateTrack])
 
   return (
     <div
-      className={`track-header ${isSelected ? 'selected' : ''}`}
+      className={`track-header${isSelected ? ' selected' : ''}${isDragging ? ' track-dragging' : ''}${dropAbove ? ' track-drop-above' : ''}${dropBelow ? ' track-drop-below' : ''}`}
       style={{ height: track.height, borderLeftColor: track.color }}
       onClick={() => selectTrack(track.id)}
+      onDragOver={e => { e.preventDefault(); onDragOver(idx) }}
     >
       <div className="track-header-top">
+        {/* Drag handle — only non-master tracks are reorderable */}
+        {!isMaster && (
+          <div
+            className="track-drag-handle"
+            draggable
+            onDragStart={e => { e.stopPropagation(); onDragStart(idx) }}
+            onDragEnd={onDragEnd}
+            title="Drag to reorder track"
+          >
+            <svg width="8" height="12" viewBox="0 0 8 12" fill="currentColor" opacity="0.4">
+              <circle cx="2" cy="2" r="1.2"/><circle cx="6" cy="2" r="1.2"/>
+              <circle cx="2" cy="6" r="1.2"/><circle cx="6" cy="6" r="1.2"/>
+              <circle cx="2" cy="10" r="1.2"/><circle cx="6" cy="10" r="1.2"/>
+            </svg>
+          </div>
+        )}
+
         <div className="track-color-dot" style={{ background: track.color }} onClick={e => { e.stopPropagation(); cycleColor() }} title="Click to change color" />
         <span className="track-type-badge"><TrackTypeIcon type={track.type} /> {track.type.toUpperCase()}</span>
         <input
@@ -185,18 +217,51 @@ export function TrackList({ onVolumeChange, onPanChange, onArmClick, width }: {
   onArmClick: (trackId: string) => void
   width?: number
 }) {
-  const { tracks, addTrack } = useProjectStore()
+  const { tracks, addTrack, moveTrack } = useProjectStore()
+  const [dragState, setDragState] = useState<DragState | null>(null)
+
+  function handleDragStart(idx: number) {
+    setDragState({ dragIdx: idx, overIdx: idx })
+  }
+
+  function handleDragOver(idx: number) {
+    if (!dragState) return
+    if (dragState.overIdx !== idx) setDragState({ ...dragState, overIdx: idx })
+  }
+
+  function handleDragEnd() {
+    if (dragState && dragState.dragIdx !== dragState.overIdx) {
+      moveTrack(dragState.dragIdx, dragState.overIdx)
+    }
+    setDragState(null)
+  }
 
   return (
-    <div className="track-list" style={width !== undefined ? { width: '100%' } : undefined}>
+    <div
+      className="track-list"
+      style={width !== undefined ? { width: '100%' } : undefined}
+      onDragOver={e => e.preventDefault()}
+      onDrop={handleDragEnd}
+    >
       <div className="track-list-header">
         <button className="add-track-btn" onClick={() => addTrack('audio')}>+ Audio</button>
         <button className="add-track-btn" onClick={() => addTrack('midi')}>+ MIDI</button>
         <button className="add-track-btn" onClick={() => addTrack('bus')}>+ Bus</button>
       </div>
       <div className="track-list-body">
-        {tracks.map(track => (
-          <TrackHeader key={track.id} track={track} onVolumeChange={onVolumeChange} onPanChange={onPanChange} onArmClick={onArmClick} />
+        {tracks.map((track, idx) => (
+          <TrackHeader
+            key={track.id}
+            track={track}
+            idx={idx}
+            dragState={dragState}
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDragEnd={handleDragEnd}
+            onVolumeChange={onVolumeChange}
+            onPanChange={onPanChange}
+            onArmClick={onArmClick}
+          />
         ))}
       </div>
     </div>

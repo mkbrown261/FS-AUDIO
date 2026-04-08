@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { useProjectStore, MidiNote, Clip } from '../store/projectStore'
 
 const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B']
@@ -23,9 +23,11 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
   const [quantize, setQuantize] = useState(0.25)
   const [tool, setTool] = useState<'draw' | 'select' | 'erase'>('draw')
   const [selectedNotes, setSelectedNotes] = useState<Set<string>>(new Set())
+  const [noteClipboard, setNoteClipboard] = useState<MidiNote[]>([])
+  const [saveFlash, setSaveFlash] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Resolve clip (must come before useEffect that uses clip/notes)
+  // Resolve clip
   let clip: Clip | null = null
   let trackColor = '#a855f7'
   for (const t of tracks) {
@@ -38,35 +40,154 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
   const totalWidth = totalBeats * ppb
   const totalHeight = 128 * CELL_H
 
-  // ── Delete / Backspace removes selected notes ──────────────────────────────
+  // ── Auto-scroll to where most notes are on first open ──────────────────────
+  useEffect(() => {
+    if (!clip || !notes.length) return
+    const avgPitch = notes.reduce((s, n) => s + n.pitch, 0) / notes.length
+    const scrollY = (127 - avgPitch) * CELL_H - 120
+    scrollRef.current?.scrollTo({ top: Math.max(0, scrollY) })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clipId])
+
+  // ── Piano Roll keyboard shortcuts ──────────────────────────────────────────
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const el = document.activeElement
-      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNotes.size > 0 && clip) {
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return
+      if (!clip) return
+
+      const meta = e.metaKey || e.ctrlKey
+
+      // Delete / Backspace — remove selected notes
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNotes.size > 0) {
         e.preventDefault()
         updateClip(clip.id, { midiNotes: notes.filter(n => !selectedNotes.has(n.id)) })
         setSelectedNotes(new Set())
+        return
+      }
+
+      // Escape — deselect all notes
+      if (e.key === 'Escape') {
+        setSelectedNotes(new Set())
+        return
+      }
+
+      // Tool shortcuts (only inside piano roll, when no text input focused)
+      if (!meta && !e.shiftKey) {
+        if (e.key === 'n' || e.key === 'N') { e.preventDefault(); setTool('draw'); return }
+        if (e.key === 's' || e.key === 'S') { e.preventDefault(); setTool('select'); return }
+        if (e.key === 'e' || e.key === 'E') { e.preventDefault(); setTool('erase'); return }
+      }
+
+      if (!meta) return
+
+      // Cmd+A — select all notes
+      if (e.code === 'KeyA') {
+        e.preventDefault()
+        setSelectedNotes(new Set(notes.map(n => n.id)))
+        return
+      }
+
+      // Cmd+C — copy selected notes
+      if (e.code === 'KeyC') {
+        e.preventDefault()
+        const sel = notes.filter(n => selectedNotes.has(n.id))
+        if (sel.length > 0) {
+          // Normalise so the earliest note starts at beat 0
+          const minBeat = Math.min(...sel.map(n => n.startBeat))
+          setNoteClipboard(sel.map(n => ({ ...n, startBeat: n.startBeat - minBeat })))
+        }
+        return
+      }
+
+      // Cmd+X — cut selected notes
+      if (e.code === 'KeyX') {
+        e.preventDefault()
+        const sel = notes.filter(n => selectedNotes.has(n.id))
+        if (sel.length > 0) {
+          const minBeat = Math.min(...sel.map(n => n.startBeat))
+          setNoteClipboard(sel.map(n => ({ ...n, startBeat: n.startBeat - minBeat })))
+          updateClip(clip.id, { midiNotes: notes.filter(n => !selectedNotes.has(n.id)) })
+          setSelectedNotes(new Set())
+        }
+        return
+      }
+
+      // Cmd+V — paste notes at playhead beat
+      if (e.code === 'KeyV') {
+        e.preventDefault()
+        if (noteClipboard.length === 0) return
+        const st = useProjectStore.getState()
+        const playheadBeat = st.currentTime * (st.bpm / 60)
+        const pasted = noteClipboard.map(n => ({
+          ...n,
+          id: `n-paste-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          startBeat: n.startBeat + playheadBeat,
+        }))
+        updateClip(clip.id, { midiNotes: [...notes, ...pasted] })
+        setSelectedNotes(new Set(pasted.map(n => n.id)))
+        return
+      }
+
+      // Cmd+D — duplicate selected notes (place immediately after)
+      if (e.code === 'KeyD') {
+        e.preventDefault()
+        const sel = notes.filter(n => selectedNotes.has(n.id))
+        if (sel.length === 0) return
+        const maxEnd = Math.max(...sel.map(n => n.startBeat + n.durationBeats))
+        const minStart = Math.min(...sel.map(n => n.startBeat))
+        const offset = maxEnd - minStart
+        const duped = sel.map(n => ({
+          ...n,
+          id: `n-dup-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          startBeat: n.startBeat + offset,
+        }))
+        updateClip(clip.id, { midiNotes: [...notes, ...duped] })
+        setSelectedNotes(new Set(duped.map(n => n.id)))
+        return
+      }
+
+      // Cmd+Q — quantize selected (or all) notes to current grid
+      if (e.code === 'KeyQ') {
+        e.preventDefault()
+        const target = selectedNotes.size > 0 ? selectedNotes : new Set(notes.map(n => n.id))
+        const quantized = notes.map(n => {
+          if (!target.has(n.id)) return n
+          return {
+            ...n,
+            startBeat: Math.round(n.startBeat / quantize) * quantize,
+            durationBeats: Math.max(quantize, Math.round(n.durationBeats / quantize) * quantize),
+          }
+        })
+        updateClip(clip.id, { midiNotes: quantized })
+        return
+      }
+
+      // Cmd+Z — undo / Cmd+Shift+Z — redo  (delegate to project store)
+      if (e.code === 'KeyZ') {
+        e.preventDefault()
+        const st = useProjectStore.getState()
+        e.shiftKey ? st.redo() : st.undo()
       }
     }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [selectedNotes, clip, notes, updateClip])
+
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [selectedNotes, clip, notes, noteClipboard, quantize, updateClip])
 
   // ── Note actions ────────────────────────────────────────────────────────────
-  function handleGridClick(e: React.MouseEvent<HTMLDivElement>) {
+  const handleGridClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (tool !== 'draw' || !clip) return
     const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
     const x = e.clientX - rect.left + (scrollRef.current?.scrollLeft ?? 0)
-    const y = e.clientY - rect.top + (scrollRef.current?.scrollTop ?? 0)
+    const y = e.clientY - rect.top  + (scrollRef.current?.scrollTop  ?? 0)
     const startBeat = Math.floor((x / ppb) / quantize) * quantize
     const pitch = Math.max(0, Math.min(127, 127 - Math.floor(y / CELL_H)))
-    // Don't duplicate if clicking on existing note
     if (notes.some(n => n.pitch === pitch && startBeat >= n.startBeat && startBeat < n.startBeat + n.durationBeats)) return
     const newNote: MidiNote = { id: `n-${Date.now()}`, pitch, velocity: 100, startBeat, durationBeats: quantize }
     onPlayNote?.(pitch)
     updateClip(clip.id, { midiNotes: [...notes, newNote] })
-  }
+  }, [tool, clip, ppb, quantize, notes, onPlayNote, updateClip])
 
   function handleNoteMouseDown(e: React.MouseEvent, note: MidiNote) {
     e.stopPropagation()
@@ -79,19 +200,37 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
     if (tool === 'select') {
       const next = new Set(selectedNotes)
       if (e.shiftKey) { next.has(note.id) ? next.delete(note.id) : next.add(note.id) }
-      else { next.clear(); next.add(note.id) }
+      else if (!next.has(note.id)) { next.clear(); next.add(note.id) }
       setSelectedNotes(next)
     }
-    // Drag move
+    // Drag-move all selected notes (or just this one)
     const startX = e.clientX
-    const origBeat = note.startBeat
-    const id = note.id
+    const startY = e.clientY
+    const notesToMove = (selectedNotes.has(note.id) && selectedNotes.size > 1)
+      ? notes.filter(n => selectedNotes.has(n.id))
+      : [note]
+    const origBeats = new Map(notesToMove.map(n => [n.id, n.startBeat]))
+    const origPitches = new Map(notesToMove.map(n => [n.id, n.pitch]))
+    let moved = false
+
     const mv = (me: MouseEvent) => {
       if (!clip) return
       const dx = me.clientX - startX
-      const raw = Math.max(0, origBeat + dx / ppb)
-      const snapped = Math.floor(raw / quantize) * quantize
-      updateClip(clip.id, { midiNotes: notes.map(n => n.id === id ? { ...n, startBeat: snapped } : n) })
+      const dy = me.clientY - startY
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) moved = true
+      if (!moved) return
+      const dBeats = dx / ppb
+      const dPitch  = -Math.round(dy / CELL_H)
+      updateClip(clip.id, {
+        midiNotes: notes.map(n => {
+          if (!origBeats.has(n.id)) return n
+          return {
+            ...n,
+            startBeat: Math.max(0, Math.floor((origBeats.get(n.id)! + dBeats) / quantize) * quantize),
+            pitch: Math.max(0, Math.min(127, origPitches.get(n.id)! + dPitch)),
+          }
+        }),
+      })
     }
     const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up) }
     window.addEventListener('mousemove', mv)
@@ -154,34 +293,19 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
       {/* Toolbar */}
       <div className="pr-toolbar">
         <div className="pr-tools">
-          {/* Draw tool — pencil */}
-          <button
-            className={`pr-tool ${tool === 'draw' ? 'active' : ''}`}
-            onClick={() => setTool('draw')}
-            title="Draw (N)"
-          >
+          <button className={`pr-tool ${tool === 'draw' ? 'active' : ''}`} onClick={() => setTool('draw')} title="Draw note (N)">
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
               <line x1="2" y1="10" x2="9" y2="3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
               <polygon points="9,1 11,3 10,4 8,2" fill="currentColor"/>
               <line x1="1" y1="11" x2="3" y2="11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
           </button>
-          {/* Select tool — arrow cursor */}
-          <button
-            className={`pr-tool ${tool === 'select' ? 'active' : ''}`}
-            onClick={() => setTool('select')}
-            title="Select (S)"
-          >
+          <button className={`pr-tool ${tool === 'select' ? 'active' : ''}`} onClick={() => setTool('select')} title="Select (S)">
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
               <polygon points="1,1 1,9 4,7 5.5,11 7,10.5 5.5,6.5 9,6.5" fill="currentColor"/>
             </svg>
           </button>
-          {/* Erase tool — X */}
-          <button
-            className={`pr-tool ${tool === 'erase' ? 'active' : ''}`}
-            onClick={() => setTool('erase')}
-            title="Erase (E)"
-          >
+          <button className={`pr-tool ${tool === 'erase' ? 'active' : ''}`} onClick={() => setTool('erase')} title="Erase (E)">
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
               <line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
               <line x1="10" y1="2" x2="2" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -202,19 +326,58 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
           </select>
         </div>
 
+        {/* Quantize action button */}
+        <button
+          className="tbt pr-quantize-btn"
+          title="Quantize selected notes to grid (⌘Q)"
+          onClick={() => {
+            if (!clip) return
+            const target = selectedNotes.size > 0 ? selectedNotes : new Set(notes.map(n => n.id))
+            const quantized = notes.map(n => {
+              if (!target.has(n.id)) return n
+              return {
+                ...n,
+                startBeat: Math.round(n.startBeat / quantize) * quantize,
+                durationBeats: Math.max(quantize, Math.round(n.durationBeats / quantize) * quantize),
+              }
+            })
+            updateClip(clip.id, { midiNotes: quantized })
+          }}
+        >
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+            <rect x="1" y="4" width="2" height="6" rx="1" fill="currentColor" opacity="0.5"/>
+            <rect x="4" y="2" width="2" height="8" rx="1" fill="currentColor"/>
+            <rect x="7" y="5" width="2" height="5" rx="1" fill="currentColor" opacity="0.7"/>
+            <line x1="1" y1="4" x2="10" y2="4" stroke="currentColor" strokeWidth="1" opacity="0.7" strokeDasharray="1.5 1"/>
+          </svg>
+          <span style={{ marginLeft: 3, fontSize: 9 }}>Q</span>
+        </button>
+
         <div className="pr-zoom">
-          <button className="tbt" onClick={() => setPpb(p => Math.max(20, p - 20))}>−</button>
+          <button className="tbt" onClick={() => setPpb(p => Math.max(20, p - 20))} title="Zoom out">−</button>
           <span className="param-label" style={{ minWidth:36, textAlign:'center' }}>{ppb}px/b</span>
-          <button className="tbt" onClick={() => setPpb(p => Math.min(240, p + 20))}>+</button>
+          <button className="tbt" onClick={() => setPpb(p => Math.min(240, p + 20))} title="Zoom in">+</button>
         </div>
 
-        <div className="pr-clip-info">{clip.name} — {notes.length} notes — {tool} tool</div>
+        <div className="pr-clip-info">
+          {clip.name} — {notes.length} notes
+          {selectedNotes.size > 0 && <span className="pr-sel-count"> ({selectedNotes.size} selected)</span>}
+        </div>
+
+        {/* Keyboard shortcut hints */}
+        <div className="pr-shortcut-hints">
+          <span className="pr-hint">⌘A select all</span>
+          <span className="pr-hint">⌘C copy</span>
+          <span className="pr-hint">⌘V paste</span>
+          <span className="pr-hint">⌘Q quantize</span>
+          <span className="pr-hint">Del delete</span>
+        </div>
 
         <button
           className="tbt btab-close"
           style={{ marginLeft:'auto' }}
           onClick={() => useProjectStore.getState().setShowPianoRoll(false)}
-          title="Close Piano Roll"
+          title="Close Piano Roll (Escape)"
         >✕</button>
       </div>
 
@@ -247,6 +410,12 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
             className="pr-grid"
             style={{ width: totalWidth, height: totalHeight, position:'relative', cursor: cursorMap[tool], flexShrink:0 }}
             onClick={handleGridClick}
+            onMouseDown={e => {
+              // Click on empty grid space in select mode → deselect all
+              if (tool === 'select' && !(e.target as HTMLElement).closest('.midi-note')) {
+                setSelectedNotes(new Set())
+              }
+            }}
           >
             {/* Row backgrounds */}
             {Array.from({ length: 128 }, (_, i) => {
@@ -275,7 +444,7 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
               const x = i * quantize * ppb
               const isBar = (i * quantize) % 4 === 0
               const isBeat = (i * quantize) % 1 === 0
-              if (isBar || isBeat) return null // already drawn above
+              if (isBar || isBeat) return null
               return <div key={`q-${i}`} style={{ position:'absolute', top:0, bottom:0, left: x, width:1, background:'rgba(255,255,255,0.03)' }} />
             })}
 
@@ -294,8 +463,14 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
                   borderColor: selectedNotes.has(note.id) ? '#fff' : trackColor + 'cc',
                 }}
                 onMouseDown={e => handleNoteMouseDown(e, note)}
-                title={`${noteName(note.pitch)} — vel ${note.velocity}`}
+                title={`${noteName(note.pitch)} vel:${note.velocity}`}
               >
+                {/* Note name label for wide notes */}
+                {note.durationBeats * ppb > 28 && (
+                  <span style={{ fontSize: 8, color: 'rgba(255,255,255,.8)', paddingLeft: 2, userSelect:'none', pointerEvents:'none' }}>
+                    {noteName(note.pitch)}
+                  </span>
+                )}
                 <div className="note-resize" onMouseDown={e => handleNoteResizeMouseDown(e, note)} />
               </div>
             ))}

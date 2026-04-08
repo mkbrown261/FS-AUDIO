@@ -198,6 +198,18 @@ html, body, #root {
 .key-select:hover, .status-select:hover { border-color: var(--border-h); }
 .ts-val { font-size: 14px; font-weight: 700; }
 
+/* ── Editable time signature ──────────────────────────────────────────────── */
+.ts-editor { display: flex; align-items: center; gap: 1px; }
+.ts-part {
+  background: transparent; border: 1px solid transparent;
+  color: var(--text-p); font-size: 14px; font-weight: 700;
+  padding: 1px 4px; border-radius: 3px; cursor: pointer;
+  font-family: 'SF Mono', 'Fira Code', monospace; line-height: 1;
+  transition: background .1s, border-color .1s;
+}
+.ts-part:hover { background: rgba(168,85,247,.12); border-color: var(--accent); color: var(--accent); }
+.ts-divider { color: var(--text-m); font-size: 12px; font-weight: 600; padding: 0 1px; user-select: none; }
+
 .ai-slider-wrap { display: flex; align-items: center; gap: 5px; margin-left: auto; flex-shrink: 0; }
 .ai-slider { width: 80px; accent-color: #10b981; cursor: pointer; }
 .ai-badge {
@@ -243,6 +255,19 @@ html, body, #root {
 }
 .track-header:hover { background: var(--bg-hover); }
 .track-header.selected { background: rgba(168,85,247,.08); border-left-color: var(--accent) !important; }
+
+/* ── Track drag-reorder ────────────────────────────────────────────────────── */
+.track-drag-handle {
+  display: flex; align-items: center; justify-content: center;
+  width: 14px; flex-shrink: 0; cursor: grab; padding: 0 2px;
+  opacity: 0; transition: opacity .15s;
+  user-select: none;
+}
+.track-header:hover .track-drag-handle { opacity: 1; }
+.track-drag-handle:active { cursor: grabbing; }
+.track-dragging { opacity: 0.4; background: rgba(168,85,247,.1) !important; }
+.track-drop-above { border-top: 2px solid var(--accent) !important; }
+.track-drop-below { border-bottom: 2px solid var(--accent) !important; }
 
 /* Track height resize handle */
 .track-resize-handle {
@@ -570,7 +595,15 @@ html, body, #root {
 .pr-tool:hover { border-color: var(--border-h); color: var(--text-p); }
 .pr-tool.active { background: rgba(168,85,247,.2); border-color: var(--accent); color: var(--accent); }
 .pr-quantize, .pr-zoom { display: flex; align-items: center; gap: 5px; }
-.pr-clip-info { margin-left: auto; font-size: 11px; color: var(--text-m); }
+.pr-quantize-btn { display: flex; align-items: center; gap: 2px; padding: 4px 7px; font-size: 10px; }
+.pr-clip-info { font-size: 11px; color: var(--text-m); }
+.pr-sel-count { color: var(--accent); font-weight: 600; }
+.pr-shortcut-hints { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+.pr-hint {
+  font-size: 9px; color: var(--text-s); padding: 2px 5px;
+  background: rgba(255,255,255,.04); border-radius: 3px;
+  border: 1px solid rgba(255,255,255,.06); white-space: nowrap;
+}
 
 .pr-scroll { display: flex; flex-direction: column; flex: 1; overflow: auto; }
 

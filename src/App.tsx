@@ -183,6 +183,18 @@ export default function App() {
     }
   }, [engine, store])
 
+  // ── Warn before closing if unsaved ───────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (store.isDirty) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [store.isDirty])
+
   // ── Check ClawFlow status ─────────────────────────────────────────────────
   useEffect(() => {
     fetch(`${FLOWSTATE_HUB}/api/clawbot/status`)
@@ -288,11 +300,23 @@ export default function App() {
           }
           break
 
+        case 'KeyO':
+          if (meta) { e.preventDefault(); store.loadProject() }
+          break
+
         // ── Save / Split ─────────────────────────────────────────────────
         case 'KeyS':
-          if (meta) {
+          if (meta && e.shiftKey) {
+            // Cmd+Shift+S = Save As
             e.preventDefault()
-            // Cmd+S = save (no-op, project-file save TBD)
+            const newName = prompt('Save project as:', useProjectStore.getState().name)
+            if (newName?.trim()) {
+              useProjectStore.setState({ name: newName.trim(), isDirty: true })
+              store.saveProject()
+            }
+          } else if (meta) {
+            e.preventDefault()
+            store.saveProject()
           } else if (!inPianoRoll) {
             // S = split selected clip at playhead (also scissors tool click does this)
             const st = useProjectStore.getState()
@@ -468,9 +492,16 @@ export default function App() {
           if (meta) { e.preventDefault(); setShowExport(true) }
           break
 
-        // ── Normalize gain on selected clips ─────────────────────────────
+        // ── New project / Normalize gain ─────────────────────────────────
         case 'KeyN':
-          if (meta && !inPianoRoll) {
+          if (meta && e.shiftKey) {
+            // Cmd+Shift+N = New Project
+            e.preventDefault()
+            if (!store.isDirty || confirm('Discard unsaved changes and create a new project?')) {
+              store.newProject()
+            }
+          } else if (meta && !inPianoRoll) {
+            // Cmd+N = normalize gain on selected clips
             e.preventDefault()
             const st = useProjectStore.getState()
             for (const id of st.selectedClipIds) {

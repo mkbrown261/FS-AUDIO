@@ -248,6 +248,9 @@ interface Actions {
   pasteClip: (atBeat: number) => void
 
   newProject: () => void
+  saveProject: () => void
+  loadProject: () => void
+  setTimeSignature: (num: number, den: number) => void
   saveSnapshot: () => void
   undo: () => void
   redo: () => void
@@ -616,4 +619,96 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
 
   setSampleRate: (v) => set({ sampleRate: v }),
   setBitDepth: (v) => set({ bitDepth: v }),
+
+  setTimeSignature: (num, den) => set({ timeSignature: [num, den], isDirty: true }),
+
+  // ── Persist project to localStorage as JSON ────────────────────────────────
+  saveProject: () => {
+    const st = get()
+    const projectName = st.name.trim() || 'Untitled Project'
+    const snapshot = {
+      _version: 1,
+      name: projectName,
+      bpm: st.bpm,
+      key: st.key,
+      timeSignature: st.timeSignature,
+      sampleRate: st.sampleRate,
+      bitDepth: st.bitDepth,
+      loopStart: st.loopStart,
+      loopEnd: st.loopEnd,
+      isLooping: st.isLooping,
+      metronomeEnabled: st.metronomeEnabled,
+      zoom: st.zoom,
+      // Serialize tracks — omit AudioBuffer (not serializable), keep metadata + midiNotes
+      tracks: st.tracks.map(t => ({
+        ...t,
+        clips: t.clips.map(c => ({
+          ...c,
+          audioBuffer: undefined,   // never serializable
+        })),
+      })),
+    }
+    const key = `fs-audio-project-${projectName}`
+    localStorage.setItem(key, JSON.stringify(snapshot))
+    localStorage.setItem('fs-audio-last-project', key)
+    set({ isDirty: false })
+    // Trigger a save-confirm flash by briefly touching the name
+    console.info(`[FS-AUDIO] Project saved to localStorage: ${key}`)
+  },
+
+  // ── Load project from localStorage ────────────────────────────────────────
+  loadProject: () => {
+    // Show a prompt listing available saves
+    const keys: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (k && k.startsWith('fs-audio-project-')) keys.push(k)
+    }
+    if (keys.length === 0) {
+      alert('No saved projects found.\n\nSave a project first with ⌘S.')
+      return
+    }
+    const names = keys.map(k => k.replace('fs-audio-project-', ''))
+    const choice = prompt(
+      `Load project:\n${names.map((n, i) => `${i + 1}. ${n}`).join('\n')}\n\nEnter number or name:`,
+      '1'
+    )
+    if (!choice) return
+    const idx = parseInt(choice) - 1
+    const selectedKey = (idx >= 0 && idx < keys.length) ? keys[idx]
+      : keys.find(k => k === `fs-audio-project-${choice}`)
+    if (!selectedKey) { alert('Project not found.'); return }
+    try {
+      const raw = localStorage.getItem(selectedKey)
+      if (!raw) { alert('Save data is empty or corrupted.'); return }
+      const data = JSON.parse(raw)
+      set({
+        name: data.name ?? 'Loaded Project',
+        bpm: data.bpm ?? 120,
+        key: data.key ?? 'C major',
+        timeSignature: data.timeSignature ?? [4, 4],
+        sampleRate: data.sampleRate ?? 44100,
+        bitDepth: data.bitDepth ?? 24,
+        loopStart: data.loopStart ?? 0,
+        loopEnd: data.loopEnd ?? 16,
+        isLooping: data.isLooping ?? false,
+        metronomeEnabled: data.metronomeEnabled ?? false,
+        zoom: data.zoom ?? 1,
+        pixelsPerBeat: (data.zoom ?? 1) * 40,
+        tracks: data.tracks ?? defaultTracks(),
+        isDirty: false,
+        isPlaying: false,
+        isRecording: false,
+        currentTime: 0,
+        selectedClipIds: [],
+        selectedTrackId: null,
+        undoStack: [],
+        redoStack: [],
+      })
+      console.info(`[FS-AUDIO] Project loaded: ${data.name}`)
+    } catch (err) {
+      alert('Failed to load project — data may be corrupted.')
+      console.error('[FS-AUDIO] Load error:', err)
+    }
+  },
 }))

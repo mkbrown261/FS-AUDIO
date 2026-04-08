@@ -135,7 +135,7 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport
   const {
     bpm, setBpm, key, setKey,
     isPlaying, isRecording, isLooping, metronomeEnabled,
-    currentTime, timeSignature, aiLevel, setAiLevel,
+    currentTime, timeSignature, setTimeSignature, aiLevel, setAiLevel,
     toggleLoop, toggleMetronome, showClawbot, setShowClawbot,
     setZoom, zoom, countIn, snapEnabled, snapValue,
     setSnapEnabled, setSnapValue, inspectorOpen, setInspectorOpen,
@@ -283,10 +283,33 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport
         <CustomSelect value={key} options={KEY_OPTIONS} onChange={setKey} width={110} />
       </div>
 
-      {/* Time sig */}
-      <div className="ts-wrap">
+      {/* Time sig — click numerator or denominator to change */}
+      <div className="ts-wrap" title="Click numerator/denominator to change time signature">
         <label className="param-label">Time</label>
-        <span className="ts-val">{timeSignature[0]}/{timeSignature[1]}</span>
+        <div className="ts-editor">
+          <button
+            className="ts-part ts-num"
+            title="Click to set beats per bar"
+            onClick={() => {
+              const v = prompt('Beats per bar (1–16):', String(timeSignature[0]))
+              if (!v) return
+              const n = parseInt(v)
+              if (n >= 1 && n <= 16) setTimeSignature(n, timeSignature[1])
+            }}
+          >{timeSignature[0]}</button>
+          <span className="ts-divider">/</span>
+          <button
+            className="ts-part ts-den"
+            title="Click to set note value (2, 4, 8, 16)"
+            onClick={() => {
+              const v = prompt('Note value (2, 4, 8, 16):', String(timeSignature[1]))
+              if (!v) return
+              const n = parseInt(v)
+              if ([2,4,8,16].includes(n)) setTimeSignature(timeSignature[0], n)
+              else alert('Note value must be 2, 4, 8, or 16.')
+            }}
+          >{timeSignature[1]}</button>
+        </div>
       </div>
 
       <div className="toolbar-sep" />
