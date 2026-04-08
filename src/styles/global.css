@@ -1980,6 +1980,249 @@ html, body, #root {
 /* FS-Crystal (Granular Freeze) */
 .plugin-crystal-wrap { display: flex; flex-direction: column; gap: 4px; }
 
+/* ══════════════════════════════════════════════════════════════════════════════
+   FLOWSTATE PRO SUITE — Plugin UI Styles
+   Cutting-edge visual language: gradient backgrounds, glowing knobs, grid UIs
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Base container: all Flowstate Pro plugins use this dark gradient panel ── */
+.fs-plugin-bg {
+  border-radius: 6px;
+  border: 1px solid rgba(168,85,247,0.12);
+  overflow: hidden;
+}
+
+/* ── FSKnob wrapper ────────────────────────────────────────────────────────── */
+.fs-knob-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+}
+
+/* ── Step buttons (Flowstate edition) ───────────────────────────────────────── */
+.fs-step-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+.fs-step-label {
+  font-size: 8px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.35);
+  letter-spacing: .5px;
+  margin-right: 3px;
+  white-space: nowrap;
+  text-transform: uppercase;
+}
+.fs-step-btn {
+  padding: 2px 6px;
+  font-size: 9px;
+  font-weight: 700;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 3px;
+  background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.4);
+  cursor: pointer;
+  letter-spacing: .3px;
+  transition: all .12s ease;
+  white-space: nowrap;
+}
+.fs-step-btn:hover { border-color: rgba(255,255,255,0.2); color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.08); }
+
+/* ── Plugin add menu — new tabs system ─────────────────────────────────────── */
+.plugin-add-tabs {
+  display: flex;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+.plugin-add-tab {
+  flex: 1;
+  padding: 6px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .4px;
+  color: rgba(255,255,255,0.4);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all .12s;
+}
+.plugin-add-tab:hover { color: rgba(255,255,255,0.7); }
+.plugin-add-tab.active { color: #a855f7; border-bottom-color: #a855f7; }
+.plugin-add-tab-pro { color: rgba(168,85,247,0.6) !important; }
+.plugin-add-tab-pro.active { color: #a855f7 !important; border-bottom-color: #a855f7 !important; }
+.plugin-add-pro { background: rgba(168,85,247,0.06) !important; }
+.plugin-add-pro:hover { background: rgba(168,85,247,0.15) !important; color: #a855f7 !important; }
+
+/* ── FS-ProQ ────────────────────────────────────────────────────────────────── */
+.fs-proq-wrap { display: flex; flex-direction: column; gap: 0; }
+.fs-band-pill {
+  padding: 2px 7px;
+  font-size: 9px;
+  font-weight: 800;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.4);
+  cursor: pointer;
+  letter-spacing: .4px;
+  transition: all .12s;
+}
+.fs-band-pill.active { font-weight: 900; }
+.fs-band-pill:hover { border-color: rgba(255,255,255,0.25); color: rgba(255,255,255,0.8); }
+
+/* ── FS-Resonate ────────────────────────────────────────────────────────────── */
+.fs-resonate-wrap { display: flex; flex-direction: column; gap: 0; }
+
+/* ── FS-Cosmos (reverb mode chips) ─────────────────────────────────────────── */
+.fs-cosmos-wrap { display: flex; flex-direction: column; gap: 0; }
+.fs-mode-chip {
+  padding: 2px 6px;
+  font-size: 8px;
+  font-weight: 700;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+  color: rgba(255,255,255,0.35);
+  cursor: pointer;
+  letter-spacing: .3px;
+  transition: all .1s;
+  white-space: nowrap;
+}
+.fs-mode-chip:hover { border-color: rgba(255,255,255,0.2); color: rgba(255,255,255,0.7); }
+.fs-mode-chip.active { font-weight: 900; }
+
+/* ── FS-Echo ────────────────────────────────────────────────────────────────── */
+.fs-echo-wrap { display: flex; flex-direction: column; gap: 0; }
+
+/* ── FS-Voice ───────────────────────────────────────────────────────────────── */
+.fs-voice-wrap { display: flex; flex-direction: column; gap: 0; }
+.fs-pitch-strip {
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+.fs-pitch-key {
+  padding: 3px 7px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.4);
+  cursor: pointer;
+  transition: all .1s;
+  min-width: 28px;
+  text-align: center;
+}
+.fs-pitch-key:hover { border-color: rgba(168,85,247,0.4); color: rgba(255,255,255,0.8); }
+
+/* ── FS-Master ──────────────────────────────────────────────────────────────── */
+.fs-master-wrap { display: flex; flex-direction: column; gap: 0; }
+.fs-master-tab {
+  flex: 1;
+  padding: 5px 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .4px;
+  color: rgba(255,255,255,0.35);
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  transition: all .12s;
+}
+.fs-master-tab:hover { color: rgba(255,255,255,0.6); }
+.fs-master-tab.active { border-bottom: 2px solid currentColor; }
+
+/* ── FS-Spacer ──────────────────────────────────────────────────────────────── */
+.fs-spacer-wrap { display: flex; flex-direction: column; gap: 0; }
+
+/* ── FS-Apex ────────────────────────────────────────────────────────────────── */
+.fs-apex-wrap { display: flex; flex-direction: column; gap: 0; }
+
+/* ── FS-Mutate ──────────────────────────────────────────────────────────────── */
+.fs-mutate-wrap { display: flex; flex-direction: column; gap: 0; }
+
+/* ── FS-Glitch step sequencer ───────────────────────────────────────────────── */
+.fs-glitch-wrap { display: flex; flex-direction: column; gap: 0; }
+.fs-step-pad {
+  height: 18px;
+  border-radius: 2px;
+  border: 1px solid rgba(255,255,255,0.08);
+  cursor: pointer;
+  transition: all .08s;
+}
+.fs-step-pad:hover { opacity: 0.8; transform: scaleY(1.1); }
+.fs-glitch-play {
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 4px;
+  border: 1px solid;
+  background: transparent;
+  cursor: pointer;
+  transition: all .12s;
+  flex-shrink: 0;
+}
+.fs-glitch-play.playing { animation: pulse-glow .5s infinite alternate; }
+@keyframes pulse-glow {
+  from { box-shadow: 0 0 6px currentColor; }
+  to   { box-shadow: 0 0 16px currentColor; }
+}
+
+/* ── FS-Spectrum ────────────────────────────────────────────────────────────── */
+.fs-spectrum-wrap { display: flex; flex-direction: column; gap: 0; }
+
+/* ── FS-Crush multiband tabs ────────────────────────────────────────────────── */
+.fs-crush-wrap { display: flex; flex-direction: column; gap: 0; }
+.fs-band-tab {
+  flex: 1;
+  padding: 4px 4px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .3px;
+  color: rgba(255,255,255,0.35);
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  transition: all .12s;
+  text-align: center;
+  line-height: 1.3;
+}
+.fs-band-tab:hover { color: rgba(255,255,255,0.65); }
+.fs-band-tab.active { border-bottom: 2px solid currentColor; }
+
+/* ── FS-Reel ────────────────────────────────────────────────────────────────── */
+.fs-reel-wrap { display: flex; flex-direction: column; gap: 0; }
+
+/* ── FS-Aura ────────────────────────────────────────────────────────────────── */
+.fs-aura-wrap { display: flex; flex-direction: column; gap: 0; }
+
+/* ── FS-Dimension ───────────────────────────────────────────────────────────── */
+.fs-dimension-wrap { display: flex; flex-direction: column; gap: 0; }
+.fs-dim-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(34,211,238,0.3);
+  background: rgba(34,211,238,0.05);
+  color: rgba(34,211,238,0.6);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+  transition: all .15s;
+}
+.fs-dim-btn:hover { border-color: rgba(34,211,238,0.6); color: rgba(34,211,238,0.9); background: rgba(34,211,238,0.1); }
+.fs-dim-btn.active {
+  border-color: #22d3ee;
+  box-shadow: 0 0 14px rgba(34,211,238,0.5), inset 0 0 8px rgba(34,211,238,0.15);
+}
+
 /* ── LUFS Meter (StatusBar) ─────────────────────────────────────────────────── */
 .status-lufs-wrap {
   display: flex;
@@ -2940,3 +3183,244 @@ html, body, #root {
   transition: background .08s;
 }
 .send-bus-option:hover { background: var(--bg-hover); color: var(--text-p); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   FLOWSTATE PRO SUITE — Complete Visual Identity System
+   Deep-space aesthetics, neon accents, glassmorphism panels
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Shared FS Knob Wrapper ─────────────────────────────────────────────── */
+.fs-knob-wrap {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 2px; flex-shrink: 0;
+}
+.fs-knob-wrap svg { transition: filter 0.2s ease; }
+.fs-knob-wrap svg:hover { filter: brightness(1.2); }
+
+/* ── Shared Band Pill ───────────────────────────────────────────────────── */
+.fs-band-pill {
+  padding: 2px 6px; font-size: 8px; font-weight: 700; letter-spacing: 0.5px;
+  border: 1px solid rgba(255,255,255,0.1); border-radius: 3px;
+  cursor: pointer; background: transparent;
+  color: rgba(255,255,255,0.35); transition: all 0.12s ease;
+}
+.fs-band-pill:hover { color: rgba(255,255,255,0.6); border-color: rgba(255,255,255,0.2); }
+
+/* ── Shared Step Group ──────────────────────────────────────────────────── */
+.fs-step-group {
+  display: flex; align-items: center; gap: 2px; flex-wrap: nowrap;
+}
+.fs-step-label {
+  font-size: 8px; font-weight: 700; color: rgba(255,255,255,0.25);
+  letter-spacing: 0.8px; white-space: nowrap; margin-right: 2px;
+}
+.fs-step-btn {
+  padding: 2px 5px; font-size: 8px; font-weight: 600; letter-spacing: 0.3px;
+  border: 1px solid rgba(255,255,255,0.08); border-radius: 3px;
+  cursor: pointer; background: rgba(0,0,0,0.3); color: rgba(255,255,255,0.3);
+  transition: all 0.12s ease; white-space: nowrap;
+}
+.fs-step-btn:hover { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.55); border-color: rgba(255,255,255,0.15); }
+.fs-step-btn.active { /* inline styles override via color prop */ }
+
+/* ── FS Plugin Background wrapper ──────────────────────────────────────── */
+.fs-proq-wrap, .fs-resonate-wrap, .fs-cosmos-wrap, .fs-echo-wrap,
+.fs-voice-wrap, .fs-master-wrap, .fs-spacer-wrap, .fs-apex-wrap,
+.fs-mutate-wrap, .fs-glitch-wrap, .fs-spectrum-wrap, .fs-crush-wrap,
+.fs-reel-wrap, .fs-aura-wrap, .fs-dimension-wrap {
+  border-radius: 6px; overflow: hidden;
+}
+
+/* ── FS-ProQ Spectrum ───────────────────────────────────────────────────── */
+.fs-proq-wrap {
+  border: 1px solid rgba(168,85,247,0.15);
+  box-shadow: 0 2px 20px rgba(168,85,247,0.08), inset 0 0 40px rgba(168,85,247,0.02);
+}
+
+/* ── FS-Resonate ────────────────────────────────────────────────────────── */
+.fs-resonate-wrap {
+  border: 1px solid rgba(16,185,129,0.15);
+  box-shadow: 0 2px 20px rgba(16,185,129,0.08), inset 0 0 40px rgba(16,185,129,0.02);
+}
+
+/* ── FS-Cosmos ──────────────────────────────────────────────────────────── */
+.fs-cosmos-wrap {
+  border: 1px solid rgba(129,140,248,0.15);
+  box-shadow: 0 2px 24px rgba(129,140,248,0.1), inset 0 0 50px rgba(129,140,248,0.02);
+}
+
+/* ── FS-Echo ────────────────────────────────────────────────────────────── */
+.fs-echo-wrap {
+  border: 1px solid rgba(245,158,11,0.15);
+  box-shadow: 0 2px 20px rgba(245,158,11,0.06), inset 0 0 40px rgba(245,158,11,0.02);
+}
+
+/* ── FS-Voice ───────────────────────────────────────────────────────────── */
+.fs-voice-wrap {
+  border: 1px solid rgba(168,85,247,0.15);
+  box-shadow: 0 2px 24px rgba(168,85,247,0.1), inset 0 0 40px rgba(168,85,247,0.03);
+}
+
+/* ── FS-Master ──────────────────────────────────────────────────────────── */
+.fs-master-wrap {
+  border: 1px solid rgba(245,158,11,0.15);
+  box-shadow: 0 2px 20px rgba(245,158,11,0.06), inset 0 0 40px rgba(245,158,11,0.02);
+}
+
+/* ── FS-Spacer ──────────────────────────────────────────────────────────── */
+.fs-spacer-wrap {
+  border: 1px solid rgba(56,189,248,0.15);
+  box-shadow: 0 2px 20px rgba(56,189,248,0.08), inset 0 0 40px rgba(56,189,248,0.02);
+}
+
+/* ── FS-Apex ────────────────────────────────────────────────────────────── */
+.fs-apex-wrap {
+  border: 1px solid rgba(239,68,68,0.15);
+  box-shadow: 0 2px 24px rgba(239,68,68,0.1), inset 0 0 40px rgba(239,68,68,0.02);
+}
+
+/* ── FS-Mutate ──────────────────────────────────────────────────────────── */
+.fs-mutate-wrap {
+  border: 1px solid rgba(34,211,238,0.15);
+  box-shadow: 0 2px 20px rgba(34,211,238,0.08), inset 0 0 40px rgba(34,211,238,0.02);
+}
+
+/* ── FS-Glitch ──────────────────────────────────────────────────────────── */
+.fs-glitch-wrap {
+  border: 1px solid rgba(239,68,68,0.15);
+  box-shadow: 0 2px 20px rgba(239,68,68,0.07);
+}
+
+/* ── FS-Spectrum ────────────────────────────────────────────────────────── */
+.fs-spectrum-wrap {
+  border: 1px solid rgba(59,130,246,0.15);
+  box-shadow: 0 2px 20px rgba(59,130,246,0.08), inset 0 0 40px rgba(59,130,246,0.02);
+}
+
+/* ── FS-Crush ───────────────────────────────────────────────────────────── */
+.fs-crush-wrap {
+  border: 1px solid rgba(245,158,11,0.12);
+  box-shadow: 0 2px 20px rgba(245,158,11,0.06);
+}
+
+/* ── FS-Reel ────────────────────────────────────────────────────────────── */
+.fs-reel-wrap {
+  border: 1px solid rgba(245,158,11,0.18);
+  box-shadow: 0 2px 24px rgba(245,158,11,0.1), inset 0 0 40px rgba(245,158,11,0.03);
+}
+
+/* ── FS-Aura ────────────────────────────────────────────────────────────── */
+.fs-aura-wrap {
+  border: 1px solid rgba(232,121,249,0.18);
+  box-shadow: 0 2px 28px rgba(232,121,249,0.12), inset 0 0 50px rgba(232,121,249,0.03);
+}
+
+/* ── FS-Dimension ───────────────────────────────────────────────────────── */
+.fs-dimension-wrap {
+  border: 1px solid rgba(34,211,238,0.15);
+  box-shadow: 0 2px 20px rgba(34,211,238,0.08), inset 0 0 40px rgba(34,211,238,0.02);
+}
+
+/* ── Mode chip / cosmos mode buttons ───────────────────────────────────── */
+.fs-mode-chip {
+  padding: 2px 5px; font-size: 8px; font-weight: 600;
+  border: 1px solid rgba(255,255,255,0.08); border-radius: 3px;
+  cursor: pointer; background: rgba(0,0,0,0.3); color: rgba(255,255,255,0.3);
+  transition: all 0.12s ease; letter-spacing: 0.3px;
+}
+.fs-mode-chip.active { /* handled inline */ }
+.fs-mode-chip:hover { background: rgba(255,255,255,0.06); }
+
+/* ── Master tab ─────────────────────────────────────────────────────────── */
+.fs-master-tab {
+  flex: 1; padding: 5px 2px; font-size: 9px; font-weight: 700; letter-spacing: 0.5px;
+  cursor: pointer; border: none; background: transparent;
+  border-bottom: 2px solid transparent; transition: all 0.15s;
+  text-transform: uppercase;
+}
+
+/* ── Band tab (crush) ───────────────────────────────────────────────────── */
+.fs-band-tab {
+  flex: 1; padding: 3px 4px; font-size: 9px; font-weight: 700;
+  border: 1px solid rgba(255,255,255,0.08); border-bottom: 2px solid transparent;
+  background: rgba(0,0,0,0.3); color: rgba(255,255,255,0.35);
+  cursor: pointer; transition: all 0.12s; border-radius: 3px 3px 0 0;
+}
+.fs-band-tab.active { /* handled inline */ }
+
+/* ── Glitch step pad ────────────────────────────────────────────────────── */
+.fs-step-pad {
+  height: 24px; border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 2px; cursor: pointer; transition: all 0.06s;
+  background: rgba(255,255,255,0.04);
+}
+.fs-step-pad.on { /* handled inline */ }
+.fs-step-pad.current { /* handled inline */ }
+
+/* ── Glitch play button ─────────────────────────────────────────────────── */
+.fs-glitch-play {
+  width: 26px; height: 26px; border-radius: 4px;
+  border: 2px solid; cursor: pointer;
+  font-size: 11px; display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+}
+.fs-glitch-play.playing { /* handled inline */ }
+
+/* ── Dimension mode button ──────────────────────────────────────────────── */
+.fs-dim-btn {
+  flex: 1; padding: 5px 3px; font-size: 9px; font-weight: 800;
+  border: 1px solid rgba(34,211,238,0.15); border-radius: 4px;
+  cursor: pointer; background: rgba(0,0,0,0.4);
+  color: rgba(34,211,238,0.55); transition: all 0.15s;
+}
+.fs-dim-btn:hover { background: rgba(34,211,238,0.1); }
+.fs-dim-btn.active { /* handled inline */ }
+
+/* ── Pitch strip (Voice editor) ─────────────────────────────────────────── */
+.fs-pitch-strip { display: flex; height: 32px; gap: 2px; }
+.fs-pitch-key {
+  flex: 1; height: 100%; border: 1px solid rgba(0,0,0,0.3);
+  border-radius: 0 0 3px 3px; cursor: pointer;
+  font-size: 7px; font-weight: 700; transition: all 0.1s;
+  display: flex; align-items: flex-end; justify-content: center;
+  padding-bottom: 2px;
+}
+.fs-pitch-key.active { background: #a855f7 !important; box-shadow: 0 0 10px #a855f788; }
+
+/* ── Plugin add menu — Flowstate Pro tab ────────────────────────────────── */
+.plugin-add-tabs {
+  display: flex; gap: 2px; padding: 5px 6px 0; border-bottom: 1px solid rgba(255,255,255,0.06);
+  margin-bottom: 4px;
+}
+.plugin-add-tab {
+  flex: 1; padding: 4px 4px; font-size: 9px; font-weight: 700; letter-spacing: 0.3px;
+  border: none; border-bottom: 2px solid transparent; background: transparent;
+  color: rgba(255,255,255,0.3); cursor: pointer; transition: all 0.12s;
+  text-transform: uppercase;
+}
+.plugin-add-tab:hover { color: rgba(255,255,255,0.6); }
+.plugin-add-tab.active { color: rgba(255,255,255,0.9); border-bottom-color: rgba(168,85,247,0.7); }
+.plugin-add-tab-pro.active { color: #f59e0b; border-bottom-color: #f59e0b; }
+
+/* ── FS Plugin scrollable options ───────────────────────────────────────── */
+.plugin-add-section-label {
+  font-size: 8px; font-weight: 800; letter-spacing: 1px;
+  color: rgba(255,255,255,0.2); padding: 3px 8px 1px;
+  text-transform: uppercase;
+}
+
+/* ── Pro plugin option (gold highlight) ─────────────────────────────────── */
+.plugin-add-pro {
+  border-left: 2px solid #f59e0b22 !important;
+}
+.plugin-add-pro:hover { background: rgba(245,158,11,0.08) !important; }
+.plugin-add-pro .plugin-add-option-name { color: #f59e0b !important; }
+
+/* ── Plugin knobs row ───────────────────────────────────────────────────── */
+.plugin-knobs-row {
+  display: flex; gap: 4px; align-items: flex-start; flex-wrap: nowrap;
+  overflow-x: auto;
+}
+.plugin-knobs-row::-webkit-scrollbar { height: 2px; }
+.plugin-knobs-row::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 1px; }
+

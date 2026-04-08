@@ -21,6 +21,7 @@
 
 import React, { useState, useCallback } from 'react'
 import { useProjectStore, Track, Plugin } from '../../store/projectStore'
+import { FLOWSTATE_PRO_DEFAULTS, renderFlowstatePlugin } from './FlowstatePro'
 
 // ── Knob Component ────────────────────────────────────────────────────────────
 interface KnobProps {
@@ -1034,7 +1035,8 @@ function PluginSlot({ trackId, plugin, slotIndex }: PluginSlotProps) {
       case 'pitch_correct':return <FluxEditor plugin={plugin} onChange={handleChange} />
       case 'parallel_comp':return <ForgeEditor plugin={plugin} onChange={handleChange} />
       case 'granular':     return <CrystalEditor plugin={plugin} onChange={handleChange} />
-      default: return null
+      // Flowstate Pro Suite
+      default: return renderFlowstatePlugin(plugin, handleChange)
     }
   }
 
@@ -1047,16 +1049,16 @@ function PluginSlot({ trackId, plugin, slotIndex }: PluginSlotProps) {
     saturation: '#f97316', bus_compressor: '#22d3ee',
     spacetime: '#c084fc', transient: '#4ade80',
     // Elite — New 10
-    expander: '#84cc16',       // lime
-    exciter: '#f0abfc',        // fuchsia
-    vibrato: '#fb923c',        // orange
-    stereo_width: '#38bdf8',   // sky
-    tape: '#d97706',           // amber
-    sub_enhancer: '#7c3aed',   // violet
-    noise_gate: '#14b8a6',     // teal
-    pitch_correct: '#e879f9',  // pink
-    parallel_comp: '#facc15',  // yellow
-    granular: '#818cf8',       // indigo
+    expander: '#84cc16', exciter: '#f0abfc', vibrato: '#fb923c',
+    stereo_width: '#38bdf8', tape: '#d97706', sub_enhancer: '#7c3aed',
+    noise_gate: '#14b8a6', pitch_correct: '#e879f9', parallel_comp: '#facc15',
+    granular: '#818cf8',
+    // Flowstate Pro Suite
+    fs_proq: '#a855f7', fs_resonance: '#10b981', fs_vintage_verb: '#818cf8',
+    fs_echo: '#f59e0b', fs_tuner: '#e879f9', fs_mastering: '#facc15',
+    fs_spacer: '#38bdf8', fs_peak_limiter: '#ef4444', fs_alter: '#22d3ee',
+    fs_glitch: '#f97316', fs_wavetable: '#3b82f6', fs_multiband_comp: '#fb923c',
+    fs_tape_delay: '#f59e0b', fs_vocal_enhance: '#c084fc', fs_dimension: '#22d3ee',
   }
   const color = typeColors[plugin.type] ?? '#6b7280'
 
@@ -1098,23 +1100,30 @@ const ELITE_PLUGINS   = [
   'expander','exciter','vibrato','stereo_width','tape',
   'sub_enhancer','noise_gate','pitch_correct','parallel_comp','granular',
 ]
+const FLOWSTATE_PRO_PLUGINS = Object.keys(FLOWSTATE_PRO_DEFAULTS)
 
 const PLUGIN_MENU = Object.entries(PLUGIN_DEFAULTS).map(([key, def]) => ({
   key, name: def.name, type: def.type,
   elite: ELITE_PLUGINS.includes(key),
+  pro: false,
+}))
+
+const FLOWSTATE_PRO_MENU = Object.entries(FLOWSTATE_PRO_DEFAULTS).map(([key, def]) => ({
+  key, name: def.name, type: def.type, elite: false, pro: true,
 }))
 
 export function PluginRack({ track }: PluginRackProps) {
   const { addPlugin } = useProjectStore()
   const [showAdd, setShowAdd] = useState(false)
+  const [menuSection, setMenuSection] = useState<'classic'|'elite'|'pro'>('classic')
 
   function addNewPlugin(key: string) {
-    const def = PLUGIN_DEFAULTS[key]
+    const def = PLUGIN_DEFAULTS[key] ?? FLOWSTATE_PRO_DEFAULTS[key]
     if (!def) return
     addPlugin(track.id, {
       id: `plugin-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       name: def.name,
-      type: def.type,
+      type: def.type as any,
       enabled: true,
       params: { ...def.params },
     })
@@ -1132,17 +1141,27 @@ export function PluginRack({ track }: PluginRackProps) {
 
       {showAdd && (
         <div className="plugin-add-menu">
-          <div className="plugin-add-section-label">CLASSIC</div>
-          {PLUGIN_MENU.filter(p => !p.elite).map(p => (
+          {/* Section tabs */}
+          <div className="plugin-add-tabs">
+            <button className={`plugin-add-tab ${menuSection === 'classic' ? 'active' : ''}`} onClick={() => setMenuSection('classic')}>CLASSIC</button>
+            <button className={`plugin-add-tab ${menuSection === 'elite' ? 'active' : ''}`} onClick={() => setMenuSection('elite')}>★ ELITE</button>
+            <button className={`plugin-add-tab plugin-add-tab-pro ${menuSection === 'pro' ? 'active' : ''}`} onClick={() => setMenuSection('pro')}>⚡ FLOWSTATE PRO</button>
+          </div>
+          {menuSection === 'classic' && PLUGIN_MENU.filter(p => !p.elite).map(p => (
             <button key={p.key} className="plugin-add-option" onClick={() => addNewPlugin(p.key)}>
               <span className="plugin-add-type">{p.type.toUpperCase()}</span>
               {p.name}
             </button>
           ))}
-          <div className="plugin-add-section-label plugin-add-section-elite">★ ELITE SUITE</div>
-          {PLUGIN_MENU.filter(p => p.elite).map(p => (
+          {menuSection === 'elite' && PLUGIN_MENU.filter(p => p.elite).map(p => (
             <button key={p.key} className="plugin-add-option plugin-add-elite" onClick={() => addNewPlugin(p.key)}>
               <span className="plugin-add-type" style={{ color: '#f97316' }}>{p.type.replace('_',' ').toUpperCase()}</span>
+              {p.name}
+            </button>
+          ))}
+          {menuSection === 'pro' && FLOWSTATE_PRO_MENU.map(p => (
+            <button key={p.key} className="plugin-add-option plugin-add-pro" onClick={() => addNewPlugin(p.key)}>
+              <span className="plugin-add-type" style={{ color: '#a855f7' }}>{p.key.replace('fs_','').toUpperCase()}</span>
               {p.name}
             </button>
           ))}
