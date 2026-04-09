@@ -510,11 +510,11 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
       const oldClips = track.clips.filter(c => c.id !== clipId)
       console.log('[splitClipAtBeat] After filtering out', clipId, 'remaining clips:', oldClips.length)
       
-      updated = st.tracks.map(t => t.id === track.id
-        ? { ...t, clips: [...oldClips, left, right] }
-        : t)
+      // Create new track with split clips
+      const updatedTrack = { ...track, clips: [...oldClips, left, right] }
+      updated = updated.map(t => t.id === track.id ? updatedTrack : t)
       
-      console.log('[splitClipAtBeat] Track now has', updated.find(t => t.id === track.id)?.clips.length, 'clips')
+      console.log('[splitClipAtBeat] Track now has', updatedTrack.clips.length, 'clips')
       break
     }
     return { tracks: updated, isDirty: true }
