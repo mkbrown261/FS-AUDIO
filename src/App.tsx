@@ -610,7 +610,9 @@ export default function App() {
 
         // ── Metronome ────────────────────────────────────────────────────
         case 'KeyK':
-          if (!meta) store.toggleMetronome()
+          // Only toggle metronome if musical typing is CLOSED
+          // (K is used for C5 note in musical typing mode)
+          if (!meta && !showMusicalTyping) store.toggleMetronome()
           break
 
         // ── Inspector ────────────────────────────────────────────────────

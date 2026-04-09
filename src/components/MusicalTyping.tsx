@@ -80,13 +80,18 @@ export function MusicalTyping({ isOpen, onClose, onNoteOn, onNoteOff, onPlayNote
     const handleKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase()
       
-      // Allow R key to pass through for record function
-      if (key === 'r') {
-        return // Don't stop propagation, let App.tsx handle recording
-      }
+      // ── WHITELIST: Allow critical transport keys to pass through ──────────
+      // These keys work BOTH in musical typing AND as transport controls
+      const isTransportKey = 
+        key === 'r' ||           // Record
+        e.code === 'Space' ||    // Play/Pause (spacebar)
+        e.key === 'Escape' ||    // Exit musical typing
+        (e.shiftKey && key === 'p') // Exit musical typing (Shift+P)
       
-      // Stop propagation to prevent App.tsx shortcuts (except R)
-      e.stopPropagation()
+      if (!isTransportKey) {
+        // Stop propagation for all other keys to prevent App.tsx shortcuts
+        e.stopPropagation()
+      }
 
       // Shift+P → close the Musical Typing window
       if (e.shiftKey && (e.key === 'P' || e.key === 'p')) {
@@ -162,10 +167,18 @@ export function MusicalTyping({ isOpen, onClose, onNoteOn, onNoteOff, onPlayNote
     }
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      // Stop propagation to prevent App.tsx shortcuts
-      e.stopPropagation()
-      
       const key = e.key.toLowerCase()
+      
+      // Allow transport keys to pass through on keyup too
+      const isTransportKey = 
+        key === 'r' || 
+        e.code === 'Space' ||
+        e.key === 'Escape' ||
+        (e.shiftKey && key === 'p')
+      
+      if (!isTransportKey) {
+        e.stopPropagation()
+      }
       heldKeys.current.delete(key)
 
       if (NOTE_KEY_MAP[key] !== undefined) {
