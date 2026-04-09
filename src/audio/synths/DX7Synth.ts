@@ -437,28 +437,35 @@ export class DX7Synth {
     const voice = this.voices.get(note);
     if (voice) {
       voice.release(this.ctx.currentTime, this.params);
-      voice.stop(this.ctx.currentTime + 2.0); // Stop after max release
       
-      // Clean up after release
-      setTimeout(() => {
-        this.voices.delete(note);
-      }, 2500);
+      // Schedule stop after max release time
+      const stopTime = this.ctx.currentTime + 2.0;
+      voice.stop(stopTime);
+      
+      // DON'T delete from map - keep voice so allNotesOff() can force-stop it
+      // Voices will accumulate but allNotesOff() will clear the map
+      console.log('[DX7 noteOff] Released note:', note, 'Total voices in map:', this.voices.size);
     }
   }
   
   allNotesOff() {
     const now = this.ctx.currentTime;
-    console.log('[DX7 allNotesOff] Stopping', this.voices.size, 'voices immediately');
+    console.log('[DX7 allNotesOff] PANIC! Stopping', this.voices.size, 'voices immediately');
+    
+    if (this.voices.size === 0) {
+      console.log('[DX7 allNotesOff] No voices in map - nothing to stop');
+      return;
+    }
     
     this.voices.forEach((voice, note) => {
       console.log('[DX7 allNotesOff] Force stopping voice for note:', note);
-      // Force immediate stop - no release envelope
-      voice.stop(now + 0.01);
+      // Force immediate stop - no release envelope, just kill it
+      voice.stop(now);
     });
     
-    // Clear immediately
+    // Clear all voices immediately from the map
     this.voices.clear();
-    console.log('[DX7 allNotesOff] All voices cleared');
+    console.log('[DX7 allNotesOff] All', this.voices.size, 'voices cleared from map');
   }
   
   getAlgorithms(): DX7Algorithm[] {
