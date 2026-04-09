@@ -1437,6 +1437,25 @@ const PRO_CATEGORIES: { label: string; color: string; icon: string; plugins: Plu
   },
 ]
 
+const INSTRUMENT_CATEGORIES: { label: string; color: string; icon: string; plugins: PluginEntry[] }[] = [
+  {
+    label: 'Synthesizers',
+    color: '#22c55e',
+    icon: '♪',
+    plugins: [
+      { key: 'fs_analog',  name: 'FS-Analog',  type: 'fs_analog',  desc: 'Analog subtractive synthesizer' },
+    ],
+  },
+  {
+    label: 'Samplers & Drums',
+    color: '#f59e0b',
+    icon: '◉',
+    plugins: [
+      { key: 'fs_sampler', name: 'FS-Sampler', type: 'fs_sampler', desc: '16-pad drum machine & sampler' },
+    ],
+  },
+]
+
 const AI_CATEGORIES: { label: string; color: string; icon: string; plugins: PluginEntry[] }[] = [
   {
     label: 'Analysis',
@@ -1499,7 +1518,7 @@ interface PluginDropdownProps {
 }
 
 function PluginDropdown({ onSelect, onClose }: PluginDropdownProps) {
-  const [activeTab, setActiveTab] = useState<'classic'|'elite'|'pro'|'ai'>('classic')
+  const [activeTab, setActiveTab] = useState<'classic'|'elite'|'pro'|'instruments'|'ai'>('classic')
   const [expandedCat, setExpandedCat] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -1512,17 +1531,19 @@ function PluginDropdown({ onSelect, onClose }: PluginDropdownProps) {
     return () => document.removeEventListener('mousedown', handle)
   }, [onClose])
 
-  const tabs: { id: 'classic'|'elite'|'pro'|'ai'; label: string; color: string }[] = [
-    { id: 'classic', label: 'CLASSIC',        color: '#06b6d4' },
-    { id: 'elite',   label: '★ ELITE',        color: '#f97316' },
-    { id: 'pro',     label: '⚡ PRO',          color: '#a855f7' },
-    { id: 'ai',      label: '🤖 AI',           color: '#22c55e' },
+  const tabs: { id: 'classic'|'elite'|'pro'|'instruments'|'ai'; label: string; color: string }[] = [
+    { id: 'classic',     label: 'CLASSIC',        color: '#06b6d4' },
+    { id: 'elite',       label: '★ ELITE',        color: '#f97316' },
+    { id: 'pro',         label: '⚡ PRO',          color: '#a855f7' },
+    { id: 'instruments', label: '♪ SYNTH',        color: '#22c55e' },
+    { id: 'ai',          label: '🤖 AI',           color: '#22c55e' },
   ]
 
   const cats =
-    activeTab === 'classic' ? CLASSIC_CATEGORIES :
-    activeTab === 'elite'   ? ELITE_CATEGORIES   :
-    activeTab === 'pro'     ? PRO_CATEGORIES      : AI_CATEGORIES
+    activeTab === 'classic'     ? CLASSIC_CATEGORIES     :
+    activeTab === 'elite'       ? ELITE_CATEGORIES       :
+    activeTab === 'pro'         ? PRO_CATEGORIES         :
+    activeTab === 'instruments' ? INSTRUMENT_CATEGORIES  : AI_CATEGORIES
 
   return (
     <div ref={menuRef} className="pdd-overlay">
