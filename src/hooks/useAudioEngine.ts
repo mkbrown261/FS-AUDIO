@@ -2,9 +2,6 @@ import { useRef, useCallback, useEffect } from 'react'
 import { useProjectStore, Clip } from '../store/projectStore'
 import { DX7Synth } from '../audio/synths/DX7Synth'
 
-// RecordRTC is loaded as a global from /RecordRTC.js
-declare const RecordRTC: any
-
 interface TrackNodes {
   gain: GainNode
   panner: StereoPannerNode
@@ -1759,19 +1756,27 @@ export function useAudioEngine() {
         recordedBuffers.push(buffer)
       }
       
-      // Connect: micSource -> highpass -> analyser (for metering)
-      //          micSource -> highpass -> scriptProcessor (for recording)
-      // DO NOT connect to destination - that causes feedback and clipping!
+      // Create a gain node set to 0 to act as a "dummy" destination
+      // ScriptProcessor needs to be connected to destination to fire onaudioprocess
+      // but we don't want to hear it (feedback loop), so we use a silent gain node
+      const silentGain = ctx.createGain()
+      silentGain.gain.value = 0 // Mute it completely
+      silentGain.connect(ctx.destination)
+      
+      // Connect: micSource -> highpass -> scriptProcessor -> silent destination
       highpassFilter.connect(scriptProcessor)
+      scriptProcessor.connect(silentGain)
       
       // Store the recorder state
       mediaRecorderRef.current = {
         scriptProcessor,
+        silentGain,
         recordedBuffers,
         sampleRate: ctx.sampleRate,
         getState: () => 'recording',
         stopRecording: (callback: () => void) => {
           scriptProcessor.disconnect()
+          silentGain.disconnect()
           callback()
         },
         getBlob: () => null // Not used, we'll use recordedBuffers directly
