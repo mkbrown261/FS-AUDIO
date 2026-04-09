@@ -1,7 +1,7 @@
 import { useRef, useCallback, useEffect } from 'react'
 import { useProjectStore, Clip } from '../store/projectStore'
 import { DX7Synth } from '../audio/synths/DX7Synth'
-import { SFZSampler } from '../audio/synths/SFZSampler'
+import { SFZSamplerWasm } from '../audio/synths/SFZSamplerWasm'
 
 interface TrackNodes {
   gain: GainNode
@@ -1976,7 +1976,7 @@ export function useAudioEngine() {
   }, [])
 
   // ── Instrument Synth Instances (per track) ────────────────────────────────
-  const instrumentSynthsRef = useRef<Map<string, DX7Synth | SFZSampler>>(new Map())
+  const instrumentSynthsRef = useRef<Map<string, DX7Synth | SFZSamplerWasm>>(new Map())
 
   // ── Play a preview note (piano roll key click) ────────────────────────────
   const heldNotesRef = useRef<Map<number, { osc: OscillatorNode; gain: GainNode }>>(new Map())
@@ -2039,22 +2039,23 @@ export function useAudioEngine() {
       
       // Check for SFZ instrument
       if (selectedTrack.instrument?.type === 'sfz') {
-        let synth = instrumentSynthsRef.current.get(selectedTrack.id)
+        let synth = instrumentSynthsRef.current.get(selectedTrack.id) as SFZSamplerWasm
         if (!synth) {
           const trackNodes = getOrCreateTrackNodes(selectedTrack.id)
           if (trackNodes && selectedTrack.instrument.sfzContent) {
-            synth = new SFZSampler(ctx, trackNodes.gain)
-            // Load SFZ content
-            synth.loadSFZ(selectedTrack.instrument.sfzContent, selectedTrack.instrument.sfzPath || '')
-              .catch(err => console.error('[SFZ] Failed to load:', err))
+            synth = new SFZSamplerWasm(ctx, trackNodes.gain)
+            // Initialize and load SFZ content
+            synth.initialize()
+              .then(() => synth.loadSFZ(selectedTrack.instrument!.sfzContent!, selectedTrack.instrument!.sfzPath || ''))
+              .catch(err => console.error('[SFZ WASM] Failed to load:', err))
             instrumentSynthsRef.current.set(selectedTrack.id, synth)
-            console.log('[noteOn] ✅ Created SFZ sampler')
+            console.log('[noteOn] ✅ Created SFZ WASM sampler')
           }
         }
         
         if (synth) {
           synth.noteOn(pitch, velocity)
-          console.log('[noteOn] ✅ SFZ note triggered:', pitch)
+          console.log('[noteOn] ✅ SFZ WASM note triggered:', pitch)
           heldNotesRef.current.set(pitch, { osc: null as any, gain: null as any })
           return
         }
