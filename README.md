@@ -6,6 +6,23 @@ Flowstate Audio is a desktop audio workstation modeled after Logic Pro's workflo
 
 ---
 
+## 🎹 Quick Start - Using Instruments
+
+**New to Flowstate Audio?** Check out the [INSTRUMENT_GUIDE.md](./INSTRUMENT_GUIDE.md) for:
+- How to add instruments (FS-Analog synth, FS-Sampler drums)
+- Musical typing keyboard layout
+- Piano Roll editing
+- MIDI recording workflow
+
+**TL;DR:**
+1. Click **"+ MIDI"** to create a MIDI track
+2. Select the track, then in the **Inspector Panel** (right side) click **"+ ADD"**
+3. Choose **FS-Analog** (synth) or **FS-Sampler** (drums)
+4. Play using your keyboard: `Z X C V B N M` (notes), `A S D F G H J` (higher octave)
+5. Press the **red circle** on the track to arm, then **Record** to capture MIDI
+
+---
+
 ## ✨ Features
 
 | Feature | Details |
