@@ -1,14 +1,297 @@
-// Baritone Guitar - Humbucker
-// Fender Baritone Strat, Dimarzio D-Activator, high-gain metal tone
-// by Synth Chris (free sample library)
+// Guitar - Humbucker
+// MIM Fender Blacktop Stratocaster, Warmoth Baritone Neck, Dimarzio D-Activator humbucker
+// by Synth Chris (free sample library) — https://github.com/lotkey/free-sample-libraries-sfz
+// 4 round-robin, 2 velocity layers, stereo (L/R groups), + muted notes
+
+<global>
+seq_length=4
+ampeg_release=0.1
+amp_veltrack=0
 
 <group>
-ampeg_attack=0.005
-ampeg_release=0.1
+// Middle velocity — left channel
+pan=-100
+lovel=64
+hivel=96
 
-<region> sample=samples/guitar-hum/G#1_1_1.wav pitch_keycenter=32 lokey=19 hikey=38
-<region> sample=samples/guitar-hum/D#2_1_1.wav pitch_keycenter=39 lokey=39 hikey=43
-<region> sample=samples/guitar-hum/G#2_1_1.wav pitch_keycenter=44 lokey=44 hikey=48
-<region> sample=samples/guitar-hum/C#3_1_1.wav pitch_keycenter=49 lokey=49 hikey=53
-<region> sample=samples/guitar-hum/F3_1_1.wav  pitch_keycenter=53 lokey=53 hikey=57
-<region> sample=samples/guitar-hum/A#3_1_1.wav pitch_keycenter=58 lokey=58 hikey=84
+<region> sample=samples/guitar-hum/G#1_1_1.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=1
+<region> sample=samples/guitar-hum/G#1_2_1.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=2
+<region> sample=samples/guitar-hum/G#1_3_1.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=3
+<region> sample=samples/guitar-hum/G#1_4_1.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=4
+
+<region> sample=samples/guitar-hum/D#2_1_1.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=1
+<region> sample=samples/guitar-hum/D#2_2_1.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=2
+<region> sample=samples/guitar-hum/D#2_3_1.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=3
+<region> sample=samples/guitar-hum/D#2_4_1.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=4
+
+<region> sample=samples/guitar-hum/G#2_1_1.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=1
+<region> sample=samples/guitar-hum/G#2_2_1.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=2
+<region> sample=samples/guitar-hum/G#2_3_1.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=3
+<region> sample=samples/guitar-hum/G#2_4_1.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=4
+
+<region> sample=samples/guitar-hum/C#3_1_1.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=1
+<region> sample=samples/guitar-hum/C#3_2_1.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=2
+<region> sample=samples/guitar-hum/C#3_3_1.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=3
+<region> sample=samples/guitar-hum/C#3_4_1.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=4
+
+<region> sample=samples/guitar-hum/F3_1_1.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=1
+<region> sample=samples/guitar-hum/F3_2_1.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=2
+<region> sample=samples/guitar-hum/F3_3_1.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=3
+<region> sample=samples/guitar-hum/F3_4_1.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=4
+
+<region> sample=samples/guitar-hum/A#3_1_1.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=1
+<region> sample=samples/guitar-hum/A#3_2_1.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=2
+<region> sample=samples/guitar-hum/A#3_3_1.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=3
+<region> sample=samples/guitar-hum/A#3_4_1.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=4
+
+<group>
+// Middle velocity — right channel
+pan=100
+lovel=64
+hivel=96
+
+<region> sample=samples/guitar-hum/G#1_3_1.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=1
+<region> sample=samples/guitar-hum/G#1_4_1.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=2
+<region> sample=samples/guitar-hum/G#1_1_1.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=3
+<region> sample=samples/guitar-hum/G#1_2_1.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=4
+
+<region> sample=samples/guitar-hum/D#2_3_1.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=1
+<region> sample=samples/guitar-hum/D#2_4_1.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=2
+<region> sample=samples/guitar-hum/D#2_1_1.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=3
+<region> sample=samples/guitar-hum/D#2_2_1.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=4
+
+<region> sample=samples/guitar-hum/G#2_3_1.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=1
+<region> sample=samples/guitar-hum/G#2_4_1.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=2
+<region> sample=samples/guitar-hum/G#2_1_1.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=3
+<region> sample=samples/guitar-hum/G#2_2_1.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=4
+
+<region> sample=samples/guitar-hum/C#3_3_1.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=1
+<region> sample=samples/guitar-hum/C#3_4_1.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=2
+<region> sample=samples/guitar-hum/C#3_1_1.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=3
+<region> sample=samples/guitar-hum/C#3_2_1.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=4
+
+<region> sample=samples/guitar-hum/F3_3_1.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=1
+<region> sample=samples/guitar-hum/F3_4_1.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=2
+<region> sample=samples/guitar-hum/F3_1_1.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=3
+<region> sample=samples/guitar-hum/F3_2_1.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=4
+
+<region> sample=samples/guitar-hum/A#3_3_1.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=1
+<region> sample=samples/guitar-hum/A#3_4_1.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=2
+<region> sample=samples/guitar-hum/A#3_1_1.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=3
+<region> sample=samples/guitar-hum/A#3_2_1.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=4
+
+<group>
+// High velocity — left channel
+pan=-100
+lovel=97
+hivel=127
+
+<region> sample=samples/guitar-hum/G#1_1_2.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=1
+<region> sample=samples/guitar-hum/G#1_2_2.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=2
+<region> sample=samples/guitar-hum/G#1_3_2.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=3
+<region> sample=samples/guitar-hum/G#1_4_2.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=4
+
+<region> sample=samples/guitar-hum/D#2_1_2.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=1
+<region> sample=samples/guitar-hum/D#2_2_2.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=2
+<region> sample=samples/guitar-hum/D#2_3_2.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=3
+<region> sample=samples/guitar-hum/D#2_4_2.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=4
+
+<region> sample=samples/guitar-hum/G#2_1_2.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=1
+<region> sample=samples/guitar-hum/G#2_2_2.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=2
+<region> sample=samples/guitar-hum/G#2_3_2.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=3
+<region> sample=samples/guitar-hum/G#2_4_2.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=4
+
+<region> sample=samples/guitar-hum/C#3_1_2.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=1
+<region> sample=samples/guitar-hum/C#3_2_2.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=2
+<region> sample=samples/guitar-hum/C#3_3_2.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=3
+<region> sample=samples/guitar-hum/C#3_4_2.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=4
+
+<region> sample=samples/guitar-hum/F3_1_2.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=1
+<region> sample=samples/guitar-hum/F3_2_2.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=2
+<region> sample=samples/guitar-hum/F3_3_2.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=3
+<region> sample=samples/guitar-hum/F3_4_2.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=4
+
+<region> sample=samples/guitar-hum/A#3_1_2.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=1
+<region> sample=samples/guitar-hum/A#3_2_2.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=2
+<region> sample=samples/guitar-hum/A#3_3_2.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=3
+<region> sample=samples/guitar-hum/A#3_4_2.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=4
+
+<group>
+// High velocity — right channel
+pan=100
+lovel=97
+hivel=127
+
+<region> sample=samples/guitar-hum/G#1_3_2.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=1
+<region> sample=samples/guitar-hum/G#1_4_2.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=2
+<region> sample=samples/guitar-hum/G#1_1_2.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=3
+<region> sample=samples/guitar-hum/G#1_2_2.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=4
+
+<region> sample=samples/guitar-hum/D#2_3_2.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=1
+<region> sample=samples/guitar-hum/D#2_4_2.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=2
+<region> sample=samples/guitar-hum/D#2_1_2.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=3
+<region> sample=samples/guitar-hum/D#2_2_2.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=4
+
+<region> sample=samples/guitar-hum/G#2_3_2.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=1
+<region> sample=samples/guitar-hum/G#2_4_2.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=2
+<region> sample=samples/guitar-hum/G#2_1_2.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=3
+<region> sample=samples/guitar-hum/G#2_2_2.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=4
+
+<region> sample=samples/guitar-hum/C#3_3_2.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=1
+<region> sample=samples/guitar-hum/C#3_4_2.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=2
+<region> sample=samples/guitar-hum/C#3_1_2.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=3
+<region> sample=samples/guitar-hum/C#3_2_2.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=4
+
+<region> sample=samples/guitar-hum/F3_3_2.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=1
+<region> sample=samples/guitar-hum/F3_4_2.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=2
+<region> sample=samples/guitar-hum/F3_1_2.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=3
+<region> sample=samples/guitar-hum/F3_2_2.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=4
+
+<region> sample=samples/guitar-hum/A#3_3_2.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=1
+<region> sample=samples/guitar-hum/A#3_4_2.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=2
+<region> sample=samples/guitar-hum/A#3_1_2.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=3
+<region> sample=samples/guitar-hum/A#3_2_2.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=4
+
+<group>
+// Muted — medium velocity — left channel
+pan=-100
+lovel=0
+hivel=32
+
+<region> sample=samples/guitar-hum/G#1_1_1_muted.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=1
+<region> sample=samples/guitar-hum/G#1_2_1_muted.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=2
+<region> sample=samples/guitar-hum/G#1_3_1_muted.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=3
+<region> sample=samples/guitar-hum/G#1_4_1_muted.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=4
+
+<region> sample=samples/guitar-hum/D#2_1_1_muted.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=1
+<region> sample=samples/guitar-hum/D#2_2_1_muted.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=2
+<region> sample=samples/guitar-hum/D#2_3_1_muted.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=3
+<region> sample=samples/guitar-hum/D#2_4_1_muted.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=4
+
+<region> sample=samples/guitar-hum/G#2_1_1_muted.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=1
+<region> sample=samples/guitar-hum/G#2_2_1_muted.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=2
+<region> sample=samples/guitar-hum/G#2_3_1_muted.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=3
+<region> sample=samples/guitar-hum/G#2_4_1_muted.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=4
+
+<region> sample=samples/guitar-hum/C#3_1_1_muted.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=1
+<region> sample=samples/guitar-hum/C#3_2_1_muted.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=2
+<region> sample=samples/guitar-hum/C#3_3_1_muted.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=3
+<region> sample=samples/guitar-hum/C#3_4_1_muted.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=4
+
+<region> sample=samples/guitar-hum/F3_1_1_muted.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=1
+<region> sample=samples/guitar-hum/F3_2_1_muted.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=2
+<region> sample=samples/guitar-hum/F3_3_1_muted.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=3
+<region> sample=samples/guitar-hum/F3_4_1_muted.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=4
+
+<region> sample=samples/guitar-hum/A#3_1_1_muted.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=1
+<region> sample=samples/guitar-hum/A#3_2_1_muted.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=2
+<region> sample=samples/guitar-hum/A#3_3_1_muted.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=3
+<region> sample=samples/guitar-hum/A#3_4_1_muted.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=4
+
+<group>
+// Muted — medium velocity — right channel
+pan=100
+lovel=0
+hivel=32
+
+<region> sample=samples/guitar-hum/G#1_3_1_muted.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=1
+<region> sample=samples/guitar-hum/G#1_4_1_muted.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=2
+<region> sample=samples/guitar-hum/G#1_1_1_muted.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=3
+<region> sample=samples/guitar-hum/G#1_2_1_muted.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=4
+
+<region> sample=samples/guitar-hum/D#2_3_1_muted.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=1
+<region> sample=samples/guitar-hum/D#2_4_1_muted.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=2
+<region> sample=samples/guitar-hum/D#2_1_1_muted.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=3
+<region> sample=samples/guitar-hum/D#2_2_1_muted.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=4
+
+<region> sample=samples/guitar-hum/G#2_3_1_muted.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=1
+<region> sample=samples/guitar-hum/G#2_4_1_muted.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=2
+<region> sample=samples/guitar-hum/G#2_1_1_muted.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=3
+<region> sample=samples/guitar-hum/G#2_2_1_muted.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=4
+
+<region> sample=samples/guitar-hum/C#3_3_1_muted.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=1
+<region> sample=samples/guitar-hum/C#3_4_1_muted.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=2
+<region> sample=samples/guitar-hum/C#3_1_1_muted.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=3
+<region> sample=samples/guitar-hum/C#3_2_1_muted.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=4
+
+<region> sample=samples/guitar-hum/F3_3_1_muted.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=1
+<region> sample=samples/guitar-hum/F3_4_1_muted.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=2
+<region> sample=samples/guitar-hum/F3_1_1_muted.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=3
+<region> sample=samples/guitar-hum/F3_2_1_muted.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=4
+
+<region> sample=samples/guitar-hum/A#3_3_1_muted.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=1
+<region> sample=samples/guitar-hum/A#3_4_1_muted.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=2
+<region> sample=samples/guitar-hum/A#3_1_1_muted.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=3
+<region> sample=samples/guitar-hum/A#3_2_1_muted.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=4
+
+<group>
+// Muted — high velocity — left channel
+pan=-100
+lovel=33
+hivel=63
+
+<region> sample=samples/guitar-hum/G#1_1_2_muted.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=1
+<region> sample=samples/guitar-hum/G#1_2_2_muted.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=2
+<region> sample=samples/guitar-hum/G#1_3_2_muted.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=3
+<region> sample=samples/guitar-hum/G#1_4_2_muted.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=4
+
+<region> sample=samples/guitar-hum/D#2_1_2_muted.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=1
+<region> sample=samples/guitar-hum/D#2_2_2_muted.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=2
+<region> sample=samples/guitar-hum/D#2_3_2_muted.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=3
+<region> sample=samples/guitar-hum/D#2_4_2_muted.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=4
+
+<region> sample=samples/guitar-hum/G#2_1_2_muted.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=1
+<region> sample=samples/guitar-hum/G#2_2_2_muted.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=2
+<region> sample=samples/guitar-hum/G#2_3_2_muted.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=3
+<region> sample=samples/guitar-hum/G#2_4_2_muted.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=4
+
+<region> sample=samples/guitar-hum/C#3_1_2_muted.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=1
+<region> sample=samples/guitar-hum/C#3_2_2_muted.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=2
+<region> sample=samples/guitar-hum/C#3_3_2_muted.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=3
+<region> sample=samples/guitar-hum/C#3_4_2_muted.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=4
+
+<region> sample=samples/guitar-hum/F3_1_2_muted.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=1
+<region> sample=samples/guitar-hum/F3_2_2_muted.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=2
+<region> sample=samples/guitar-hum/F3_3_2_muted.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=3
+<region> sample=samples/guitar-hum/F3_4_2_muted.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=4
+
+<region> sample=samples/guitar-hum/A#3_1_2_muted.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=1
+<region> sample=samples/guitar-hum/A#3_2_2_muted.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=2
+<region> sample=samples/guitar-hum/A#3_3_2_muted.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=3
+<region> sample=samples/guitar-hum/A#3_4_2_muted.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=4
+
+<group>
+// Muted — high velocity — right channel
+pan=100
+lovel=33
+hivel=63
+
+<region> sample=samples/guitar-hum/G#1_3_2_muted.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=1
+<region> sample=samples/guitar-hum/G#1_4_2_muted.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=2
+<region> sample=samples/guitar-hum/G#1_1_2_muted.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=3
+<region> sample=samples/guitar-hum/G#1_2_2_muted.wav lokey=19 hikey=38 pitch_keycenter=32 seq_position=4
+
+<region> sample=samples/guitar-hum/D#2_3_2_muted.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=1
+<region> sample=samples/guitar-hum/D#2_4_2_muted.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=2
+<region> sample=samples/guitar-hum/D#2_1_2_muted.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=3
+<region> sample=samples/guitar-hum/D#2_2_2_muted.wav lokey=39 hikey=43 pitch_keycenter=39 seq_position=4
+
+<region> sample=samples/guitar-hum/G#2_3_2_muted.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=1
+<region> sample=samples/guitar-hum/G#2_4_2_muted.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=2
+<region> sample=samples/guitar-hum/G#2_1_2_muted.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=3
+<region> sample=samples/guitar-hum/G#2_2_2_muted.wav lokey=44 hikey=48 pitch_keycenter=44 seq_position=4
+
+<region> sample=samples/guitar-hum/C#3_3_2_muted.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=1
+<region> sample=samples/guitar-hum/C#3_4_2_muted.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=2
+<region> sample=samples/guitar-hum/C#3_1_2_muted.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=3
+<region> sample=samples/guitar-hum/C#3_2_2_muted.wav lokey=49 hikey=52 pitch_keycenter=49 seq_position=4
+
+<region> sample=samples/guitar-hum/F3_3_2_muted.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=1
+<region> sample=samples/guitar-hum/F3_4_2_muted.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=2
+<region> sample=samples/guitar-hum/F3_1_2_muted.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=3
+<region> sample=samples/guitar-hum/F3_2_2_muted.wav lokey=53 hikey=57 pitch_keycenter=53 seq_position=4
+
+<region> sample=samples/guitar-hum/A#3_3_2_muted.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=1
+<region> sample=samples/guitar-hum/A#3_4_2_muted.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=2
+<region> sample=samples/guitar-hum/A#3_1_2_muted.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=3
+<region> sample=samples/guitar-hum/A#3_2_2_muted.wav lokey=58 hikey=84 pitch_keycenter=58 seq_position=4

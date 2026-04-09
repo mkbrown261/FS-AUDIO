@@ -32,27 +32,27 @@ export const BUILTIN_INSTRUMENTS: BuiltInInstrument[] = [
     sfzPath: '/sfz-instruments/synth-bass.sfz',
     description: 'Analog synthesizer bass'
   },
-  // ── Real recorded instruments (bundled, ~37MB total) ────────────────────
+  // ── Real recorded instruments (from lotkey/free-sample-libraries-sfz) ────
   {
     id: 'schecter-bass',
     name: 'Schecter Bass',
     category: 'bass',
     sfzPath: '/sfz-instruments/schecter-bass.sfz',
-    description: 'Real Schecter Elite-5 bass, EMG HZ pickups, recorded direct'
+    description: 'Real Schecter Elite-5 bass · 4 round-robin · 2 velocity layers'
   },
   {
     id: 'guitar-humbucker',
     name: 'Guitar (Humbucker)',
     category: 'guitar',
     sfzPath: '/sfz-instruments/guitar-humbucker.sfz',
-    description: 'Baritone Strat with Dimarzio humbucker — high-gain metal tone'
+    description: 'Baritone Strat, Dimarzio humbucker · vel 0-32 muted, 64+ open'
   },
   {
     id: 'guitar-splitcoil',
     name: 'Guitar (Split Coil)',
     category: 'guitar',
     sfzPath: '/sfz-instruments/guitar-splitcoil.sfz',
-    description: 'Baritone Strat with coil split — brighter, crisper tone'
+    description: 'Baritone Strat, coil split · vel 0-32 muted, 64+ open · brighter'
   },
 ]
 

@@ -1,5 +1,6 @@
 // SFZ Sampler - Professional sample-based instrument
 // Fully self-contained: NO external dependencies, built-in SFZ parser
+// Supports: seq_position/seq_length round-robin, velocity layers, pan, loops
 
 interface SFZRegion {
   sample?: string
@@ -17,21 +18,25 @@ interface SFZRegion {
   transpose?: number
   ampeg_attack?: number
   ampeg_release?: number
+  seq_position?: number  // round-robin position (1-based)
 }
 
 interface SFZGroup {
   groupDefaults: Partial<SFZRegion>
   regions: SFZRegion[]
+  seq_length?: number    // total round-robin steps for this group
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Built-in SFZ parser — no external packages needed
+// Supports: // line comments, /* */ block comments, <global> <group> <region>
 // ─────────────────────────────────────────────────────────────────────────────
 function parseSFZ(content: string): SFZGroup[] {
   const groups: SFZGroup[] = []
   let currentGroup: SFZGroup | null = null
   let currentRegion: Partial<SFZRegion> | null = null
   let globalDefaults: Partial<SFZRegion> = {}
+  let globalSeqLength = 1
 
   const toNum  = (v: string) => parseFloat(v)
   const toInt  = (v: string) => parseInt(v, 10)
@@ -47,30 +52,49 @@ function parseSFZ(content: string): SFZGroup[] {
     return (octave + 1) * 12 + base + sharp
   }
 
-  const applyOpcode = (target: Partial<SFZRegion>, key: string, val: string) => {
+  const applyOpcode = (target: Partial<SFZRegion> | SFZGroup, key: string, val: string) => {
+    if (key === 'seq_length') {
+      // seq_length applies to the group level
+      if ((target as SFZGroup).groupDefaults !== undefined) {
+        (target as SFZGroup).seq_length = toInt(val)
+      } else {
+        globalSeqLength = toInt(val)
+      }
+      return
+    }
+    if (key === 'seq_position') {
+      (target as Partial<SFZRegion>).seq_position = toInt(val)
+      return
+    }
+    const r = target as Partial<SFZRegion>
     switch (key) {
-      case 'sample':           target.sample          = val.replace(/\\/g, '/').trim(); break
-      case 'lokey':            target.lokey           = toNote(val); break
-      case 'hikey':            target.hikey           = toNote(val); break
-      case 'key':              target.lokey = target.hikey = target.pitch_keycenter = toNote(val); break
-      case 'lovel':            target.lovel           = toInt(val);  break
-      case 'hivel':            target.hivel           = toInt(val);  break
-      case 'pitch_keycenter':  target.pitch_keycenter = toNote(val); break
-      case 'volume':           target.volume          = toNum(val);  break
-      case 'pan':              target.pan             = toNum(val);  break
-      case 'tune':             target.tune            = toNum(val);  break
-      case 'transpose':        target.transpose       = toInt(val);  break
-      case 'loop_mode':        target.loop_mode       = val.trim();  break
-      case 'loop_start':       target.loop_start      = toInt(val);  break
-      case 'loop_end':         target.loop_end        = toInt(val);  break
-      case 'ampeg_attack':     target.ampeg_attack    = toNum(val);  break
-      case 'ampeg_release':    target.ampeg_release   = toNum(val);  break
+      case 'sample':           r.sample          = val.replace(/\\/g, '/').trim(); break
+      case 'lokey':            r.lokey           = toNote(val); break
+      case 'hikey':            r.hikey           = toNote(val); break
+      case 'key':              r.lokey = r.hikey = r.pitch_keycenter = toNote(val); break
+      case 'lovel':            r.lovel           = toInt(val);  break
+      case 'hivel':            r.hivel           = toInt(val);  break
+      case 'pitch_keycenter':  r.pitch_keycenter = toNote(val); break
+      case 'volume':           r.volume          = toNum(val);  break
+      case 'pan':              r.pan             = toNum(val);  break
+      case 'tune':             r.tune            = toNum(val);  break
+      case 'transpose':        r.transpose       = toInt(val);  break
+      case 'loop_mode':        r.loop_mode       = val.trim();  break
+      case 'loop_start':       r.loop_start      = toInt(val);  break
+      case 'loop_end':         r.loop_end        = toInt(val);  break
+      case 'ampeg_attack':     r.ampeg_attack    = toNum(val);  break
+      case 'ampeg_release':    r.ampeg_release   = toNum(val);  break
+      // Silently ignore unknown opcodes (amp_veltrack, default_path, etc.)
     }
   }
 
-  // Strip // comments and split into lines
-  const lines = content.split('\n')
-    .map(l => l.replace(/\/\/.*$/, '').trim())
+  // Strip /* ... */ block comments, then // line comments
+  const stripped = content
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/\/\/[^\r\n]*/g, '')
+
+  const lines = stripped.split(/\r?\n/)
+    .map(l => l.trim())
     .filter(Boolean)
 
   const saveRegion = () => {
@@ -94,25 +118,31 @@ function parseSFZ(content: string): SFZGroup[] {
         saveRegion()
         globalDefaults = {}
         currentGroup  = null
-        // parse any trailing opcodes
         parseOpcodes(trimmed.replace('<global>', ''), globalDefaults, applyOpcode)
+      } else if (trimmed.startsWith('<control>')) {
+        // Ignore <control> section (default_path, etc.)
+        continue
       } else if (trimmed.startsWith('<group>')) {
         saveRegion()
-        currentGroup  = { groupDefaults: { ...globalDefaults }, regions: [] }
+        currentGroup  = { groupDefaults: { ...globalDefaults }, regions: [], seq_length: globalSeqLength }
         groups.push(currentGroup)
         currentRegion = null
-        parseOpcodes(trimmed.replace('<group>', ''), currentGroup.groupDefaults, applyOpcode)
+        parseOpcodes(trimmed.replace('<group>', ''), currentGroup, applyOpcode)
       } else if (trimmed.startsWith('<region>')) {
         saveRegion()
         if (!currentGroup) {
-          currentGroup = { groupDefaults: { ...globalDefaults }, regions: [] }
+          currentGroup = { groupDefaults: { ...globalDefaults }, regions: [], seq_length: globalSeqLength }
           groups.push(currentGroup)
         }
         currentRegion = { ...globalDefaults, ...currentGroup.groupDefaults }
         parseOpcodes(trimmed.replace('<region>', ''), currentRegion, applyOpcode)
       } else {
-        // Plain opcode line
-        const target = currentRegion ?? (currentGroup?.groupDefaults) ?? globalDefaults
+        // Plain opcode line (group-level or global-level)
+        const target = currentRegion
+          ? currentRegion
+          : currentGroup
+            ? currentGroup
+            : globalDefaults
         parseOpcodes(trimmed, target, applyOpcode)
       }
     }
@@ -124,8 +154,8 @@ function parseSFZ(content: string): SFZGroup[] {
 
 function parseOpcodes(
   text: string,
-  target: Partial<SFZRegion>,
-  apply: (t: Partial<SFZRegion>, k: string, v: string) => void
+  target: Partial<SFZRegion> | SFZGroup,
+  apply: (t: Partial<SFZRegion> | SFZGroup, k: string, v: string) => void
 ) {
   // Match key=value pairs; value runs until next key= or end of string
   const re = /(\w+)\s*=\s*(.*?)(?=\s+\w+=|$)/g
@@ -143,9 +173,12 @@ export class SFZSampler {
   private destination: AudioNode
   private groups: SFZGroup[] = []
   // Stored under EVERY key variant so lookup always succeeds:
-  //   "ep-c4.wav", "samples/ep-c4.wav", "/sfz-instruments/samples/ep-c4.wav"
+  //   "ep-c4.wav", "samples/ep-c4.wav", "samples/bass/G#0_1_1.wav"
   private audioBuffers: Map<string, AudioBuffer> = new Map()
   private activeNotes: Map<number, { source: AudioBufferSourceNode; gain: GainNode }[]> = new Map()
+
+  // Per-group round-robin counters (indexed by group index)
+  private seqCounters: number[] = []
 
   // resolves when all samples are loaded — noteOn waits on this
   private _ready: Promise<void> = Promise.resolve()
@@ -155,9 +188,14 @@ export class SFZSampler {
     this.destination = destination
   }
 
+  // Optional progress callback: (loaded, total) => void
+  onProgress?: (loaded: number, total: number) => void
+
   /** Parse SFZ text and fetch all samples from samplesBaseUrl */
   async loadSFZ(sfzContent: string, samplesBaseUrl: string) {
     this.groups = parseSFZ(sfzContent)
+    this.seqCounters = this.groups.map(() => 0)
+    this.audioBuffers.clear()
     console.log(`[SFZ] Parsed ${this.groups.length} groups, ${this.totalRegions()} regions`)
 
     // Collect every unique sample path referenced in the SFZ
@@ -166,32 +204,42 @@ export class SFZSampler {
       for (const r of g.regions)
         if (r.sample) samplePaths.add(r.sample)
 
-    console.log('[SFZ] Samples to fetch:', [...samplePaths])
+    console.log(`[SFZ] Samples to fetch: ${samplePaths.size} unique files`)
+
+    const total = samplePaths.size
+    let loaded = 0
 
     // Fetch & decode all samples, store under every key variant
     this._ready = (async () => {
-      await Promise.all([...samplePaths].map(async (samplePath) => {
-        // Build full URL: samplesBaseUrl + '/' + samplePath
-        const url = samplesBaseUrl
-          ? `${samplesBaseUrl}/${samplePath}`
-          : `/${samplePath}`
+      // Load in batches of 8 to avoid overwhelming the network
+      const paths = [...samplePaths]
+      const BATCH = 8
+      for (let i = 0; i < paths.length; i += BATCH) {
+        await Promise.all(paths.slice(i, i + BATCH).map(async (samplePath) => {
+          // Build full URL: samplesBaseUrl + '/' + samplePath
+          const url = samplesBaseUrl
+            ? `${samplesBaseUrl}/${samplePath}`
+            : `/${samplePath}`
 
-        try {
-          const resp = await fetch(url)
-          if (!resp.ok) { console.warn(`[SFZ] HTTP ${resp.status} for ${url}`); return }
-          const ab  = await resp.arrayBuffer()
-          const buf = await this.ctx.decodeAudioData(ab)
+          try {
+            const resp = await fetch(url)
+            if (!resp.ok) { console.warn(`[SFZ] HTTP ${resp.status} for ${url}`); return }
+            const ab  = await resp.arrayBuffer()
+            const buf = await this.ctx.decodeAudioData(ab)
 
-          // Store under multiple keys so any lookup variant works
-          const filename = samplePath.split('/').pop() ?? samplePath
-          this.audioBuffers.set(filename, buf)         // "ep-c4.wav"
-          this.audioBuffers.set(samplePath, buf)       // "samples/ep-c4.wav"
-          console.log(`[SFZ] ✅ Decoded: ${filename}`)
-        } catch (err) {
-          console.error(`[SFZ] ❌ Failed to load sample "${url}":`, err)
-        }
-      }))
-      console.log(`[SFZ] Ready — ${this.audioBuffers.size} samples loaded`)
+            // Store under multiple keys so any lookup variant works
+            const filename = samplePath.split('/').pop() ?? samplePath
+            this.audioBuffers.set(filename, buf)         // "G#0_1_1.wav"
+            this.audioBuffers.set(samplePath, buf)       // "samples/bass/G#0_1_1.wav"
+          } catch (err) {
+            console.error(`[SFZ] ❌ Failed to load "${url}":`, err)
+          } finally {
+            loaded++
+            this.onProgress?.(loaded, total)
+          }
+        }))
+      }
+      console.log(`[SFZ] ✅ Ready — ${this.audioBuffers.size} samples loaded`)
     })()
 
     await this._ready
@@ -204,10 +252,27 @@ export class SFZSampler {
 
     const now = this.ctx.currentTime
 
-    for (const group of this.groups) {
+    this.groups.forEach((group, groupIdx) => {
+      const seqLen = group.seq_length ?? 1
+
+      // Advance the round-robin counter for this group if any region in this
+      // group matches the note/velocity (check first before incrementing)
+      const hasMatch = group.regions.some(r =>
+        note >= (r.lokey ?? 0) && note <= (r.hikey ?? 127) &&
+        velocity >= (r.lovel ?? 0) && velocity <= (r.hivel ?? 127)
+      )
+      if (!hasMatch) return
+
+      // Current round-robin position (1-based)
+      const currentSeq = (this.seqCounters[groupIdx] % seqLen) + 1
+      this.seqCounters[groupIdx]++
+
       for (const region of group.regions) {
         if (note < (region.lokey ?? 0)   || note > (region.hikey ?? 127))   continue
         if (velocity < (region.lovel ?? 0) || velocity > (region.hivel ?? 127)) continue
+
+        // Round-robin filter: skip if seq_position doesn't match current step
+        if (region.seq_position !== undefined && region.seq_position !== currentSeq) continue
 
         const sampleRef = region.sample
         if (!sampleRef) continue
@@ -261,7 +326,7 @@ export class SFZSampler {
         if (!this.activeNotes.has(note)) this.activeNotes.set(note, [])
         this.activeNotes.get(note)!.push({ source, gain: gainNode })
       }
-    }
+    })
   }
 
   noteOff(note: number) {

@@ -2073,7 +2073,14 @@ export function useAudioEngine() {
           if (sfzPlugin.params.sfzContent) {
             const sfzContent = sfzPlugin.params.sfzContent as string
             const samplesBaseUrl = sfzPlugin.params.samplesBaseUrl as string || ''
+            const instrumentName = sfzPlugin.params.instrumentName as string || 'Instrument'
             console.log('[SFZ] Loading SFZ with samplesBaseUrl:', samplesBaseUrl)
+            // Wire up progress callback → CustomEvent so SFZSamplerUI can show a progress bar
+            synth.onProgress = (loaded, total) => {
+              window.dispatchEvent(new CustomEvent('sfz-load-progress', {
+                detail: { loaded, total, instrumentName }
+              }))
+            }
             synth.loadSFZ(sfzContent, samplesBaseUrl)
               .catch(err => console.error('[SFZ] Failed to load:', err))
           }

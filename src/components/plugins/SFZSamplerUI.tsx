@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Plugin, useProjectStore } from '../../store/projectStore'
 import { loadSFZFile, loadSFZSamples, extractSamplePaths } from '../../utils/sfzLoader'
 import { BUILTIN_INSTRUMENTS, BuiltInInstrument } from '../../data/builtinInstruments'
@@ -16,24 +16,39 @@ interface SFZSamplerUIProps {
 
 export function SFZSamplerUI({ trackId, plugin, onParamChange }: SFZSamplerUIProps) {
   const [showBuiltIns, setShowBuiltIns] = useState(true)
+  const [loadingProgress, setLoadingProgress] = useState<{ loaded: number; total: number } | null>(null)
+  const [loadingName, setLoadingName] = useState('')
+
   const sfzPath = plugin.params.sfzPath as string || ''
   const sfzLoaded = !!plugin.params.sfzContent
 
+  // Listen for progress updates broadcast by the audio engine
+  useEffect(() => {
+    const handler = (e: CustomEvent<{ loaded: number; total: number; instrumentName: string }>) => {
+      const { loaded, total, instrumentName } = e.detail
+      if (loaded >= total) {
+        setLoadingProgress(null)
+        setLoadingName('')
+      } else {
+        setLoadingProgress({ loaded, total })
+        setLoadingName(instrumentName)
+      }
+    }
+    window.addEventListener('sfz-load-progress', handler as EventListener)
+    return () => window.removeEventListener('sfz-load-progress', handler as EventListener)
+  }, [])
+
   const handleLoadBuiltIn = async (instrument: BuiltInInstrument) => {
     try {
-      // Fetch the SFZ text so we can display it loaded
       const response = await fetch(instrument.sfzPath)
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const sfzContent = await response.text()
 
-      // Store only the sfzPath + sfzContent.
-      // The SFZ sampler will fetch & decode the WAV files itself using the base URL —
-      // we NEVER pass ArrayBuffers through Zustand (they get neutered/transferred).
       useProjectStore.getState().updatePlugin(trackId, plugin.id, {
         sfzContent,
         sfzPath: instrument.sfzPath,
-        // samplesBaseUrl lets the audio engine know where to fetch samples from
         samplesBaseUrl: basePath(instrument.sfzPath),
+        instrumentName: instrument.name,
       })
 
       console.log('[SFZ] Selected built-in instrument:', instrument.name)
@@ -46,19 +61,17 @@ export function SFZSamplerUI({ trackId, plugin, onParamChange }: SFZSamplerUIPro
 
   const handleLoadClick = async () => {
     try {
-      // Load SFZ file
       const sfzData = await loadSFZFile()
       if (!sfzData) return
 
       console.log('[SFZ] Loaded SFZ file:', sfzData.name)
 
-      // Update the plugin params with SFZ content
       useProjectStore.getState().updatePlugin(trackId, plugin.id, {
         sfzContent: sfzData.content,
         sfzPath: sfzData.path,
+        instrumentName: sfzData.name.replace('.sfz', ''),
       })
 
-      // Prompt for samples folder
       alert(`SFZ file "${sfzData.name}" loaded. Now select the folder containing the samples.`)
       const samples = await loadSFZSamples()
 
@@ -66,7 +79,6 @@ export function SFZSamplerUI({ trackId, plugin, onParamChange }: SFZSamplerUIPro
         const requiredSamples = extractSamplePaths(sfzData.content)
         console.log(`[SFZ] Required samples:`, requiredSamples)
         console.log(`[SFZ] Loaded ${samples.size} sample files`)
-        
         alert(`Loaded SFZ "${sfzData.name}" with ${samples.size} samples`)
       }
     } catch (error) {
@@ -75,48 +87,81 @@ export function SFZSamplerUI({ trackId, plugin, onParamChange }: SFZSamplerUIPro
     }
   }
 
+  const instrumentName = (plugin.params.instrumentName as string)
+    || sfzPath.split('/').pop()?.replace('.sfz', '')
+    || 'Unknown'
+
+  const pct = loadingProgress
+    ? Math.round((loadingProgress.loaded / loadingProgress.total) * 100)
+    : 0
+
   return (
     <div style={{ padding: '12px', background: '#1a1a1a', borderRadius: '4px' }}>
       <div style={{ marginBottom: '12px' }}>
-        <h3 style={{ margin: '0 0 8px 0', fontSize: '14px', color: '#fff' }}>
+        <h3 style={{ margin: '0 0 4px 0', fontSize: '14px', color: '#fff' }}>
           FS-SFZ Sampler
         </h3>
-        <p style={{ margin: 0, fontSize: '12px', color: '#888' }}>
+        <p style={{ margin: 0, fontSize: '11px', color: '#666' }}>
           Professional SFZ sample player
         </p>
       </div>
 
+      {/* Loading progress bar */}
+      {loadingProgress && (
+        <div style={{ marginBottom: '10px' }}>
+          <div style={{ fontSize: '11px', color: '#aaa', marginBottom: '4px' }}>
+            Loading {loadingName}… {loadingProgress.loaded}/{loadingProgress.total}
+          </div>
+          <div style={{ height: '4px', background: '#333', borderRadius: '2px' }}>
+            <div style={{
+              height: '100%',
+              width: `${pct}%`,
+              background: '#3b82f6',
+              borderRadius: '2px',
+              transition: 'width 0.15s ease'
+            }} />
+          </div>
+        </div>
+      )}
+
       {!sfzLoaded && showBuiltIns ? (
         <>
-          <div style={{ marginBottom: '8px', fontSize: '12px', color: '#aaa', fontWeight: '500' }}>
-            Built-in Instruments:
+          <div style={{ marginBottom: '6px', fontSize: '11px', color: '#888', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Built-in Instruments
           </div>
-          <div style={{ display: 'grid', gap: '6px', marginBottom: '12px' }}>
-            {BUILTIN_INSTRUMENTS.map(instrument => (
-              <button
-                key={instrument.id}
-                onClick={() => handleLoadBuiltIn(instrument)}
-                style={{
-                  padding: '8px 12px',
-                  background: '#2a2a2a',
-                  border: '1px solid #3a3a3a',
-                  borderRadius: '4px',
-                  color: '#fff',
-                  fontSize: '13px',
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = '#3a3a3a'}
-                onMouseLeave={(e) => e.currentTarget.style.background = '#2a2a2a'}
-              >
-                <div style={{ fontWeight: '500' }}>{instrument.name}</div>
-                <div style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
-                  {instrument.description}
-                </div>
-              </button>
+
+          {/* Drums */}
+          <div style={{ marginBottom: '4px', fontSize: '10px', color: '#555', textTransform: 'uppercase' }}>Drums</div>
+          <div style={{ display: 'grid', gap: '4px', marginBottom: '8px' }}>
+            {BUILTIN_INSTRUMENTS.filter(i => i.category === 'drums').map(instrument => (
+              <InstrumentButton key={instrument.id} instrument={instrument} onLoad={handleLoadBuiltIn} />
             ))}
           </div>
+
+          {/* Keys */}
+          <div style={{ marginBottom: '4px', fontSize: '10px', color: '#555', textTransform: 'uppercase' }}>Keys</div>
+          <div style={{ display: 'grid', gap: '4px', marginBottom: '8px' }}>
+            {BUILTIN_INSTRUMENTS.filter(i => i.category === 'piano' || i.category === 'synth').map(instrument => (
+              <InstrumentButton key={instrument.id} instrument={instrument} onLoad={handleLoadBuiltIn} />
+            ))}
+          </div>
+
+          {/* Bass */}
+          <div style={{ marginBottom: '4px', fontSize: '10px', color: '#555', textTransform: 'uppercase' }}>Bass</div>
+          <div style={{ display: 'grid', gap: '4px', marginBottom: '8px' }}>
+            {BUILTIN_INSTRUMENTS.filter(i => i.category === 'bass').map(instrument => (
+              <InstrumentButton key={instrument.id} instrument={instrument} onLoad={handleLoadBuiltIn} />
+            ))}
+          </div>
+
+          {/* Guitar */}
+          <div style={{ marginBottom: '4px', fontSize: '10px', color: '#555', textTransform: 'uppercase' }}>Guitar</div>
+          <div style={{ display: 'grid', gap: '4px', marginBottom: '10px' }}>
+            {BUILTIN_INSTRUMENTS.filter(i => i.category === 'guitar').map(instrument => (
+              <InstrumentButton key={instrument.id} instrument={instrument} onLoad={handleLoadBuiltIn} />
+            ))}
+          </div>
+
           <button
             onClick={() => setShowBuiltIns(false)}
             style={{
@@ -125,34 +170,33 @@ export function SFZSamplerUI({ trackId, plugin, onParamChange }: SFZSamplerUIPro
               background: 'transparent',
               border: '1px dashed #444',
               borderRadius: '4px',
-              color: '#888',
-              fontSize: '12px',
+              color: '#666',
+              fontSize: '11px',
               cursor: 'pointer'
             }}
           >
-            Or load your own SFZ file...
+            Or load your own SFZ file…
           </button>
         </>
       ) : !sfzLoaded ? (
         <>
-          <div style={{ marginBottom: '12px' }}>
-            <button
-              onClick={handleLoadClick}
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                background: '#3b82f6',
-                border: 'none',
-                borderRadius: '4px',
-                color: '#fff',
-                fontSize: '13px',
-                cursor: 'pointer',
-                fontWeight: '500'
-              }}
-            >
-              Load SFZ File...
-            </button>
-          </div>
+          <button
+            onClick={handleLoadClick}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              background: '#3b82f6',
+              border: 'none',
+              borderRadius: '4px',
+              color: '#fff',
+              fontSize: '13px',
+              cursor: 'pointer',
+              fontWeight: '500',
+              marginBottom: '8px'
+            }}
+          >
+            Load SFZ File…
+          </button>
           <button
             onClick={() => setShowBuiltIns(true)}
             style={{
@@ -161,8 +205,8 @@ export function SFZSamplerUI({ trackId, plugin, onParamChange }: SFZSamplerUIPro
               background: 'transparent',
               border: '1px dashed #444',
               borderRadius: '4px',
-              color: '#888',
-              fontSize: '12px',
+              color: '#666',
+              fontSize: '11px',
               cursor: 'pointer'
             }}
           >
@@ -173,15 +217,13 @@ export function SFZSamplerUI({ trackId, plugin, onParamChange }: SFZSamplerUIPro
         <>
           <div style={{
             padding: '8px',
-            background: '#0a0a0a',
+            background: '#0d0d0d',
             borderRadius: '4px',
-            fontSize: '12px',
-            color: '#aaa',
             marginBottom: '8px'
           }}>
-            <div style={{ marginBottom: '4px', color: '#666' }}>Loaded:</div>
-            <div style={{ color: '#22c55e', fontWeight: '500' }}>
-              {sfzPath.split('/').pop()?.replace('.sfz', '') || sfzPath}
+            <div style={{ fontSize: '10px', color: '#555', marginBottom: '2px' }}>Loaded</div>
+            <div style={{ fontSize: '13px', color: '#22c55e', fontWeight: '500' }}>
+              {instrumentName}
             </div>
           </div>
           <button
@@ -189,16 +231,18 @@ export function SFZSamplerUI({ trackId, plugin, onParamChange }: SFZSamplerUIPro
               useProjectStore.getState().updatePlugin(trackId, plugin.id, {
                 sfzContent: '',
                 sfzPath: '',
+                samplesBaseUrl: '',
+                instrumentName: '',
               })
               setShowBuiltIns(true)
             }}
             style={{
               width: '100%',
               padding: '6px',
-              background: '#dc2626',
+              background: '#7f1d1d',
               border: 'none',
               borderRadius: '4px',
-              color: '#fff',
+              color: '#fca5a5',
               fontSize: '12px',
               cursor: 'pointer'
             }}
@@ -208,5 +252,38 @@ export function SFZSamplerUI({ trackId, plugin, onParamChange }: SFZSamplerUIPro
         </>
       )}
     </div>
+  )
+}
+
+function InstrumentButton({
+  instrument,
+  onLoad,
+}: {
+  instrument: BuiltInInstrument
+  onLoad: (i: BuiltInInstrument) => void
+}) {
+  const [hover, setHover] = useState(false)
+  return (
+    <button
+      onClick={() => onLoad(instrument)}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        padding: '7px 10px',
+        background: hover ? '#2d2d2d' : '#1e1e1e',
+        border: `1px solid ${hover ? '#4a4a4a' : '#2a2a2a'}`,
+        borderRadius: '4px',
+        color: '#fff',
+        fontSize: '12px',
+        cursor: 'pointer',
+        textAlign: 'left',
+        transition: 'all 0.15s'
+      }}
+    >
+      <div style={{ fontWeight: '500', lineHeight: 1.2 }}>{instrument.name}</div>
+      <div style={{ fontSize: '10px', color: '#666', marginTop: '1px' }}>
+        {instrument.description}
+      </div>
+    </button>
   )
 }
