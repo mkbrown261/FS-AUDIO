@@ -3,6 +3,11 @@ import { Plugin, useProjectStore } from '../../store/projectStore'
 import { loadSFZFile, loadSFZSamples, extractSamplePaths } from '../../utils/sfzLoader'
 import { BUILTIN_INSTRUMENTS, BuiltInInstrument } from '../../data/builtinInstruments'
 
+// Derive the base URL for sample fetching from an SFZ path
+function basePath(sfzPath: string) {
+  return sfzPath.substring(0, sfzPath.lastIndexOf('/'))
+}
+
 interface SFZSamplerUIProps {
   trackId: string
   plugin: Plugin
@@ -16,50 +21,22 @@ export function SFZSamplerUI({ trackId, plugin, onParamChange }: SFZSamplerUIPro
 
   const handleLoadBuiltIn = async (instrument: BuiltInInstrument) => {
     try {
-      // Load built-in SFZ file
+      // Fetch the SFZ text so we can display it loaded
       const response = await fetch(instrument.sfzPath)
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const sfzContent = await response.text()
 
-      // Extract sample paths from SFZ content
-      const samplePaths = extractSamplePaths(sfzContent)
-      console.log('[SFZ] Required samples:', samplePaths)
-
-      // Load all sample files
-      const samples = new Map<string, ArrayBuffer>()
-      const basePath = instrument.sfzPath.substring(0, instrument.sfzPath.lastIndexOf('/'))
-      
-      for (const samplePath of samplePaths) {
-        try {
-          const sampleUrl = `${basePath}/${samplePath}`
-          console.log('[SFZ] Loading sample:', sampleUrl)
-          const sampleResponse = await fetch(sampleUrl)
-          if (!sampleResponse.ok) {
-            console.warn(`[SFZ] Failed to load sample ${sampleUrl}: ${sampleResponse.status}`)
-            continue
-          }
-          const arrayBuffer = await sampleResponse.arrayBuffer()
-          // Store with just the filename (matching SFZ reference)
-          const filename = samplePath.split('/').pop() || samplePath
-          samples.set(filename, arrayBuffer)
-          console.log(`[SFZ] Loaded sample: ${filename}`)
-        } catch (err) {
-          console.error(`[SFZ] Error loading sample ${samplePath}:`, err)
-        }
-      }
-
-      console.log(`[SFZ] Loaded ${samples.size} of ${samplePaths.length} samples`)
-
-      // Update plugin params with both SFZ content and samples
+      // Store only the sfzPath + sfzContent.
+      // The SFZ sampler will fetch & decode the WAV files itself using the base URL —
+      // we NEVER pass ArrayBuffers through Zustand (they get neutered/transferred).
       useProjectStore.getState().updatePlugin(trackId, plugin.id, {
         sfzContent,
         sfzPath: instrument.sfzPath,
-        samples: Array.from(samples.entries()).map(([name, buffer]) => ({
-          name,
-          buffer
-        }))
+        // samplesBaseUrl lets the audio engine know where to fetch samples from
+        samplesBaseUrl: basePath(instrument.sfzPath),
       })
 
-      console.log('[SFZ] Loaded built-in instrument:', instrument.name)
+      console.log('[SFZ] Selected built-in instrument:', instrument.name)
       setShowBuiltIns(false)
     } catch (error) {
       console.error('[SFZ] Failed to load built-in instrument:', error)

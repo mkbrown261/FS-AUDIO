@@ -2052,43 +2052,38 @@ export function useAudioEngine() {
           return
         }
         
-        let synth = instrumentSynthsRef.current.get(selectedTrack.id) as any
+        let synth = instrumentSynthsRef.current.get(selectedTrack.id) as SFZSampler | undefined
+        
+        // If plugin params changed (new instrument loaded), clear old synth so we rebuild
+        const currentSfzPath = (synth as any)?._loadedSfzPath
+        const newSfzPath = sfzPlugin.params.sfzPath as string || ''
+        if (synth && currentSfzPath !== newSfzPath) {
+          synth.allNotesOff()
+          synth = undefined
+          instrumentSynthsRef.current.delete(selectedTrack.id)
+        }
+
         if (!synth) {
-          // Use simple JavaScript SFZ sampler
           synth = new SFZSampler(ctx, trackNodes.gain)
+          ;(synth as any)._loadedSfzPath = newSfzPath
           instrumentSynthsRef.current.set(selectedTrack.id, synth)
           console.log('[noteOn] ✅ Created SFZ sampler')
           
-          // Load if SFZ content exists
+          // Load SFZ + fetch samples from their URL (no ArrayBuffers in Zustand)
           if (sfzPlugin.params.sfzContent) {
             const sfzContent = sfzPlugin.params.sfzContent as string
-            const sfzPath = sfzPlugin.params.sfzPath as string || ''
-            
-            synth.loadSFZ(sfzContent, sfzPath)
-              .then(() => {
-                console.log('[SFZ] SFZ file loaded')
-                
-                // Load samples if provided
-                const samples = sfzPlugin.params.samples as Array<{name: string, buffer: ArrayBuffer}> | undefined
-                if (samples && samples.length > 0) {
-                  console.log(`[SFZ] Loading ${samples.length} samples...`)
-                  Promise.all(
-                    samples.map(s => synth.loadSample(s.name, s.buffer))
-                  ).then(() => {
-                    console.log('[SFZ] All samples loaded successfully')
-                  })
-                }
-              })
+            const samplesBaseUrl = sfzPlugin.params.samplesBaseUrl as string || ''
+            console.log('[SFZ] Loading SFZ with samplesBaseUrl:', samplesBaseUrl)
+            synth.loadSFZ(sfzContent, samplesBaseUrl)
               .catch(err => console.error('[SFZ] Failed to load:', err))
           }
         }
         
-        if (synth) {
-          synth.noteOn(pitch, velocity)
-          console.log('[noteOn] ✅ SFZ note triggered:', pitch)
-          heldNotesRef.current.set(pitch, { osc: null as any, gain: null as any })
-          return
-        }
+        // noteOn is async — it waits internally for samples to be ready
+        synth.noteOn(pitch, velocity)
+          .then(() => console.log('[noteOn] ✅ SFZ note triggered:', pitch))
+        heldNotesRef.current.set(pitch, { osc: null as any, gain: null as any })
+        return
       }
     }
     
