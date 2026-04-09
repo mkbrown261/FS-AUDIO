@@ -251,16 +251,8 @@ export class SFZSampler {
     await this._ready
 
     const now = this.ctx.currentTime
-    console.log(`[SFZ] noteOn note=${note} vel=${velocity} groups=${this.groups.length} buffers=${this.audioBuffers.size}`)
 
-    if (this.groups.length === 0) {
-      console.warn('[SFZ] noteOn: no groups parsed — instrument may not be loaded yet')
-      return
-    }
-    if (this.audioBuffers.size === 0) {
-      console.warn('[SFZ] noteOn: no audio buffers loaded — samples may have failed to fetch')
-      return
-    }
+    if (this.groups.length === 0 || this.audioBuffers.size === 0) return
 
     let voicesTriggered = 0
 
@@ -341,11 +333,7 @@ export class SFZSampler {
       }
     })
 
-    if (voicesTriggered === 0) {
-      console.warn(`[SFZ] noteOn note=${note} vel=${velocity}: no voices triggered (check key/vel ranges and sample buffers)`)
-    } else {
-      console.log(`[SFZ] noteOn: triggered ${voicesTriggered} voice(s) for note ${note}`)
-    }
+    // Silent when note is out of range for this instrument (e.g. piano keys on drum patch)
   }
 
   noteOff(note: number) {

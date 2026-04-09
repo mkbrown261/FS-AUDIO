@@ -1984,9 +1984,9 @@ export function useAudioEngine() {
   const noteOn = useCallback((pitch: number, velocity = 100) => {
     if (heldNotesRef.current.has(pitch)) return
     const ctx = getCtx()
-    console.log('[noteOn] pitch:', pitch, 'ctx.state:', ctx.state, 'masterGain:', masterGainRef.current?.gain.value)
+    // console.log('[noteOn] pitch:', pitch, 'ctx.state:', ctx.state)
     if (ctx.state === 'suspended') {
-      console.log('[noteOn] Resuming suspended audio context')
+      // resuming
       ctx.resume()
     }
     
@@ -1998,14 +1998,12 @@ export function useAudioEngine() {
       // Check for FS-DX7 instrument
       const dx7Plugin = selectedTrack.plugins.find(p => p.type === 'fs_dx7' && p.enabled)
       if (dx7Plugin) {
-        console.log('[noteOn] ✅ Using FS-DX7 synth for track:', selectedTrack.name)
+
         
         // Ensure trackNodes exist (force create if needed)
         let trackNodes = trackNodesRef.current.get(selectedTrack.id)
         if (!trackNodes) {
-          console.log('[noteOn] ⚠️ trackNodes missing, creating now...')
           trackNodes = getTrackNodes(selectedTrack.id, selectedTrack.volume, selectedTrack.pan)
-          console.log('[noteOn] trackNodes created:', !!trackNodes)
         }
         
         // Get or create DX7 synth instance for this track
@@ -2014,7 +2012,7 @@ export function useAudioEngine() {
           if (trackNodes) {
             synth = new DX7Synth(ctx, trackNodes.gain, dx7Plugin.params)
             instrumentSynthsRef.current.set(selectedTrack.id, synth)
-            console.log('[noteOn] ✅ Created DX7 synth, algorithm:', dx7Plugin.params.algorithm)
+  
           } else {
             console.error('[noteOn] ❌ FAILED: trackNodes is null!')
             return // Don't fall through to oscillator
@@ -2028,7 +2026,7 @@ export function useAudioEngine() {
         
         if (synth) {
           synth.noteOn(pitch, velocity)
-          console.log('[noteOn] ✅ DX7 note triggered:', pitch)
+
           // Store a reference for noteOff
           heldNotesRef.current.set(pitch, { osc: null as any, gain: null as any }) // Just mark as held
           return // IMPORTANT: Don't fall through to oscillator!
@@ -2042,9 +2040,7 @@ export function useAudioEngine() {
       if (sfzPlugin) {
         let trackNodes = trackNodesRef.current.get(selectedTrack.id)
         if (!trackNodes) {
-          console.log('[noteOn] ⚠️ trackNodes missing for SFZ, creating now...')
           trackNodes = getTrackNodes(selectedTrack.id, selectedTrack.volume, selectedTrack.pan)
-          console.log('[noteOn] trackNodes created:', !!trackNodes)
         }
         
         if (!trackNodes) {
@@ -2065,20 +2061,19 @@ export function useAudioEngine() {
 
         // If no SFZ content loaded yet, fall back to oscillator so user gets some sound
         if (!sfzPlugin.params.sfzContent) {
-          console.log('[noteOn] SFZ plugin present but no instrument loaded — using oscillator fallback')
+
           // Don't break out of the sfzPlugin block — let it fall through to oscillator below
         } else {
           if (!synth) {
             synth = new SFZSampler(ctx, trackNodes.gain)
             ;(synth as any)._loadedSfzPath = newSfzPath
             instrumentSynthsRef.current.set(selectedTrack.id, synth)
-            console.log('[noteOn] ✅ Created SFZ sampler for:', newSfzPath)
             
             // Load SFZ + fetch samples from their URL (no ArrayBuffers in Zustand)
             const sfzContent = sfzPlugin.params.sfzContent as string
             const samplesBaseUrl = sfzPlugin.params.samplesBaseUrl as string || ''
             const instrumentName = sfzPlugin.params.instrumentName as string || 'Instrument'
-            console.log('[SFZ] Loading SFZ with samplesBaseUrl:', samplesBaseUrl, 'content length:', sfzContent.length)
+
             // Wire up progress callback → CustomEvent so SFZSamplerUI can show a progress bar
             synth.onProgress = (loaded, total) => {
               window.dispatchEvent(new CustomEvent('sfz-load-progress', {
@@ -2106,13 +2101,13 @@ export function useAudioEngine() {
     osc.frequency.value = freq
     osc.connect(gain)
     const destination = masterGainRef.current ?? ctx.destination
-    console.log('[noteOn] Connecting to:', masterGainRef.current ? 'masterGain' : 'ctx.destination')
+
     gain.connect(destination)
     const vol = (velocity / 127) * 0.4
     gain.gain.setValueAtTime(0, ctx.currentTime)
     gain.gain.linearRampToValueAtTime(vol, ctx.currentTime + 0.005)
     osc.start(ctx.currentTime)
-    console.log('[noteOn] Oscillator started at freq:', freq, 'vol:', vol)
+
     heldNotesRef.current.set(pitch, { osc, gain })
   }, [getCtx])
 
@@ -2132,7 +2127,7 @@ export function useAudioEngine() {
         const synth = instrumentSynthsRef.current.get(selectedTrack.id)
         if (synth) {
           synth.noteOff(pitch)
-          console.log(`[noteOff] Released ${dx7Plugin ? 'DX7' : 'SFZ'} note:`, pitch)
+
           heldNotesRef.current.delete(pitch)
           return
         }
