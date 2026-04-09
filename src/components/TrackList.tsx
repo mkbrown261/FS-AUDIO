@@ -1,6 +1,7 @@
 import React, { useRef, useCallback, useState } from 'react'
 import { useProjectStore, Track } from '../store/projectStore'
 import { AddAutomationLaneButton } from './AutomationLaneView'
+import { ParameterSlider } from './ParameterSlider'
 
 const COLORS = ['#a855f7','#ec4899','#3b82f6','#10b981','#f59e0b','#06b6d4','#ef4444','#8b5cf6','#14b8a6','#f97316','#84cc16','#e879f9']
 
@@ -228,26 +229,22 @@ function TrackHeader({
         />
         <span className="track-db-label" title={`${volToDb(track.volume)} dB`}>{volToDb(track.volume)}</span>
 
-        {/* Pan */}
-        <input
-          type="range" min={-100} max={100} step={1}
-          className="track-pan-slider"
-          id={`pan-${track.id}`}
-          value={Math.round(Math.max(-1, Math.min(1, track.pan)) * 100)}
-          onChange={e => {
-            e.stopPropagation()
-            const rawValue = parseInt(e.target.value)
-            const v = Math.max(-1, Math.min(1, rawValue / 100))
-            console.log('[TrackList] 🎚️ PAN slider changed:', track.name, 'rawValue=', rawValue, 'pan=', v, 'track.pan=', track.pan, 'track.volume=', track.volume)
+        {/* Pan - with center snap and manual input */}
+        <ParameterSlider
+          value={track.pan}
+          min={-1}
+          max={1}
+          step={0.01}
+          snapToCenter={true}
+          snapRange={0.05}
+          centerValue={0}
+          onChange={v => {
             updateTrack(track.id, { pan: v })
             onPanChange(track.id, v)
           }}
-          onInput={e => {
-            const val = (e.target as HTMLInputElement).value
-            console.log('[TrackList] 🎚️ PAN input event:', track.name, 'value=', val, 'track.pan=', track.pan, 'track.volume=', track.volume)
-          }}
-          onClick={e => e.stopPropagation()}
-          title={`Pan: ${panStr(track.pan)}`}
+          formatDisplay={p => panStr(p)}
+          className="track-pan-slider"
+          title={`Pan: ${panStr(track.pan)} (double-click to enter value)`}
         />
         <span style={{ fontSize: 9, color: '#6b7280', minWidth: 22, textAlign: 'right' }}>{panStr(track.pan)}</span>
       </div>

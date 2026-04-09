@@ -65,14 +65,16 @@ export function useTransport(
   const play = useCallback(async () => {
     const st = store.getState()
     if (st.isPlaying) return
-    // When loop is active, clamp start beat to within the loop region
+    
     let fromBeat = st.currentTime * (st.bpm / 60)
+    
+    // LOGIC PRO BEHAVIOR: Loop ON = ALWAYS start from loop start
     if (st.isLooping) {
-      if (fromBeat < st.loopStart || fromBeat >= st.loopEnd) {
-        fromBeat = st.loopStart
-        store.getState().setCurrentTime(st.loopStart * (60 / st.bpm))
-      }
+      fromBeat = st.loopStart
+      store.getState().setCurrentTime(st.loopStart * (60 / st.bpm))
+      console.log('[play] Loop is ON - jumping to loop start:', st.loopStart)
     }
+    
     store.getState().setPlaying(true)
     await onStartPlayback(fromBeat)
     if (st.metronomeEnabled) onStartMetronome(st.bpm, st.metronomeVolume)

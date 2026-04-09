@@ -1,6 +1,7 @@
 import { useRef, useCallback, useEffect } from 'react'
 import { useProjectStore, Clip } from '../store/projectStore'
 import { DX7Synth } from '../audio/synths/DX7Synth'
+import RecordRTC from 'recordrtc'
 
 interface TrackNodes {
   gain: GainNode
@@ -110,7 +111,7 @@ export function useAudioEngine() {
 
   // Recording state
   const mediaStreamRef = useRef<MediaStream | null>(null)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const mediaRecorderRef = useRef<RecordRTC | null>(null)
   const recordedChunksRef = useRef<BlobPart[]>([])
   const micAnalyserRef = useRef<AnalyserNode | null>(null)
   const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
@@ -1743,36 +1744,29 @@ export function useAudioEngine() {
       micSourceRef.current = micSource
       micAnalyserRef.current = micAnalyser
 
-      // Use highest quality codec available
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : MediaRecorder.isTypeSupported('audio/webm')
-        ? 'audio/webm'
-        : 'audio/ogg'
-
-      // Use maximum bitrate for lossless-quality recording
-      const recorder = new MediaRecorder(stream, { 
-        mimeType,
-        audioBitsPerSecond: 320000 // 320 kbps - maximum quality
+      // Use RecordRTC for professional WAV recording (uncompressed, lossless)
+      const recorder = new RecordRTC(stream, {
+        type: 'audio',
+        mimeType: 'audio/wav',
+        recorderType: RecordRTC.StereoAudioRecorder,
+        numberOfAudioChannels: 1, // Mono
+        desiredSampRate: 48000, // 48kHz studio quality
+        timeSlice: 100, // Data chunks every 100ms
+        ondataavailable: (blob: Blob) => {
+          recordedChunksRef.current.push(blob)
+        }
       })
       mediaRecorderRef.current = recorder
 
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) {
-          recordedChunksRef.current.push(e.data)
-        }
-      }
-
-      recorder.start(100) // Smaller chunks (100ms) for lower latency
+      recorder.startRecording()
       
-      console.log('[Audio Engine] Professional recording started:', {
-        sampleRate: stream.getAudioTracks()[0].getSettings().sampleRate,
-        channelCount: stream.getAudioTracks()[0].getSettings().channelCount,
+      console.log('[Audio Engine] RecordRTC professional WAV recording started:', {
+        sampleRate: 48000,
+        format: 'WAV (uncompressed)',
+        channelCount: 1,
         echoCancellation: stream.getAudioTracks()[0].getSettings().echoCancellation,
         noiseSuppression: stream.getAudioTracks()[0].getSettings().noiseSuppression,
         autoGainControl: stream.getAudioTracks()[0].getSettings().autoGainControl,
-        bitrate: 320000,
-        codec: mimeType
       })
     } catch (err: any) {
       const msg = err?.name === 'NotAllowedError'
@@ -1785,12 +1779,12 @@ export function useAudioEngine() {
   const stopRecording = useCallback(async (): Promise<AudioBuffer | null> => {
     return new Promise((resolve) => {
       const recorder = mediaRecorderRef.current
-      if (!recorder || recorder.state === 'inactive') {
+      if (!recorder || recorder.getState() === 'inactive') {
         resolve(null)
         return
       }
 
-      recorder.onstop = async () => {
+      recorder.stopRecording(async () => {
         try { micSourceRef.current?.disconnect() } catch {}
         try { micAnalyserRef.current?.disconnect() } catch {}
         micSourceRef.current = null
@@ -1799,31 +1793,39 @@ export function useAudioEngine() {
         mediaStreamRef.current?.getTracks().forEach(t => t.stop())
         mediaStreamRef.current = null
 
-        if (!recordedChunksRef.current.length) {
+        // Get the recorded blob from RecordRTC
+        const blob = recorder.getBlob()
+        
+        if (!blob || blob.size === 0) {
+          console.warn('[stopRecording] No recorded data')
           resolve(null)
           return
         }
 
-        const blob = new Blob(recordedChunksRef.current, { type: recorder.mimeType })
         try {
           const arrayBuffer = await blob.arrayBuffer()
           const ctx = getCtx()
           const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
+          console.log('[stopRecording] WAV decoded successfully:', {
+            duration: audioBuffer.duration,
+            sampleRate: audioBuffer.sampleRate,
+            channels: audioBuffer.numberOfChannels,
+            length: audioBuffer.length
+          })
           resolve(audioBuffer)
         } catch (e) {
-          console.error('Failed to decode recorded audio:', e)
+          console.error('Failed to decode WAV audio:', e)
           resolve(null)
         }
+        
         recordedChunksRef.current = []
         mediaRecorderRef.current = null
-      }
-
-      recorder.stop()
+      })
     })
   }, [getCtx])
 
   const isRecordingActive = useCallback((): boolean => {
-    return mediaRecorderRef.current?.state === 'recording'
+    return mediaRecorderRef.current?.getState() === 'recording'
   }, [])
 
   // ── Mic level meter ──────────────────────────────────────────────────────
