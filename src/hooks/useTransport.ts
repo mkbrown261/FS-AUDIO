@@ -161,6 +161,7 @@ export function useTransport(
   }, [onStopRecording, onRegisterAudioBuffer, onStopMetronome, store])
 
   const pause = useCallback(async () => {
+    console.log('[pause] PAUSING PLAYBACK - about to call onStopAll()')
     if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
     startedAtRef.current = null
     lastTimestampRef.current = null
@@ -172,7 +173,9 @@ export function useTransport(
     }
     
     store.getState().setPlaying(false)
+    console.log('[pause] Calling onStopAll() NOW')
     onStopAll()
+    console.log('[pause] onStopAll() completed')
     onStopMetronome()
   }, [onStopAll, onStopMetronome, store, stopRecord])
 
@@ -191,8 +194,14 @@ export function useTransport(
 
   const togglePlay = useCallback(() => {
     const st = store.getState()
-    if (st.isPlaying) pause()
-    else play()
+    console.log('[togglePlay] SPACEBAR PRESSED! isPlaying:', st.isPlaying)
+    if (st.isPlaying) {
+      console.log('[togglePlay] Calling pause()...')
+      pause()
+    } else {
+      console.log('[togglePlay] Calling play()...')
+      play()
+    }
   }, [play, pause, store])
 
   // ── Record — with count-in ────────────────────────────────────────────────
