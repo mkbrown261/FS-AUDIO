@@ -873,6 +873,7 @@ export default function App() {
         onNoteOn={engine.noteOn}
         onNoteOff={engine.noteOff}
         onPlayNote={engine.playPreviewNote}
+        onTogglePlay={transport.togglePlay}
       />
 
       <ExportModal

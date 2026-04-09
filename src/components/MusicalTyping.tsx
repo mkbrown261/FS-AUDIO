@@ -59,9 +59,10 @@ interface MusicalTypingProps {
   onNoteOn: (pitch: number, velocity: number) => void
   onNoteOff: (pitch: number) => void
   onPlayNote: (pitch: number, durationSec?: number) => void
+  onTogglePlay?: () => void
 }
 
-export function MusicalTyping({ isOpen, onClose, onNoteOn, onNoteOff, onPlayNote }: MusicalTypingProps) {
+export function MusicalTyping({ isOpen, onClose, onNoteOn, onNoteOff, onPlayNote, onTogglePlay }: MusicalTypingProps) {
   const [octaveOffset, setOctaveOffset] = useState(0)
   const [velocity, setVelocity] = useState(100)
   const [sustain, setSustain] = useState(false)
@@ -104,6 +105,16 @@ export function MusicalTyping({ isOpen, onClose, onNoteOn, onNoteOff, onPlayNote
       if (e.key === 'Escape') {
         e.preventDefault()
         onClose()
+        return
+      }
+
+      // Spacebar → toggle playback (MIDI panic)
+      if (e.code === 'Space') {
+        e.preventDefault()
+        if (onTogglePlay) {
+          console.log('[MusicalTyping] Spacebar pressed - calling onTogglePlay()')
+          onTogglePlay()
+        }
         return
       }
 
