@@ -96,6 +96,13 @@ export interface Track {
   locked: boolean
   inputGain: number  // 0-2
   outputGain: number // 0-2
+  // Instrument for MIDI tracks
+  instrument?: {
+    type: 'dx7' | 'sfz' | 'simple'
+    sfzPath?: string      // Path to loaded SFZ file
+    sfzContent?: string   // SFZ file content
+    sfzSamples?: { [key: string]: string } // Sample paths -> blob URLs
+  }
 }
 
 export interface AutomationPoint {
@@ -329,6 +336,7 @@ interface Actions {
   saveProject: () => void
   loadProject: () => void
   setTimeSignature: (num: number, den: number) => void
+  loadSFZInstrument: (trackId: string, sfzContent: string, sfzPath: string) => void
   setBufferSize: (v: ProjectState['bufferSize']) => void
   setAudioInputDevice: (id: string) => void
   setAudioOutputDevice: (id: string) => void
@@ -910,6 +918,23 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
   setMetronomeVolume: (v) => set({ metronomeVolume: Math.max(0, Math.min(1, v)) }),
 
   setTimeSignature: (num, den) => set({ timeSignature: [num, den], isDirty: true }),
+
+  loadSFZInstrument: (trackId, sfzContent, sfzPath) => set(st => ({
+    tracks: st.tracks.map(t => 
+      t.id === trackId 
+        ? { 
+            ...t, 
+            instrument: { 
+              type: 'sfz' as const, 
+              sfzContent, 
+              sfzPath,
+              sfzSamples: {} 
+            } 
+          }
+        : t
+    ),
+    isDirty: true
+  })),
 
   // ── Persist project to localStorage as JSON ────────────────────────────────
   saveProject: () => {

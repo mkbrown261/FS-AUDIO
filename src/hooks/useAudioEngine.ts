@@ -1,6 +1,7 @@
 import { useRef, useCallback, useEffect } from 'react'
 import { useProjectStore, Clip } from '../store/projectStore'
 import { DX7Synth } from '../audio/synths/DX7Synth'
+import { SFZSampler } from '../audio/synths/SFZSampler'
 
 interface TrackNodes {
   gain: GainNode
@@ -1975,7 +1976,7 @@ export function useAudioEngine() {
   }, [])
 
   // ── Instrument Synth Instances (per track) ────────────────────────────────
-  const instrumentSynthsRef = useRef<Map<string, DX7Synth>>(new Map())
+  const instrumentSynthsRef = useRef<Map<string, DX7Synth | SFZSampler>>(new Map())
 
   // ── Play a preview note (piano roll key click) ────────────────────────────
   const heldNotesRef = useRef<Map<number, { osc: OscillatorNode; gain: GainNode }>>(new Map())
@@ -2019,8 +2020,10 @@ export function useAudioEngine() {
             return // Don't fall through to oscillator
           }
         } else {
-          // Update params if they changed
-          synth.updateParams(dx7Plugin.params)
+          // Update params if they changed (only for DX7)
+          if (synth instanceof DX7Synth) {
+            synth.updateParams(dx7Plugin.params)
+          }
         }
         
         if (synth) {
@@ -2034,7 +2037,28 @@ export function useAudioEngine() {
         }
       }
       
-      // TODO: Add support for fs_analog, fs_sampler, etc.
+      // Check for SFZ instrument
+      if (selectedTrack.instrument?.type === 'sfz') {
+        let synth = instrumentSynthsRef.current.get(selectedTrack.id)
+        if (!synth) {
+          const trackNodes = getOrCreateTrackNodes(selectedTrack.id)
+          if (trackNodes && selectedTrack.instrument.sfzContent) {
+            synth = new SFZSampler(ctx, trackNodes.gain)
+            // Load SFZ content
+            synth.loadSFZ(selectedTrack.instrument.sfzContent, selectedTrack.instrument.sfzPath || '')
+              .catch(err => console.error('[SFZ] Failed to load:', err))
+            instrumentSynthsRef.current.set(selectedTrack.id, synth)
+            console.log('[noteOn] ✅ Created SFZ sampler')
+          }
+        }
+        
+        if (synth) {
+          synth.noteOn(pitch, velocity)
+          console.log('[noteOn] ✅ SFZ note triggered:', pitch)
+          heldNotesRef.current.set(pitch, { osc: null as any, gain: null as any })
+          return
+        }
+      }
     }
     
     // Fallback to simple oscillator (for testing or tracks without instruments)
