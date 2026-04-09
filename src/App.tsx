@@ -1,6 +1,7 @@
 import React, { useEffect, useCallback, useRef, useState } from 'react'
 import { useProjectStore } from './store/projectStore'
 import { useAudioEngine } from './hooks/useAudioEngine'
+import { loadSFZFile, loadSFZSamples, extractSamplePaths } from './utils/sfzLoader'
 import { useTransport } from './hooks/useTransport'
 import { Toolbar } from './components/Toolbar'
 import { TrackList } from './components/TrackList'
@@ -317,6 +318,50 @@ export default function App() {
     }
   }, [])
 
+  // ── Load SFZ Instrument ───────────────────────────────────────────────────
+  const handleLoadSFZ = useCallback(async () => {
+    const selectedTrackId = useProjectStore.getState().selectedTrackId
+    if (!selectedTrackId) {
+      alert('Please select a MIDI track first')
+      return
+    }
+
+    const track = useProjectStore.getState().tracks.find(t => t.id === selectedTrackId)
+    if (!track || track.type !== 'midi') {
+      alert('Please select a MIDI track to load an SFZ instrument')
+      return
+    }
+
+    try {
+      // Load SFZ file
+      const sfzData = await loadSFZFile()
+      if (!sfzData) return
+
+      console.log('[SFZ] Loaded SFZ file:', sfzData.name)
+
+      // Load SFZ into track
+      useProjectStore.getState().loadSFZInstrument(selectedTrackId, sfzData.content, sfzData.path)
+
+      // Prompt for samples folder
+      alert(`SFZ file "${sfzData.name}" loaded. Now select the folder containing the samples.`)
+      const samples = await loadSFZSamples()
+
+      if (samples.size > 0) {
+        // Register samples with audio engine
+        const requiredSamples = extractSamplePaths(sfzData.content)
+        console.log(`[SFZ] Required samples:`, requiredSamples)
+        console.log(`[SFZ] Loaded ${samples.size} sample files`)
+
+        // TODO: Load samples into SFZ sampler instance
+        // This will be handled when the instrument is created in noteOn
+        alert(`Loaded SFZ "${sfzData.name}" with ${samples.size} samples`)
+      }
+    } catch (error) {
+      console.error('[SFZ] Failed to load:', error)
+      alert('Failed to load SFZ file')
+    }
+  }, [])
+
   // ── Flex Pitch ────────────────────────────────────────────────────────────
   const handleSetClipPitch = useCallback((clipId: string, semitones: number) => {
     store.updateClip(clipId, { pitchShift: semitones })
@@ -434,6 +479,13 @@ export default function App() {
       if (e.shiftKey && (e.key === 'P' || e.key === 'p')) {
         e.preventDefault()
         setShowMusicalTyping(prev => !prev)
+        return
+      }
+
+      // Shift+L — Load SFZ Instrument
+      if (e.shiftKey && (e.key === 'L' || e.key === 'l')) {
+        e.preventDefault()
+        handleLoadSFZ()
         return
       }
 
