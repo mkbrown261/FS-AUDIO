@@ -839,6 +839,11 @@ export function useAudioEngine() {
   const startPlayback = useCallback(async (fromBeat: number) => {
     const ctx = getCtx()
     console.log('[startPlayback] fromBeat:', fromBeat, 'ctx.state:', ctx.state)
+    
+    // LOGIC PRO BEHAVIOR: Pressing Play = All Notes Off (MIDI Panic)
+    // This stops any stuck notes from live MIDI/musical typing
+    allNotesOff()
+    
     if (ctx.state === 'suspended') await ctx.resume()
     const { tracks, bpm, isLooping, loopStart, loopEnd } = useProjectStore.getState()
     const anySolo = tracks.some(t => t.solo && t.type !== 'master')
@@ -870,7 +875,7 @@ export function useAudioEngine() {
         }
       }
     }
-  }, [getCtx, getTrackNodes, playClip, scheduleMidiClip])
+  }, [getCtx, getTrackNodes, playClip, scheduleMidiClip, allNotesOff])
 
   // ── Bus/Send routing — connect track analyser outputs to bus track gains ──
   const applySends = useCallback(() => {
