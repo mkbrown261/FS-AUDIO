@@ -1,7 +1,5 @@
 // SFZ Sampler - Professional sample-based instrument
-// Supports loading SFZ libraries (orchestral, drums, guitars, etc.)
-
-import * as sfzParser from 'sfz-parser'
+// Fully self-contained: NO external dependencies, built-in SFZ parser
 
 interface SFZRegion {
   sample?: string
@@ -17,18 +15,137 @@ interface SFZRegion {
   loop_end?: number
   tune?: number
   transpose?: number
+  ampeg_attack?: number
+  ampeg_decay?: number
+  ampeg_sustain?: number
+  ampeg_release?: number
 }
 
 interface SFZGroup {
+  groupDefaults: Partial<SFZRegion>
   regions: SFZRegion[]
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Built-in SFZ parser (no external packages)
+// ─────────────────────────────────────────────────────────────────────────────
+function parseSFZ(content: string): SFZGroup[] {
+  const groups: SFZGroup[] = []
+  let currentGroup: SFZGroup | null = null
+  let currentRegion: Partial<SFZRegion> | null = null
+  let globalDefaults: Partial<SFZRegion> = {}
+
+  // Helpers
+  const num  = (v: string) => parseFloat(v)
+  const int  = (v: string) => parseInt(v, 10)
+  const note = (v: string): number => {
+    // Accept MIDI number or note name (e.g. "C4", "A#3")
+    const n = parseInt(v, 10)
+    if (!isNaN(n)) return n
+    const NOTE_MAP: Record<string, number> = {
+      C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11
+    }
+    const m = v.match(/^([A-Ga-g])(#|b)?(-?\d+)$/)
+    if (!m) return 60
+    const base = NOTE_MAP[m[1].toUpperCase()] ?? 0
+    const sharp = m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0
+    const octave = parseInt(m[3], 10)
+    return (octave + 1) * 12 + base + sharp
+  }
+
+  const applyOpcode = (target: Partial<SFZRegion>, key: string, val: string) => {
+    switch (key) {
+      case 'sample':           target.sample          = val.replace(/\\/g, '/').trim(); break
+      case 'lokey':            target.lokey           = note(val); break
+      case 'hikey':            target.hikey           = note(val); break
+      case 'key':              target.lokey = target.hikey = target.pitch_keycenter = note(val); break
+      case 'lovel':            target.lovel           = int(val); break
+      case 'hivel':            target.hivel           = int(val); break
+      case 'pitch_keycenter':  target.pitch_keycenter = note(val); break
+      case 'volume':           target.volume          = num(val); break
+      case 'pan':              target.pan             = num(val); break
+      case 'tune':             target.tune            = num(val); break
+      case 'transpose':        target.transpose       = int(val); break
+      case 'loop_mode':        target.loop_mode       = val.trim(); break
+      case 'loop_start':       target.loop_start      = int(val); break
+      case 'loop_end':         target.loop_end        = int(val); break
+      case 'ampeg_attack':     target.ampeg_attack    = num(val); break
+      case 'ampeg_decay':      target.ampeg_decay     = num(val); break
+      case 'ampeg_sustain':    target.ampeg_sustain   = num(val); break
+      case 'ampeg_release':    target.ampeg_release   = num(val); break
+    }
+  }
+
+  // Strip line-comments (//)
+  const lines = content.split('\n').map(l => l.replace(/\/\/.*$/, '').trim()).filter(Boolean)
+
+  for (const rawLine of lines) {
+    // Find all header tags and opcodes on one line
+    // Tokenise into [<header>, opcode=value, opcode=value, ...]
+    const tokens = rawLine.split(/(<\w+>)/).map(t => t.trim()).filter(Boolean)
+
+    for (const token of tokens) {
+      if (token === '<global>') {
+        globalDefaults = {}
+        currentGroup  = null
+        currentRegion = null
+      } else if (token === '<group>') {
+        // Save previous region
+        if (currentRegion && currentGroup) {
+          currentGroup.regions.push(currentRegion as SFZRegion)
+        }
+        currentGroup  = { groupDefaults: { ...globalDefaults }, regions: [] }
+        currentRegion = null
+        groups.push(currentGroup)
+      } else if (token === '<region>') {
+        // Save previous region
+        if (currentRegion && currentGroup) {
+          currentGroup.regions.push(currentRegion as SFZRegion)
+        }
+        // Start new region inheriting group + global defaults
+        if (!currentGroup) {
+          currentGroup = { groupDefaults: { ...globalDefaults }, regions: [] }
+          groups.push(currentGroup)
+        }
+        currentRegion = { ...globalDefaults, ...currentGroup.groupDefaults }
+      } else {
+        // Parse key=value opcodes (may be multiple on one token split by spaces)
+        // e.g. "sample=samples/808-kick.wav pitch_keycenter=36 lokey=24 hikey=38"
+        const pairs = token.match(/(\w+)\s*=\s*([^\s=]+(?:\s+[^\s=<>]+(?=\s+\w+\s*=|$))*)/g) || []
+        for (const pair of pairs) {
+          const eq = pair.indexOf('=')
+          if (eq === -1) continue
+          const k = pair.substring(0, eq).trim()
+          const v = pair.substring(eq + 1).trim()
+          if (currentRegion) {
+            applyOpcode(currentRegion, k, v)
+          } else if (currentGroup && !currentRegion) {
+            applyOpcode(currentGroup.groupDefaults, k, v)
+          } else {
+            applyOpcode(globalDefaults, k, v)
+          }
+        }
+      }
+    }
+  }
+
+  // Push last region
+  if (currentRegion && currentGroup) {
+    currentGroup.regions.push(currentRegion as SFZRegion)
+  }
+
+  return groups
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SFZSampler class
+// ─────────────────────────────────────────────────────────────────────────────
 export class SFZSampler {
   private ctx: AudioContext
   private destination: AudioNode
   private groups: SFZGroup[] = []
   private audioBuffers: Map<string, AudioBuffer> = new Map()
-  private activeNotes: Map<number, { source: AudioBufferSourceNode, gain: GainNode }[]> = new Map()
+  private activeNotes: Map<number, { source: AudioBufferSourceNode; gain: GainNode }[]> = new Map()
   private basePath: string = ''
 
   constructor(ctx: AudioContext, destination: AudioNode) {
@@ -36,203 +153,146 @@ export class SFZSampler {
     this.destination = destination
   }
 
-  /**
-   * Load an SFZ file and its samples
-   * @param sfzContent The SFZ file content as string
-   * @param basePath Base path for loading samples (e.g., '/samples/piano/')
-   */
+  // ── Parse & store SFZ ────────────────────────────────────────────────────
   async loadSFZ(sfzContent: string, basePath: string = '') {
     this.basePath = basePath
-    
     try {
-      // Parse the SFZ file
-      const parsed = sfzParser.parse(sfzContent)
-      console.log('[SFZ] Parsed SFZ file:', parsed)
-      
-      // Convert parsed data to our format
-      this.groups = this.convertParsedData(parsed)
-      
-      console.log(`[SFZ] Loaded ${this.groups.length} groups with ${this.getTotalRegions()} regions`)
-    } catch (error) {
-      console.error('[SFZ] Failed to parse SFZ file:', error)
-      throw error
+      this.groups = parseSFZ(sfzContent)
+      console.log(`[SFZ] Parsed ${this.groups.length} groups, ${this.getTotalRegions()} regions`)
+    } catch (err) {
+      console.error('[SFZ] Parse error:', err)
+      throw err
     }
   }
 
-  private convertParsedData(parsed: any): SFZGroup[] {
-    const groups: SFZGroup[] = []
-    
-    // Simple conversion - handle basic SFZ structure
-    if (parsed && Array.isArray(parsed)) {
-      for (const item of parsed) {
-        if (item.regions) {
-          groups.push({
-            regions: item.regions.map((r: any) => this.convertRegion(r))
-          })
-        }
-      }
-    }
-    
-    return groups
-  }
-
-  private convertRegion(region: any): SFZRegion {
-    return {
-      sample: region.sample,
-      lokey: region.lokey ?? 0,
-      hikey: region.hikey ?? 127,
-      lovel: region.lovel ?? 0,
-      hivel: region.hivel ?? 127,
-      pitch_keycenter: region.pitch_keycenter ?? region.lokey ?? 60,
-      volume: region.volume ?? 0,
-      pan: region.pan ?? 0,
-      loop_mode: region.loop_mode,
-      loop_start: region.loop_start,
-      loop_end: region.loop_end,
-      tune: region.tune ?? 0,
-      transpose: region.transpose ?? 0
-    }
-  }
-
-  private getTotalRegions(): number {
-    return this.groups.reduce((sum, g) => sum + g.regions.length, 0)
-  }
-
-  /**
-   * Load a sample file for a region
-   */
-  async loadSample(samplePath: string, audioData: ArrayBuffer) {
+  // ── Decode and cache a sample ArrayBuffer ────────────────────────────────
+  async loadSample(name: string, audioData: ArrayBuffer) {
     try {
-      const buffer = await this.ctx.decodeAudioData(audioData)
-      this.audioBuffers.set(samplePath, buffer)
-      console.log(`[SFZ] Loaded sample: ${samplePath}`)
-    } catch (error) {
-      console.error(`[SFZ] Failed to load sample ${samplePath}:`, error)
+      // decodeAudioData consumes the buffer, so clone it
+      const copy = audioData.slice(0)
+      const buffer = await this.ctx.decodeAudioData(copy)
+      // Store under both the plain filename AND possible sub-path variants
+      const filename = name.split('/').pop() ?? name
+      this.audioBuffers.set(filename, buffer)
+      this.audioBuffers.set(name, buffer)
+      console.log(`[SFZ] Decoded sample: ${filename}`)
+    } catch (err) {
+      console.error(`[SFZ] Failed to decode sample "${name}":`, err)
     }
   }
 
-  /**
-   * Play a note
-   */
+  // ── noteOn ────────────────────────────────────────────────────────────────
   noteOn(note: number, velocity: number = 127) {
     const now = this.ctx.currentTime
-    
-    // Find matching regions for this note/velocity
+
     for (const group of this.groups) {
       for (const region of group.regions) {
-        // Check if note and velocity match this region
-        if (note >= (region.lokey ?? 0) && 
-            note <= (region.hikey ?? 127) &&
-            velocity >= (region.lovel ?? 0) &&
-            velocity <= (region.hivel ?? 127)) {
-          
-          const sample = region.sample
-          if (!sample) continue
-          
-          const buffer = this.audioBuffers.get(sample)
-          if (!buffer) {
-            console.warn(`[SFZ] Sample not loaded: ${sample}`)
-            continue
-          }
+        const lokey = region.lokey ?? 0
+        const hikey = region.hikey ?? 127
+        const lovel = region.lovel ?? 0
+        const hivel = region.hivel ?? 127
 
-          // Create audio nodes
-          const source = this.ctx.createBufferSource()
-          source.buffer = buffer
-          
-          // Calculate pitch shift
-          const pitchCenter = region.pitch_keycenter ?? 60
-          const semitoneShift = note - pitchCenter + (region.transpose ?? 0)
-          const tuneShift = (region.tune ?? 0) / 100 // cents to semitones
-          source.playbackRate.value = Math.pow(2, (semitoneShift + tuneShift) / 12)
-          
-          // Set up looping if specified
-          if (region.loop_mode === 'loop_continuous') {
-            source.loop = true
-            if (region.loop_start !== undefined) source.loopStart = region.loop_start / buffer.sampleRate
-            if (region.loop_end !== undefined) source.loopEnd = region.loop_end / buffer.sampleRate
-          }
-          
-          // Create gain node for velocity and volume
-          const gain = this.ctx.createGain()
-          const volumeDb = region.volume ?? 0
-          const velocityFactor = velocity / 127
-          gain.gain.value = velocityFactor * Math.pow(10, volumeDb / 20)
-          
-          // Create panner for stereo positioning
-          const panner = this.ctx.createStereoPanner()
-          panner.pan.value = Math.max(-1, Math.min(1, (region.pan ?? 0) / 100))
-          
-          // Connect: source -> gain -> panner -> destination
-          source.connect(gain)
-          gain.connect(panner)
-          panner.connect(this.destination)
-          
-          // Start playback
-          source.start(now)
-          
-          // Track active note
-          if (!this.activeNotes.has(note)) {
-            this.activeNotes.set(note, [])
-          }
-          this.activeNotes.get(note)!.push({ source, gain })
+        if (note < lokey || note > hikey) continue
+        if (velocity < lovel || velocity > hivel) continue
+
+        const sampleRef = region.sample
+        if (!sampleRef) continue
+
+        // Try exact key, then filename only
+        const filename = sampleRef.split('/').pop() ?? sampleRef
+        const buffer = this.audioBuffers.get(filename) ?? this.audioBuffers.get(sampleRef)
+        if (!buffer) {
+          console.warn(`[SFZ] Sample not loaded: "${sampleRef}" (key=${note})`)
+          continue
         }
+
+        // --- Create nodes ---
+        const source = this.ctx.createBufferSource()
+        source.buffer = buffer
+
+        // Pitch shift
+        const center = region.pitch_keycenter ?? note
+        const semis  = note - center + (region.transpose ?? 0)
+        const cents  = (region.tune ?? 0)
+        source.playbackRate.value = Math.pow(2, (semis + cents / 100) / 12)
+
+        // Looping
+        if (region.loop_mode === 'loop_continuous') {
+          source.loop = true
+          if (region.loop_start !== undefined) source.loopStart = region.loop_start / buffer.sampleRate
+          if (region.loop_end   !== undefined) source.loopEnd   = region.loop_end   / buffer.sampleRate
+        }
+
+        // Amplitude
+        const gainNode = this.ctx.createGain()
+        const volDb    = region.volume ?? 0
+        const velFac   = velocity / 127
+        gainNode.gain.value = velFac * Math.pow(10, volDb / 20)
+
+        // Panning
+        const panner = this.ctx.createStereoPanner()
+        panner.pan.value = Math.max(-1, Math.min(1, (region.pan ?? 0) / 100))
+
+        // Attack envelope (smooth start)
+        const attack = region.ampeg_attack ?? 0.005
+        gainNode.gain.setValueAtTime(0, now)
+        gainNode.gain.linearRampToValueAtTime(velFac * Math.pow(10, volDb / 20), now + attack)
+
+        source.connect(gainNode)
+        gainNode.connect(panner)
+        panner.connect(this.destination)
+        source.start(now)
+
+        if (!this.activeNotes.has(note)) this.activeNotes.set(note, [])
+        this.activeNotes.get(note)!.push({ source, gain: gainNode })
       }
     }
   }
 
-  /**
-   * Stop a note
-   */
+  // ── noteOff ───────────────────────────────────────────────────────────────
   noteOff(note: number) {
     const voices = this.activeNotes.get(note)
-    if (!voices || voices.length === 0) return
-    
-    const now = this.ctx.currentTime
-    const releaseTime = 0.05 // 50ms release
-    
-    for (const voice of voices) {
-      // Fade out
-      voice.gain.gain.cancelScheduledValues(now)
-      voice.gain.gain.setValueAtTime(voice.gain.gain.value, now)
-      voice.gain.gain.exponentialRampToValueAtTime(0.001, now + releaseTime)
-      
-      // Stop and cleanup
-      voice.source.stop(now + releaseTime + 0.1)
+    if (!voices?.length) return
+
+    const now     = this.ctx.currentTime
+    const release = 0.08
+
+    for (const { source, gain } of voices) {
+      gain.gain.cancelScheduledValues(now)
+      gain.gain.setValueAtTime(gain.gain.value, now)
+      gain.gain.exponentialRampToValueAtTime(0.001, now + release)
+      try { source.stop(now + release + 0.05) } catch { /* already stopped */ }
     }
-    
+
     this.activeNotes.delete(note)
   }
 
-  /**
-   * Stop all notes immediately
-   */
+  // ── allNotesOff ───────────────────────────────────────────────────────────
   allNotesOff() {
     const now = this.ctx.currentTime
-    
-    for (const [note, voices] of this.activeNotes.entries()) {
-      for (const voice of voices) {
+    for (const voices of this.activeNotes.values()) {
+      for (const { source, gain } of voices) {
         try {
-          voice.gain.gain.cancelScheduledValues(now)
-          voice.gain.gain.setValueAtTime(0, now)
-          voice.source.stop(now + 0.01)
-        } catch (e) {
-          // Ignore if already stopped
-        }
+          gain.gain.cancelScheduledValues(now)
+          gain.gain.setValueAtTime(0, now)
+          source.stop(now + 0.01)
+        } catch { /* ignore */ }
       }
     }
-    
     this.activeNotes.clear()
   }
 
-  /**
-   * Get info about loaded SFZ
-   */
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  private getTotalRegions() {
+    return this.groups.reduce((s, g) => s + g.regions.length, 0)
+  }
+
   getInfo() {
     return {
-      groups: this.groups.length,
-      regions: this.getTotalRegions(),
+      groups:        this.groups.length,
+      regions:       this.getTotalRegions(),
       loadedSamples: this.audioBuffers.size,
-      activingVoices: Array.from(this.activeNotes.values()).reduce((sum, v) => sum + v.length, 0)
+      activeVoices:  Array.from(this.activeNotes.values()).reduce((s, v) => s + v.length, 0)
     }
   }
 }
