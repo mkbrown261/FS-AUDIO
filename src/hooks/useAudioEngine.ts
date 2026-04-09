@@ -1747,14 +1747,20 @@ export function useAudioEngine() {
       micAnalyserRef.current = micAnalyser
 
       // Use RecordRTC for professional-quality uncompressed WAV recording
+      // Disable workers to avoid CSP issues
       const recorder = new RecordRTC(stream, {
         type: 'audio',
         mimeType: 'audio/wav',
         recorderType: RecordRTC.StereoAudioRecorder,
-        numberOfAudioChannels: 1, // Mono
-        desiredSampRate: 48000,   // 48kHz studio quality
-        bufferSize: 16384,        // Large buffer for quality
-        timeSlice: 100            // 100ms chunks for low latency
+        numberOfAudioChannels: 1,    // Mono
+        desiredSampRate: 48000,      // 48kHz studio quality
+        bufferSize: 16384,           // Large buffer for quality
+        timeSlice: 100,              // 100ms chunks for low latency
+        disableLogs: false,          // Keep logs for debugging
+        checkForInactiveTracks: true,
+        // Disable workers to avoid CSP conflicts
+        workerPath: undefined,
+        useWhammyRecorder: false
       })
       
       mediaRecorderRef.current = recorder
