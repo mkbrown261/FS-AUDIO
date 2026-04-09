@@ -840,10 +840,10 @@ export function useAudioEngine() {
   const stopAllHeldNotes = useCallback(() => {
     const heldCount = heldNotesRef.current.size
     const synthCount = instrumentSynthsRef.current.size
-    console.log('[MIDI Panic] 🚨 Stopping all held notes. Held notes:', heldCount, 'Synths:', synthCount)
+    console.log('[MIDI Panic] Alert! Stopping all held notes. Held notes:', heldCount, 'Synths:', synthCount)
     
     if (heldCount === 0 && synthCount === 0) {
-      console.log('[MIDI Panic] ✅ No notes to stop')
+      console.log('[MIDI Panic] No notes to stop')
       return
     }
     
@@ -866,21 +866,19 @@ export function useAudioEngine() {
     
     // Stop all DX7 synth voices
     for (const [trackId, synth] of instrumentSynthsRef.current.entries()) {
-      console.log('[MIDI Panic] 🎹 Stopping DX7 synth on track:', trackId)
+      console.log('[MIDI Panic] Stopping DX7 synth on track:', trackId)
       synth.allNotesOff()
     }
     
-    console.log('[MIDI Panic] ✅ All notes stopped')
+    console.log('[MIDI Panic] All notes stopped')
   }, [getCtx])
+  
+  // Register function for stopAll to use
+  stopAllHeldNotesRef.current = stopAllHeldNotes
 
   const startPlayback = useCallback(async (fromBeat: number) => {
     const ctx = getCtx()
     console.log('[startPlayback] fromBeat:', fromBeat, 'ctx.state:', ctx.state)
-    
-    // LOGIC PRO BEHAVIOR: Pressing Play = All Notes Off (MIDI Panic)
-    // This stops any stuck notes from live MIDI/musical typing
-    stopAllHeldNotes()
-    
     if (ctx.state === 'suspended') await ctx.resume()
     const { tracks, bpm, isLooping, loopStart, loopEnd } = useProjectStore.getState()
     const anySolo = tracks.some(t => t.solo && t.type !== 'master')
@@ -1637,11 +1635,22 @@ export function useAudioEngine() {
     }
   }, [getCtx])
 
+  // Forward declaration - will be defined later
+  const stopAllHeldNotesRef = useRef<() => void>()
+
   const stopAll = useCallback(() => {
+    console.log('[stopAll] Stopping timeline clips and held notes')
+    
+    // Stop scheduled timeline sources
     for (const { source } of scheduledSourcesRef.current) {
       try { source.stop() } catch {}
     }
     scheduledSourcesRef.current = []
+    
+    // Stop all held notes (MIDI panic) if function is defined
+    if (stopAllHeldNotesRef.current) {
+      stopAllHeldNotesRef.current()
+    }
   }, [])
 
   // ── Metronome ────────────────────────────────────────────────────────────
