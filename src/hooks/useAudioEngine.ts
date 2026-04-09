@@ -2040,9 +2040,15 @@ export function useAudioEngine() {
       // Check for SFZ sampler plugin
       const sfzPlugin = selectedTrack.plugins.find(p => p.type === 'fs_sfz' && p.enabled)
       if (sfzPlugin) {
-        const trackNodes = getOrCreateTrackNodes(selectedTrack.id)
+        let trackNodes = trackNodesRef.current.get(selectedTrack.id)
         if (!trackNodes) {
-          console.error('[noteOn] No track nodes for SFZ')
+          console.log('[noteOn] ⚠️ trackNodes missing for SFZ, creating now...')
+          trackNodes = getTrackNodes(selectedTrack.id, selectedTrack.volume, selectedTrack.pan)
+          console.log('[noteOn] trackNodes created:', !!trackNodes)
+        }
+        
+        if (!trackNodes) {
+          console.error('[noteOn] ❌ FAILED to create track nodes for SFZ')
           return
         }
         
