@@ -1,10 +1,9 @@
 import { useRef, useCallback, useEffect } from 'react'
 import { useProjectStore, Clip } from '../store/projectStore'
 import { DX7Synth } from '../audio/synths/DX7Synth'
-import * as RecordRTCLib from 'recordrtc'
 
-// RecordRTC default export
-const RecordRTC = (RecordRTCLib as any).default || RecordRTCLib
+// @ts-ignore - RecordRTC is a UMD module
+import RecordRTC from 'recordrtc/RecordRTC.js'
 
 interface TrackNodes {
   gain: GainNode
