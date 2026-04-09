@@ -2,8 +2,8 @@ import { useRef, useCallback, useEffect } from 'react'
 import { useProjectStore, Clip } from '../store/projectStore'
 import { DX7Synth } from '../audio/synths/DX7Synth'
 
-// @ts-ignore - RecordRTC is a UMD module
-import RecordRTC from 'recordrtc/RecordRTC.js'
+// RecordRTC is loaded as a global from /RecordRTC.js
+declare const RecordRTC: any
 
 interface TrackNodes {
   gain: GainNode
@@ -113,7 +113,7 @@ export function useAudioEngine() {
 
   // Recording state
   const mediaStreamRef = useRef<MediaStream | null>(null)
-  const mediaRecorderRef = useRef<RecordRTC | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const recordedChunksRef = useRef<BlobPart[]>([])
   const micAnalyserRef = useRef<AnalyserNode | null>(null)
   const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
@@ -1746,26 +1746,25 @@ export function useAudioEngine() {
       micSourceRef.current = micSource
       micAnalyserRef.current = micAnalyser
 
-      // Use RecordRTC for professional WAV recording (uncompressed, lossless)
+      // Use RecordRTC for professional-quality uncompressed WAV recording
       const recorder = new RecordRTC(stream, {
         type: 'audio',
         mimeType: 'audio/wav',
         recorderType: RecordRTC.StereoAudioRecorder,
         numberOfAudioChannels: 1, // Mono
-        desiredSampRate: 48000, // 48kHz studio quality
-        timeSlice: 100, // Data chunks every 100ms
-        ondataavailable: (blob: Blob) => {
-          recordedChunksRef.current.push(blob)
-        }
+        desiredSampRate: 48000,   // 48kHz studio quality
+        bufferSize: 16384,        // Large buffer for quality
+        timeSlice: 100            // 100ms chunks for low latency
       })
+      
       mediaRecorderRef.current = recorder
-
       recorder.startRecording()
       
-      console.log('[Audio Engine] RecordRTC professional WAV recording started:', {
-        sampleRate: 48000,
-        format: 'WAV (uncompressed)',
-        channelCount: 1,
+      console.log('[Audio Engine] RecordRTC professional recording started:', {
+        format: 'WAV (uncompressed PCM)',
+        sampleRate: '48kHz',
+        bitDepth: '16-bit',
+        channels: 'Mono',
         echoCancellation: stream.getAudioTracks()[0].getSettings().echoCancellation,
         noiseSuppression: stream.getAudioTracks()[0].getSettings().noiseSuppression,
         autoGainControl: stream.getAudioTracks()[0].getSettings().autoGainControl,
@@ -1786,6 +1785,7 @@ export function useAudioEngine() {
         return
       }
 
+      // RecordRTC's stopRecording accepts a callback
       recorder.stopRecording(async () => {
         try { micSourceRef.current?.disconnect() } catch {}
         try { micAnalyserRef.current?.disconnect() } catch {}
@@ -1827,7 +1827,9 @@ export function useAudioEngine() {
   }, [getCtx])
 
   const isRecordingActive = useCallback((): boolean => {
-    return mediaRecorderRef.current?.getState() === 'recording'
+    // RecordRTC uses getState() method
+    const recorder = mediaRecorderRef.current
+    return recorder ? recorder.getState() === 'recording' : false
   }, [])
 
   // ── Mic level meter ──────────────────────────────────────────────────────
