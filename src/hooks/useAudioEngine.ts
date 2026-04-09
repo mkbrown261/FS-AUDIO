@@ -870,7 +870,7 @@ export function useAudioEngine() {
         }
       }
     }
-  }, [getCtx, getTrackNodes, playClip, scheduleMidiClip, allNotesOff])
+  }, [getCtx, getTrackNodes, playClip, scheduleMidiClip])
 
   // ── Bus/Send routing — connect track analyser outputs to bus track gains ──
   const applySends = useCallback(() => {
