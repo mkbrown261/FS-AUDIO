@@ -1902,16 +1902,26 @@ export function useAudioEngine() {
       // Check for FS-DX7 instrument
       const dx7Plugin = selectedTrack.plugins.find(p => p.type === 'fs_dx7' && p.enabled)
       if (dx7Plugin) {
-        console.log('[noteOn] Using FS-DX7 synth for track:', selectedTrack.name)
+        console.log('[noteOn] ✅ Using FS-DX7 synth for track:', selectedTrack.name)
+        
+        // Ensure trackNodes exist (force create if needed)
+        let trackNodes = trackNodesRef.current.get(selectedTrack.id)
+        if (!trackNodes) {
+          console.log('[noteOn] ⚠️ trackNodes missing, creating now...')
+          trackNodes = getTrackNodes(selectedTrack.id, selectedTrack.volume, selectedTrack.pan)
+          console.log('[noteOn] trackNodes created:', !!trackNodes)
+        }
         
         // Get or create DX7 synth instance for this track
         let synth = instrumentSynthsRef.current.get(selectedTrack.id)
         if (!synth) {
-          const trackNodes = trackNodesRef.current.get(selectedTrack.id)
           if (trackNodes) {
             synth = new DX7Synth(ctx, trackNodes.gain, dx7Plugin.params)
             instrumentSynthsRef.current.set(selectedTrack.id, synth)
-            console.log('[noteOn] Created new DX7 synth instance for track:', selectedTrack.id)
+            console.log('[noteOn] ✅ Created DX7 synth, algorithm:', dx7Plugin.params.algorithm)
+          } else {
+            console.error('[noteOn] ❌ FAILED: trackNodes is null!')
+            return // Don't fall through to oscillator
           }
         } else {
           // Update params if they changed
@@ -1920,10 +1930,12 @@ export function useAudioEngine() {
         
         if (synth) {
           synth.noteOn(pitch, velocity)
-          console.log('[noteOn] Triggered DX7 note:', pitch, 'velocity:', velocity)
+          console.log('[noteOn] ✅ DX7 note triggered:', pitch)
           // Store a reference for noteOff
           heldNotesRef.current.set(pitch, { osc: null as any, gain: null as any }) // Just mark as held
-          return
+          return // IMPORTANT: Don't fall through to oscillator!
+        } else {
+          console.error('[noteOn] ❌ CRITICAL: synth is null after creation!')
         }
       }
       
