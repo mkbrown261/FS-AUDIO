@@ -1,11 +1,40 @@
 // TR-808 Drum Kit
 // Built-in drum sounds for FS-AUDIO
+// Keys mapped to C4 range (default Musical Typing octave):
+//   C4 (60) = Kick  | D4 (62) = Snare | F#4 (66) = Closed HiHat | A#4 (70) = Open HiHat
+// Also mapped to standard GM drum positions (C2 range, use Z key to lower octave):
+//   C2 (36) = Kick  | D2 (38) = Snare | A2  (42) = Closed HiHat | A#2 (46) = Open HiHat
 
 <group>
-amp_veltrack=100
 ampeg_attack=0.001
 ampeg_release=0.3
 
+// ── C4 range (default octave, no octave shift needed) ────────────────────────
+<region>
+sample=samples/808-kick.wav
+key=60
+lovel=1
+hivel=127
+
+<region>
+sample=samples/808-snare.wav
+key=62
+lovel=1
+hivel=127
+
+<region>
+sample=samples/808-hihat.wav
+key=65
+lovel=1
+hivel=127
+
+<region>
+sample=samples/808-hihat.wav
+key=67
+lovel=1
+hivel=127
+
+// ── Standard GM drum positions (C2, press Z twice to reach) ──────────────────
 <region>
 sample=samples/808-kick.wav
 key=36
@@ -26,7 +55,6 @@ hivel=127
 
 <region>
 sample=samples/808-hihat.wav
-pitch_oncc1=200
 key=46
 lovel=1
 hivel=127
