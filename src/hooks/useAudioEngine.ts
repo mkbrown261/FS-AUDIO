@@ -2063,18 +2063,22 @@ export function useAudioEngine() {
           instrumentSynthsRef.current.delete(selectedTrack.id)
         }
 
-        if (!synth) {
-          synth = new SFZSampler(ctx, trackNodes.gain)
-          ;(synth as any)._loadedSfzPath = newSfzPath
-          instrumentSynthsRef.current.set(selectedTrack.id, synth)
-          console.log('[noteOn] ✅ Created SFZ sampler')
-          
-          // Load SFZ + fetch samples from their URL (no ArrayBuffers in Zustand)
-          if (sfzPlugin.params.sfzContent) {
+        // If no SFZ content loaded yet, fall back to oscillator so user gets some sound
+        if (!sfzPlugin.params.sfzContent) {
+          console.log('[noteOn] SFZ plugin present but no instrument loaded — using oscillator fallback')
+          // Don't break out of the sfzPlugin block — let it fall through to oscillator below
+        } else {
+          if (!synth) {
+            synth = new SFZSampler(ctx, trackNodes.gain)
+            ;(synth as any)._loadedSfzPath = newSfzPath
+            instrumentSynthsRef.current.set(selectedTrack.id, synth)
+            console.log('[noteOn] ✅ Created SFZ sampler for:', newSfzPath)
+            
+            // Load SFZ + fetch samples from their URL (no ArrayBuffers in Zustand)
             const sfzContent = sfzPlugin.params.sfzContent as string
             const samplesBaseUrl = sfzPlugin.params.samplesBaseUrl as string || ''
             const instrumentName = sfzPlugin.params.instrumentName as string || 'Instrument'
-            console.log('[SFZ] Loading SFZ with samplesBaseUrl:', samplesBaseUrl)
+            console.log('[SFZ] Loading SFZ with samplesBaseUrl:', samplesBaseUrl, 'content length:', sfzContent.length)
             // Wire up progress callback → CustomEvent so SFZSamplerUI can show a progress bar
             synth.onProgress = (loaded, total) => {
               window.dispatchEvent(new CustomEvent('sfz-load-progress', {
@@ -2084,13 +2088,13 @@ export function useAudioEngine() {
             synth.loadSFZ(sfzContent, samplesBaseUrl)
               .catch(err => console.error('[SFZ] Failed to load:', err))
           }
+          
+          // noteOn is async — it awaits _ready internally (waits for samples to decode)
+          synth.noteOn(pitch, velocity)
+            .catch(err => console.error('[SFZ] noteOn error:', err))
+          heldNotesRef.current.set(pitch, { osc: null as any, gain: null as any })
+          return
         }
-        
-        // noteOn is async — it waits internally for samples to be ready
-        synth.noteOn(pitch, velocity)
-          .then(() => console.log('[noteOn] ✅ SFZ note triggered:', pitch))
-        heldNotesRef.current.set(pitch, { osc: null as any, gain: null as any })
-        return
       }
     }
     

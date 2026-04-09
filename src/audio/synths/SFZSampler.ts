@@ -251,6 +251,18 @@ export class SFZSampler {
     await this._ready
 
     const now = this.ctx.currentTime
+    console.log(`[SFZ] noteOn note=${note} vel=${velocity} groups=${this.groups.length} buffers=${this.audioBuffers.size}`)
+
+    if (this.groups.length === 0) {
+      console.warn('[SFZ] noteOn: no groups parsed — instrument may not be loaded yet')
+      return
+    }
+    if (this.audioBuffers.size === 0) {
+      console.warn('[SFZ] noteOn: no audio buffers loaded — samples may have failed to fetch')
+      return
+    }
+
+    let voicesTriggered = 0
 
     this.groups.forEach((group, groupIdx) => {
       const seqLen = group.seq_length ?? 1
@@ -322,11 +334,18 @@ export class SFZSampler {
         gainNode.connect(panner)
         panner.connect(this.destination)
         source.start(now)
+        voicesTriggered++
 
         if (!this.activeNotes.has(note)) this.activeNotes.set(note, [])
         this.activeNotes.get(note)!.push({ source, gain: gainNode })
       }
     })
+
+    if (voicesTriggered === 0) {
+      console.warn(`[SFZ] noteOn note=${note} vel=${velocity}: no voices triggered (check key/vel ranges and sample buffers)`)
+    } else {
+      console.log(`[SFZ] noteOn: triggered ${voicesTriggered} voice(s) for note ${note}`)
+    }
   }
 
   noteOff(note: number) {
