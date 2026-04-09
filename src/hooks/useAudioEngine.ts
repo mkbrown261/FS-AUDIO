@@ -146,7 +146,11 @@ export function useAudioEngine() {
 
   const getTrackNodes = useCallback((trackId: string, volume: number, pan: number): TrackNodes => {
     const existing = trackNodesRef.current.get(trackId)
-    if (existing) return existing
+    if (existing) {
+      console.log('[getTrackNodes] Returning existing nodes for track:', trackId)
+      return existing
+    }
+    console.log('[getTrackNodes] Creating NEW nodes for track:', trackId)
 
     const ctx = getCtx()
     const gain = ctx.createGain()
