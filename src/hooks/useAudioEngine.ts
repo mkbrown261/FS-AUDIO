@@ -1746,31 +1746,42 @@ export function useAudioEngine() {
       micSourceRef.current = micSource
       micAnalyserRef.current = micAnalyser
 
-      // Use RecordRTC for professional-quality uncompressed WAV recording
-      // Disable workers to avoid CSP issues
-      const recorder = new RecordRTC(stream, {
-        type: 'audio',
-        mimeType: 'audio/wav',
-        recorderType: RecordRTC.StereoAudioRecorder,
-        numberOfAudioChannels: 1,    // Mono
-        desiredSampRate: 48000,      // 48kHz studio quality
-        bufferSize: 16384,           // Large buffer for quality
-        timeSlice: 100,              // 100ms chunks for low latency
-        disableLogs: false,          // Keep logs for debugging
-        checkForInactiveTracks: true,
-        // Disable workers to avoid CSP conflicts
-        workerPath: undefined,
-        useWhammyRecorder: false
-      })
+      // Use ScriptProcessorNode for direct, lossless audio capture
+      // This avoids sample rate mismatches and ensures perfect quality
+      const scriptProcessor = ctx.createScriptProcessor(4096, 1, 1)
+      const recordedBuffers: Float32Array[] = []
       
-      mediaRecorderRef.current = recorder
-      recorder.startRecording()
+      scriptProcessor.onaudioprocess = (e) => {
+        // Copy the input buffer to avoid it being reused
+        const inputData = e.inputBuffer.getChannelData(0)
+        const buffer = new Float32Array(inputData.length)
+        buffer.set(inputData)
+        recordedBuffers.push(buffer)
+      }
       
-      console.log('[Audio Engine] RecordRTC professional recording started:', {
-        format: 'WAV (uncompressed PCM)',
-        sampleRate: '48kHz',
-        bitDepth: '16-bit',
+      // Connect: micSource -> highpass -> scriptProcessor -> destination (for monitoring)
+      highpassFilter.connect(scriptProcessor)
+      scriptProcessor.connect(ctx.destination)
+      
+      // Store the recorder state
+      mediaRecorderRef.current = {
+        scriptProcessor,
+        recordedBuffers,
+        sampleRate: ctx.sampleRate,
+        getState: () => 'recording',
+        stopRecording: (callback: () => void) => {
+          scriptProcessor.disconnect()
+          callback()
+        },
+        getBlob: () => null // Not used, we'll use recordedBuffers directly
+      } as any
+      
+      console.log('[Audio Engine] Direct audio capture started:', {
+        format: 'Raw PCM Float32',
+        sampleRate: ctx.sampleRate + 'Hz',
+        bitDepth: '32-bit float',
         channels: 'Mono',
+        bufferSize: 4096,
         echoCancellation: stream.getAudioTracks()[0].getSettings().echoCancellation,
         noiseSuppression: stream.getAudioTracks()[0].getSettings().noiseSuppression,
         autoGainControl: stream.getAudioTracks()[0].getSettings().autoGainControl,
@@ -1791,7 +1802,7 @@ export function useAudioEngine() {
         return
       }
 
-      // RecordRTC's stopRecording accepts a callback
+      // Stop the script processor and process raw buffers
       recorder.stopRecording(async () => {
         try { micSourceRef.current?.disconnect() } catch {}
         try { micAnalyserRef.current?.disconnect() } catch {}
@@ -1801,28 +1812,42 @@ export function useAudioEngine() {
         mediaStreamRef.current?.getTracks().forEach(t => t.stop())
         mediaStreamRef.current = null
 
-        // Get the recorded blob from RecordRTC
-        const blob = recorder.getBlob()
+        // Get the recorded buffers directly (no encoding/decoding - perfect quality)
+        const buffers = recorder.recordedBuffers
         
-        if (!blob || blob.size === 0) {
+        if (!buffers || buffers.length === 0) {
           console.warn('[stopRecording] No recorded data')
           resolve(null)
           return
         }
 
         try {
-          const arrayBuffer = await blob.arrayBuffer()
           const ctx = getCtx()
-          const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
-          console.log('[stopRecording] WAV decoded successfully:', {
-            duration: audioBuffer.duration,
+          
+          // Calculate total length
+          const totalLength = buffers.reduce((sum: number, buf: Float32Array) => sum + buf.length, 0)
+          
+          // Create AudioBuffer directly from the raw Float32 samples
+          const audioBuffer = ctx.createBuffer(1, totalLength, recorder.sampleRate)
+          const channelData = audioBuffer.getChannelData(0)
+          
+          // Copy all buffers into the AudioBuffer
+          let offset = 0
+          for (const buffer of buffers) {
+            channelData.set(buffer, offset)
+            offset += buffer.length
+          }
+          
+          console.log('[stopRecording] Direct audio capture completed:', {
+            duration: audioBuffer.duration.toFixed(2) + 's',
             sampleRate: audioBuffer.sampleRate,
             channels: audioBuffer.numberOfChannels,
-            length: audioBuffer.length
+            length: audioBuffer.length,
+            quality: 'Lossless 32-bit float'
           })
           resolve(audioBuffer)
         } catch (e) {
-          console.error('Failed to decode WAV audio:', e)
+          console.error('Failed to create audio buffer:', e)
           resolve(null)
         }
         
