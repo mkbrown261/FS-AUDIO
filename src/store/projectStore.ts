@@ -478,22 +478,43 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
   }),
 
   splitClipAtBeat: (clipId, beat) => set(st => {
+    console.log('[splitClipAtBeat] Starting split. clipId:', clipId, 'beat:', beat)
     let updated = st.tracks
     for (const track of st.tracks) {
       const clip = track.clips.find(c => c.id === clipId)
       if (!clip) continue
-      if (beat <= clip.startBeat || beat >= clip.startBeat + clip.durationBeats) break
+      
+      console.log('[splitClipAtBeat] Found clip:', clip.id, 'startBeat:', clip.startBeat, 'duration:', clip.durationBeats)
+      console.log('[splitClipAtBeat] Track has', track.clips.length, 'clips before split')
+      
+      if (beat <= clip.startBeat || beat >= clip.startBeat + clip.durationBeats) {
+        console.log('[splitClipAtBeat] Beat outside clip range, aborting')
+        break
+      }
+      
       const splitOffset = beat - clip.startBeat
-      const left: Clip = { ...clip, id: `${clip.id}-L`, durationBeats: splitOffset, fadeOut: 0, crossfadeBeats: 0 }
+      const leftId = `${clip.id}-L-${Date.now()}`
+      const rightId = `${clip.id}-R-${Date.now()}`
+      
+      const left: Clip = { ...clip, id: leftId, durationBeats: splitOffset, fadeOut: 0, crossfadeBeats: 0 }
       const right: Clip = {
-        ...clip, id: `${clip.id}-R`,
+        ...clip, id: rightId,
         startBeat: beat,
         durationBeats: clip.startBeat + clip.durationBeats - beat,
         fadeIn: 0, crossfadeBeats: 0,
       }
+      
+      console.log('[splitClipAtBeat] Creating left clip:', leftId, 'duration:', left.durationBeats)
+      console.log('[splitClipAtBeat] Creating right clip:', rightId, 'start:', right.startBeat, 'duration:', right.durationBeats)
+      
+      const oldClips = track.clips.filter(c => c.id !== clipId)
+      console.log('[splitClipAtBeat] After filtering out', clipId, 'remaining clips:', oldClips.length)
+      
       updated = st.tracks.map(t => t.id === track.id
-        ? { ...t, clips: [...t.clips.filter(c => c.id !== clipId), left, right] }
+        ? { ...t, clips: [...oldClips, left, right] }
         : t)
+      
+      console.log('[splitClipAtBeat] Track now has', updated.find(t => t.id === track.id)?.clips.length, 'clips')
       break
     }
     return { tracks: updated, isDirty: true }
