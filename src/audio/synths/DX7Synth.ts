@@ -448,14 +448,17 @@ export class DX7Synth {
   
   allNotesOff() {
     const now = this.ctx.currentTime;
-    this.voices.forEach(voice => {
-      voice.release(now, this.params);
-      voice.stop(now + 0.1);
+    console.log('[DX7 allNotesOff] Stopping', this.voices.size, 'voices immediately');
+    
+    this.voices.forEach((voice, note) => {
+      console.log('[DX7 allNotesOff] Force stopping voice for note:', note);
+      // Force immediate stop - no release envelope
+      voice.stop(now + 0.01);
     });
     
-    setTimeout(() => {
-      this.voices.clear();
-    }, 200);
+    // Clear immediately
+    this.voices.clear();
+    console.log('[DX7 allNotesOff] All voices cleared');
   }
   
   getAlgorithms(): DX7Algorithm[] {
