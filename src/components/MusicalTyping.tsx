@@ -92,10 +92,12 @@ export function MusicalTyping({ isOpen, onClose, onNoteOn, onNoteOff, onPlayNote
       if (!isTransportKey) {
         // Stop propagation for all other keys to prevent App.tsx shortcuts
         e.stopPropagation()
+      } else {
+        console.log('[MusicalTyping] Transport key detected:', key, 'letting it pass through')
       }
 
       // Shift+P → close the Musical Typing window
-      if (e.shiftKey && (e.key === 'P' || e.key === 'p')) {
+      if (e.shiftKey && key === 'p') {
         e.preventDefault()
         onClose()
         return
