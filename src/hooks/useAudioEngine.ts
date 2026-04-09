@@ -838,11 +838,19 @@ export function useAudioEngine() {
 
   // ── MIDI Panic: Stop all held notes (Logic Pro behavior) ──
   const stopAllHeldNotes = useCallback(() => {
-    console.log('[MIDI Panic] Stopping all held notes:', heldNotesRef.current.size)
+    const heldCount = heldNotesRef.current.size
+    const synthCount = instrumentSynthsRef.current.size
+    console.log('[MIDI Panic] 🚨 Stopping all held notes. Held notes:', heldCount, 'Synths:', synthCount)
+    
+    if (heldCount === 0 && synthCount === 0) {
+      console.log('[MIDI Panic] ✅ No notes to stop')
+      return
+    }
     
     // Stop all oscillators from heldNotesRef
     const ctx = getCtx()
     for (const [pitch, held] of heldNotesRef.current.entries()) {
+      console.log('[MIDI Panic] Stopping oscillator note:', pitch)
       const { osc, gain } = held
       if (osc && gain) {
         try {
@@ -850,7 +858,7 @@ export function useAudioEngine() {
           gain.gain.setValueAtTime(0, ctx.currentTime)
           osc.stop(ctx.currentTime + 0.01)
         } catch (e) {
-          console.warn('[MIDI Panic] Error stopping oscillator:', e)
+          console.warn('[MIDI Panic] Error stopping oscillator pitch', pitch, ':', e)
         }
       }
     }
@@ -858,9 +866,11 @@ export function useAudioEngine() {
     
     // Stop all DX7 synth voices
     for (const [trackId, synth] of instrumentSynthsRef.current.entries()) {
-      console.log('[MIDI Panic] Stopping DX7 synth on track:', trackId)
+      console.log('[MIDI Panic] 🎹 Stopping DX7 synth on track:', trackId)
       synth.allNotesOff()
     }
+    
+    console.log('[MIDI Panic] ✅ All notes stopped')
   }, [getCtx])
 
   const startPlayback = useCallback(async (fromBeat: number) => {
