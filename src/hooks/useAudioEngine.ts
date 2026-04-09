@@ -114,6 +114,9 @@ export function useAudioEngine() {
   const recordedChunksRef = useRef<BlobPart[]>([])
   const micAnalyserRef = useRef<AnalyserNode | null>(null)
   const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
+  
+  // MIDI Panic ref (forward declaration for stopAll to use)
+  const stopAllHeldNotesRef = useRef<(() => void) | undefined>()
 
   const getCtx = useCallback((): AudioContext => {
     // If context doesn't exist OR is closed, create a new one
@@ -1634,9 +1637,6 @@ export function useAudioEngine() {
       // We just ensure they don't interfere with the signal chain
     }
   }, [getCtx])
-
-  // Forward declaration - will be defined later
-  const stopAllHeldNotesRef = useRef<() => void>()
 
   const stopAll = useCallback(() => {
     console.log('[stopAll] Stopping timeline clips and held notes')
