@@ -1,65 +1,44 @@
-/**
- * SFZSampler
- *
- * Self-contained SFZ parser + player. No external npm packages.
- * Uses SampleCacheManager for sample fetching/caching (Electron: disk cache;
- * browser/dev: direct fetch).
- *
- * Supports:
- *  - <global> / <group> / <region> headers
- *  - All common opcodes (sample, lokey/hikey, lovel/hivel, pitch_keycenter,
- *    volume, pan, tune, transpose, loop_mode, loop_start/end, ampeg_attack/release)
- *  - seq_position round-robin (plays a different recorded take each note)
- *  - async noteOn — waits for samples to finish loading before playing
- */
+// SFZ Sampler - Professional sample-based instrument
+// Fully self-contained: NO external dependencies, built-in SFZ parser
 
-import { SampleCacheManager, ProgressCallback } from '../SampleCacheManager'
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────────────────────────────────────────
 interface SFZRegion {
-  sample?:          string
-  lokey?:           number
-  hikey?:           number
-  lovel?:           number
-  hivel?:           number
+  sample?: string
+  lokey?: number
+  hikey?: number
+  lovel?: number
+  hivel?: number
   pitch_keycenter?: number
-  volume?:          number
-  pan?:             number
-  loop_mode?:       string
-  loop_start?:      number
-  loop_end?:        number
-  tune?:            number
-  transpose?:       number
-  ampeg_attack?:    number
-  ampeg_release?:   number
-  seq_position?:    number   // round-robin index (1-based)
+  volume?: number
+  pan?: number
+  loop_mode?: string
+  loop_start?: number
+  loop_end?: number
+  tune?: number
+  transpose?: number
+  ampeg_attack?: number
+  ampeg_release?: number
 }
 
 interface SFZGroup {
   groupDefaults: Partial<SFZRegion>
-  seqLength:     number          // max seq_position in group
-  seqCounter:    number          // current round-robin counter
-  regions:       SFZRegion[]
+  regions: SFZRegion[]
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Built-in SFZ parser
+// Built-in SFZ parser — no external packages needed
 // ─────────────────────────────────────────────────────────────────────────────
-function parseSFZ(content: string): { groups: SFZGroup[]; defaultPath: string } {
-  const groups:     SFZGroup[] = []
+function parseSFZ(content: string): SFZGroup[] {
+  const groups: SFZGroup[] = []
   let currentGroup: SFZGroup | null = null
   let currentRegion: Partial<SFZRegion> | null = null
   let globalDefaults: Partial<SFZRegion> = {}
-  let defaultPath = ''
 
   const toNum  = (v: string) => parseFloat(v)
   const toInt  = (v: string) => parseInt(v, 10)
   const toNote = (v: string): number => {
     const n = parseInt(v, 10)
     if (!isNaN(n)) return n
-    const MAP: Record<string, number> = { C:0,D:2,E:4,F:5,G:7,A:9,B:11 }
+    const MAP: Record<string, number> = { C:0, D:2, E:4, F:5, G:7, A:9, B:11 }
     const m = v.match(/^([A-Ga-g])(#|b)?(-?\d+)$/)
     if (!m) return 60
     const base   = MAP[m[1].toUpperCase()] ?? 0
@@ -86,180 +65,191 @@ function parseSFZ(content: string): { groups: SFZGroup[]; defaultPath: string } 
       case 'loop_end':         target.loop_end        = toInt(val);  break
       case 'ampeg_attack':     target.ampeg_attack    = toNum(val);  break
       case 'ampeg_release':    target.ampeg_release   = toNum(val);  break
-      case 'seq_position':     target.seq_position    = toInt(val);  break
     }
   }
 
-  const applyOpcodeStr = (text: string, target: Partial<SFZRegion>) => {
-    const re = /(\w+)\s*=\s*(.*?)(?=\s+\w+=|$)/g
-    let m: RegExpExecArray | null
-    while ((m = re.exec(text)) !== null) applyOpcode(target, m[1].trim(), m[2].trim())
-  }
+  // Strip // comments and split into lines
+  const lines = content.split('\n')
+    .map(l => l.replace(/\/\/.*$/, '').trim())
+    .filter(Boolean)
 
   const saveRegion = () => {
     if (currentRegion && currentGroup) {
-      const r = currentRegion as SFZRegion
-      currentGroup.regions.push(r)
-      if (r.seq_position && r.seq_position > currentGroup.seqLength)
-        currentGroup.seqLength = r.seq_position
+      currentGroup.regions.push(currentRegion as SFZRegion)
+      currentRegion = null
     }
-    currentRegion = null
   }
 
-  // Strip // comments
-  const lines = content.split('\n').map(l => l.replace(/\/\/.*$/, '').trim()).filter(Boolean)
-
   for (const line of lines) {
-    // Split on header tags, keeping them as tokens
+    // A line may contain a header tag followed by opcodes, e.g.:
+    //   <region> sample=foo.wav lokey=36 hikey=48
+    // Split on header tags, keeping the delimiters
     const parts = line.split(/(?=<\w+>)/)
-    for (const part of parts) {
-      const t = part.trim()
-      if (!t) continue
 
-      if (t.startsWith('<control>')) {
-        const dp = t.match(/default_path\s*=\s*([^\s]+)/)
-        if (dp) defaultPath = dp[1].replace(/\\/g,'/').replace(/\/$/,'')
-      } else if (t.startsWith('<global>')) {
-        saveRegion(); globalDefaults = {}; currentGroup = null
-        applyOpcodeStr(t.replace('<global>',''), globalDefaults)
-      } else if (t.startsWith('<group>')) {
+    for (const part of parts) {
+      const trimmed = part.trim()
+      if (!trimmed) continue
+
+      if (trimmed.startsWith('<global>')) {
         saveRegion()
-        currentGroup = { groupDefaults: { ...globalDefaults }, regions: [], seqLength: 1, seqCounter: 0 }
-        groups.push(currentGroup); currentRegion = null
-        applyOpcodeStr(t.replace('<group>',''), currentGroup.groupDefaults)
-      } else if (t.startsWith('<region>')) {
+        globalDefaults = {}
+        currentGroup  = null
+        // parse any trailing opcodes
+        parseOpcodes(trimmed.replace('<global>', ''), globalDefaults, applyOpcode)
+      } else if (trimmed.startsWith('<group>')) {
+        saveRegion()
+        currentGroup  = { groupDefaults: { ...globalDefaults }, regions: [] }
+        groups.push(currentGroup)
+        currentRegion = null
+        parseOpcodes(trimmed.replace('<group>', ''), currentGroup.groupDefaults, applyOpcode)
+      } else if (trimmed.startsWith('<region>')) {
         saveRegion()
         if (!currentGroup) {
-          currentGroup = { groupDefaults: { ...globalDefaults }, regions: [], seqLength: 1, seqCounter: 0 }
+          currentGroup = { groupDefaults: { ...globalDefaults }, regions: [] }
           groups.push(currentGroup)
         }
         currentRegion = { ...globalDefaults, ...currentGroup.groupDefaults }
-        applyOpcodeStr(t.replace('<region>',''), currentRegion)
+        parseOpcodes(trimmed.replace('<region>', ''), currentRegion, applyOpcode)
       } else {
-        const target = currentRegion ?? currentGroup?.groupDefaults ?? globalDefaults
-        applyOpcodeStr(t, target)
+        // Plain opcode line
+        const target = currentRegion ?? (currentGroup?.groupDefaults) ?? globalDefaults
+        parseOpcodes(trimmed, target, applyOpcode)
       }
     }
   }
-  saveRegion()
 
-  return { groups, defaultPath }
+  saveRegion()
+  return groups
+}
+
+function parseOpcodes(
+  text: string,
+  target: Partial<SFZRegion>,
+  apply: (t: Partial<SFZRegion>, k: string, v: string) => void
+) {
+  // Match key=value pairs; value runs until next key= or end of string
+  const re = /(\w+)\s*=\s*(.*?)(?=\s+\w+=|$)/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    apply(target, m[1].trim(), m[2].trim())
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SFZSampler
 // ─────────────────────────────────────────────────────────────────────────────
 export class SFZSampler {
-  private ctx:         AudioContext
+  private ctx: AudioContext
   private destination: AudioNode
-  private groups:      SFZGroup[] = []
-  private cache:       SampleCacheManager | null = null
+  private groups: SFZGroup[] = []
+  // Stored under EVERY key variant so lookup always succeeds:
+  //   "ep-c4.wav", "samples/ep-c4.wav", "/sfz-instruments/samples/ep-c4.wav"
+  private audioBuffers: Map<string, AudioBuffer> = new Map()
   private activeNotes: Map<number, { source: AudioBufferSourceNode; gain: GainNode }[]> = new Map()
 
-  // resolves when all samples are loaded
+  // resolves when all samples are loaded — noteOn waits on this
   private _ready: Promise<void> = Promise.resolve()
 
-  // Tag we check in useAudioEngine to detect instrument change
-  _loadedSfzPath = ''
-
   constructor(ctx: AudioContext, destination: AudioNode) {
-    this.ctx         = ctx
+    this.ctx = ctx
     this.destination = destination
   }
 
-  /**
-   * Parse SFZ and start loading samples.
-   * @param sfzContent     Raw SFZ text
-   * @param samplesBaseUrl Local base URL (e.g. /sfz-instruments) — used for bundled instruments
-   * @param remoteBaseUrl  GitHub raw URL — used for downloaded instruments
-   * @param instrumentId   Unique ID for disk cache key
-   * @param onProgress     Called with download progress
-   */
-  async loadSFZ(
-    sfzContent:     string,
-    samplesBaseUrl: string,
-    remoteBaseUrl:  string,
-    instrumentId:   string,
-    onProgress?:    ProgressCallback,
-  ) {
-    const { groups, defaultPath } = parseSFZ(sfzContent)
-    this.groups = groups
+  /** Parse SFZ text and fetch all samples from samplesBaseUrl */
+  async loadSFZ(sfzContent: string, samplesBaseUrl: string) {
+    this.groups = parseSFZ(sfzContent)
+    console.log(`[SFZ] Parsed ${this.groups.length} groups, ${this.totalRegions()} regions`)
 
-    const totalRegions = groups.reduce((s, g) => s + g.regions.length, 0)
-    console.log(`[SFZ] Parsed ${groups.length} groups, ${totalRegions} regions. defaultPath="${defaultPath}"`)
-
-    // Collect unique sample filenames
-    const sampleFilenames = new Set<string>()
-    for (const g of groups)
+    // Collect every unique sample path referenced in the SFZ
+    const samplePaths = new Set<string>()
+    for (const g of this.groups)
       for (const r of g.regions)
-        if (r.sample) sampleFilenames.add(r.sample)
+        if (r.sample) samplePaths.add(r.sample)
 
-    console.log(`[SFZ] ${sampleFilenames.size} unique sample files`)
+    console.log('[SFZ] Samples to fetch:', [...samplePaths])
 
-    // Decide where to fetch from:
-    //   - remoteBaseUrl → download from GitHub and cache on disk
-    //   - samplesBaseUrl → fetch locally (bundled)
-    const effectiveBase = remoteBaseUrl || samplesBaseUrl
+    // Fetch & decode all samples, store under every key variant
+    this._ready = (async () => {
+      await Promise.all([...samplePaths].map(async (samplePath) => {
+        // Build full URL: samplesBaseUrl + '/' + samplePath
+        const url = samplesBaseUrl
+          ? `${samplesBaseUrl}/${samplePath}`
+          : `/${samplePath}`
 
-    this.cache = new SampleCacheManager(instrumentId || 'sfz', effectiveBase, onProgress)
+        try {
+          const resp = await fetch(url)
+          if (!resp.ok) { console.warn(`[SFZ] HTTP ${resp.status} for ${url}`); return }
+          const ab  = await resp.arrayBuffer()
+          const buf = await this.ctx.decodeAudioData(ab)
 
-    // Kick off async preload; noteOn awaits this._ready
-    this._ready = this.cache.preloadSamples(this.ctx, [...sampleFilenames])
+          // Store under multiple keys so any lookup variant works
+          const filename = samplePath.split('/').pop() ?? samplePath
+          this.audioBuffers.set(filename, buf)         // "ep-c4.wav"
+          this.audioBuffers.set(samplePath, buf)       // "samples/ep-c4.wav"
+          console.log(`[SFZ] ✅ Decoded: ${filename}`)
+        } catch (err) {
+          console.error(`[SFZ] ❌ Failed to load sample "${url}":`, err)
+        }
+      }))
+      console.log(`[SFZ] Ready — ${this.audioBuffers.size} samples loaded`)
+    })()
+
+    await this._ready
   }
 
-  /** Play a note — waits for samples to be ready first */
+  /** noteOn — waits for samples to be ready before playing */
   async noteOn(note: number, velocity: number = 127) {
-    await this._ready   // blocks until samples decoded
+    // If samples aren't ready yet, wait
+    await this._ready
 
     const now = this.ctx.currentTime
 
     for (const group of this.groups) {
-      // Round-robin: only play the region whose seq_position matches counter
-      const seq = group.seqLength > 1
-        ? (group.seqCounter % group.seqLength) + 1   // 1-based
-        : null
-
-      let played = false
-
       for (const region of group.regions) {
-        if (note     < (region.lokey ?? 0)   || note     > (region.hikey ?? 127)) continue
-        if (velocity < (region.lovel ?? 0)   || velocity > (region.hivel ?? 127)) continue
-        // seq_position filter
-        if (seq !== null && region.seq_position !== undefined && region.seq_position !== seq) continue
+        if (note < (region.lokey ?? 0)   || note > (region.hikey ?? 127))   continue
+        if (velocity < (region.lovel ?? 0) || velocity > (region.hivel ?? 127)) continue
 
         const sampleRef = region.sample
         if (!sampleRef) continue
 
-        // getSample accepts the full ref; internally stores under both keys
-        const buffer = this.cache ? await this.cache.getSample(this.ctx, sampleRef) : null
+        // Try filename, then full relative path
+        const filename = sampleRef.split('/').pop() ?? sampleRef
+        const buffer   = this.audioBuffers.get(filename) ?? this.audioBuffers.get(sampleRef)
 
         if (!buffer) {
-          console.warn(`[SFZ] No buffer for "${sampleRef}" (note=${note})`)
+          console.warn(`[SFZ] Buffer not found for "${sampleRef}" (note ${note})`)
           continue
         }
 
-        // Build audio graph
-        const source   = this.ctx.createBufferSource()
-        source.buffer  = buffer
+        // --- Build audio graph ---
+        const source = this.ctx.createBufferSource()
+        source.buffer = buffer
 
+        // Pitch shift
         const center = region.pitch_keycenter ?? note
         const semis  = note - center + (region.transpose ?? 0)
-        source.playbackRate.value = Math.pow(2, (semis + (region.tune ?? 0) / 100) / 12)
+        const cents  = region.tune ?? 0
+        source.playbackRate.value = Math.pow(2, (semis + cents / 100) / 12)
 
+        // Looping
         if (region.loop_mode === 'loop_continuous') {
           source.loop = true
           if (region.loop_start !== undefined) source.loopStart = region.loop_start / buffer.sampleRate
           if (region.loop_end   !== undefined) source.loopEnd   = region.loop_end   / buffer.sampleRate
         }
 
-        const gainNode   = this.ctx.createGain()
-        const volDb      = region.volume ?? 0
-        const velFactor  = velocity / 127
+        // Gain (velocity + dB volume)
+        const gainNode  = this.ctx.createGain()
+        const volDb     = region.volume ?? 0
+        const velFactor = velocity / 127
         const targetGain = velFactor * Math.pow(10, volDb / 20)
-        const attack     = region.ampeg_attack ?? 0.005
+
+        // Attack ramp
+        const attack = region.ampeg_attack ?? 0.005
         gainNode.gain.setValueAtTime(0, now)
         gainNode.gain.linearRampToValueAtTime(targetGain, now + Math.max(attack, 0.002))
 
+        // Pan
         const panner = this.ctx.createStereoPanner()
         panner.pan.value = Math.max(-1, Math.min(1, (region.pan ?? 0) / 100))
 
@@ -270,24 +260,22 @@ export class SFZSampler {
 
         if (!this.activeNotes.has(note)) this.activeNotes.set(note, [])
         this.activeNotes.get(note)!.push({ source, gain: gainNode })
-        played = true
       }
-
-      // Advance round-robin counter if we played something from this group
-      if (played && group.seqLength > 1) group.seqCounter++
     }
   }
 
   noteOff(note: number) {
     const voices = this.activeNotes.get(note)
     if (!voices?.length) return
-    const now = this.ctx.currentTime
-    const rel = 0.08
+
+    const now     = this.ctx.currentTime
+    const release = 0.08
+
     for (const { source, gain } of voices) {
       gain.gain.cancelScheduledValues(now)
       gain.gain.setValueAtTime(gain.gain.value, now)
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + rel)
-      try { source.stop(now + rel + 0.05) } catch { /* already stopped */ }
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + release)
+      try { source.stop(now + release + 0.05) } catch { /* already stopped */ }
     }
     this.activeNotes.delete(note)
   }
@@ -305,16 +293,16 @@ export class SFZSampler {
     this.activeNotes.clear()
   }
 
-  destroy() {
-    this.allNotesOff()
-    this.cache?.destroy()
+  private totalRegions() {
+    return this.groups.reduce((s, g) => s + g.regions.length, 0)
   }
 
   getInfo() {
     return {
       groups:        this.groups.length,
-      regions:       this.groups.reduce((s, g) => s + g.regions.length, 0),
-      loadedSamples: this.cache ? 'managed by SampleCacheManager' : 0,
+      regions:       this.totalRegions(),
+      loadedSamples: this.audioBuffers.size,
+      activeVoices:  [...this.activeNotes.values()].reduce((s, v) => s + v.length, 0)
     }
   }
 }
