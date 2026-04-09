@@ -1,7 +1,7 @@
 import { useRef, useCallback, useEffect } from 'react'
 import { useProjectStore, Clip } from '../store/projectStore'
 import { DX7Synth } from '../audio/synths/DX7Synth'
-import { SFZSamplerWasm } from '../audio/synths/SFZSamplerWasm'
+import { SFZSampler } from '../audio/synths/SFZSampler'
 
 interface TrackNodes {
   gain: GainNode
@@ -1976,7 +1976,7 @@ export function useAudioEngine() {
   }, [])
 
   // ── Instrument Synth Instances (per track) ────────────────────────────────
-  const instrumentSynthsRef = useRef<Map<string, DX7Synth | SFZSamplerWasm>>(new Map())
+  const instrumentSynthsRef = useRef<Map<string, DX7Synth | SFZSampler>>(new Map())
 
   // ── Play a preview note (piano roll key click) ────────────────────────────
   const heldNotesRef = useRef<Map<number, { osc: OscillatorNode; gain: GainNode }>>(new Map())
@@ -2052,23 +2052,41 @@ export function useAudioEngine() {
           return
         }
         
-        let synth = instrumentSynthsRef.current.get(selectedTrack.id) as SFZSamplerWasm
+        let synth = instrumentSynthsRef.current.get(selectedTrack.id) as any
         if (!synth) {
-          synth = new SFZSamplerWasm(ctx, trackNodes.gain)
+          // Use simple JavaScript SFZ sampler instead of WASM
+          const { SFZSampler } = require('../audio/synths/SFZSampler')
+          synth = new SFZSampler(ctx, trackNodes.gain)
           instrumentSynthsRef.current.set(selectedTrack.id, synth)
-          console.log('[noteOn] ✅ Created SFZ WASM sampler')
+          console.log('[noteOn] ✅ Created SFZ sampler')
           
-          // Initialize and load if SFZ content exists
+          // Load if SFZ content exists
           if (sfzPlugin.params.sfzContent) {
-            synth.initialize()
-              .then(() => synth.loadSFZ(sfzPlugin.params.sfzContent as string, sfzPlugin.params.sfzPath as string || ''))
-              .catch(err => console.error('[SFZ WASM] Failed to load:', err))
+            const sfzContent = sfzPlugin.params.sfzContent as string
+            const sfzPath = sfzPlugin.params.sfzPath as string || ''
+            
+            synth.loadSFZ(sfzContent, sfzPath)
+              .then(() => {
+                console.log('[SFZ] SFZ file loaded')
+                
+                // Load samples if provided
+                const samples = sfzPlugin.params.samples as Array<{name: string, buffer: ArrayBuffer}> | undefined
+                if (samples && samples.length > 0) {
+                  console.log(`[SFZ] Loading ${samples.length} samples...`)
+                  Promise.all(
+                    samples.map(s => synth.loadSample(s.name, s.buffer))
+                  ).then(() => {
+                    console.log('[SFZ] All samples loaded successfully')
+                  })
+                }
+              })
+              .catch(err => console.error('[SFZ] Failed to load:', err))
           }
         }
         
         if (synth) {
           synth.noteOn(pitch, velocity)
-          console.log('[noteOn] ✅ SFZ WASM note triggered:', pitch)
+          console.log('[noteOn] ✅ SFZ note triggered:', pitch)
           heldNotesRef.current.set(pitch, { osc: null as any, gain: null as any })
           return
         }
@@ -2103,11 +2121,13 @@ export function useAudioEngine() {
     
     if (selectedTrack) {
       const dx7Plugin = selectedTrack.plugins.find(p => p.type === 'fs_dx7' && p.enabled)
-      if (dx7Plugin) {
+      const sfzPlugin = selectedTrack.plugins.find(p => p.type === 'fs_sfz' && p.enabled)
+      
+      if (dx7Plugin || sfzPlugin) {
         const synth = instrumentSynthsRef.current.get(selectedTrack.id)
         if (synth) {
           synth.noteOff(pitch)
-          console.log('[noteOff] Released DX7 note:', pitch)
+          console.log(`[noteOff] Released ${dx7Plugin ? 'DX7' : 'SFZ'} note:`, pitch)
           heldNotesRef.current.delete(pitch)
           return
         }

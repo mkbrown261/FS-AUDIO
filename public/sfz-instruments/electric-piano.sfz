@@ -5,35 +5,17 @@
 amp_veltrack=100
 ampeg_attack=0.005
 ampeg_release=1.5
-loop_mode=loop_continuous
 
-// Low octave
-<region>
-sample=epiano-c2.wav
-lokey=36
-hikey=42
-pitch_keycenter=36
-
-<region>
-sample=epiano-c3.wav
-lokey=43
-hikey=54
-pitch_keycenter=48
-
-<region>
-sample=epiano-c4.wav
-lokey=55
-hikey=66
-pitch_keycenter=60
-
-<region>
-sample=epiano-c5.wav
-lokey=67
-hikey=78
-pitch_keycenter=72
-
-<region>
-sample=epiano-c6.wav
-lokey=79
-hikey=96
-pitch_keycenter=84
+// Chromatic mapping
+<region> sample=samples/ep-c2.wav pitch_keycenter=36 lokey=24 hikey=38
+<region> sample=samples/ep-e2.wav pitch_keycenter=40 lokey=39 hikey=42
+<region> sample=samples/ep-g2.wav pitch_keycenter=43 lokey=43 hikey=46
+<region> sample=samples/ep-c3.wav pitch_keycenter=48 lokey=47 hikey=50
+<region> sample=samples/ep-e3.wav pitch_keycenter=52 lokey=51 hikey=54
+<region> sample=samples/ep-g3.wav pitch_keycenter=55 lokey=55 hikey=58
+<region> sample=samples/ep-c4.wav pitch_keycenter=60 lokey=59 hikey=62
+<region> sample=samples/ep-e4.wav pitch_keycenter=64 lokey=63 hikey=66
+<region> sample=samples/ep-g4.wav pitch_keycenter=67 lokey=67 hikey=70
+<region> sample=samples/ep-c5.wav pitch_keycenter=72 lokey=71 hikey=76
+<region> sample=samples/ep-e5.wav pitch_keycenter=76 lokey=77 hikey=82
+<region> sample=samples/ep-c6.wav pitch_keycenter=84 lokey=83 hikey=96

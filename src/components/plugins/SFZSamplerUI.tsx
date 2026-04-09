@@ -20,10 +20,43 @@ export function SFZSamplerUI({ trackId, plugin, onParamChange }: SFZSamplerUIPro
       const response = await fetch(instrument.sfzPath)
       const sfzContent = await response.text()
 
-      // Update plugin params
+      // Extract sample paths from SFZ content
+      const samplePaths = extractSamplePaths(sfzContent)
+      console.log('[SFZ] Required samples:', samplePaths)
+
+      // Load all sample files
+      const samples = new Map<string, ArrayBuffer>()
+      const basePath = instrument.sfzPath.substring(0, instrument.sfzPath.lastIndexOf('/'))
+      
+      for (const samplePath of samplePaths) {
+        try {
+          const sampleUrl = `${basePath}/${samplePath}`
+          console.log('[SFZ] Loading sample:', sampleUrl)
+          const sampleResponse = await fetch(sampleUrl)
+          if (!sampleResponse.ok) {
+            console.warn(`[SFZ] Failed to load sample ${sampleUrl}: ${sampleResponse.status}`)
+            continue
+          }
+          const arrayBuffer = await sampleResponse.arrayBuffer()
+          // Store with just the filename (matching SFZ reference)
+          const filename = samplePath.split('/').pop() || samplePath
+          samples.set(filename, arrayBuffer)
+          console.log(`[SFZ] Loaded sample: ${filename}`)
+        } catch (err) {
+          console.error(`[SFZ] Error loading sample ${samplePath}:`, err)
+        }
+      }
+
+      console.log(`[SFZ] Loaded ${samples.size} of ${samplePaths.length} samples`)
+
+      // Update plugin params with both SFZ content and samples
       useProjectStore.getState().updatePlugin(trackId, plugin.id, {
         sfzContent,
         sfzPath: instrument.sfzPath,
+        samples: Array.from(samples.entries()).map(([name, buffer]) => ({
+          name,
+          buffer
+        }))
       })
 
       console.log('[SFZ] Loaded built-in instrument:', instrument.name)

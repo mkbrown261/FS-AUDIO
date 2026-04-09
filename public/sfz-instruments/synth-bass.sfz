@@ -7,24 +7,8 @@ ampeg_attack=0.001
 ampeg_decay=0.5
 ampeg_sustain=0.7
 ampeg_release=0.2
-cutoff=1200
-fil_type=lpf_2p
-resonance=3
 
-<region>
-sample=bass-c1.wav
-lokey=24
-hikey=35
-pitch_keycenter=24
-
-<region>
-sample=bass-c2.wav
-lokey=36
-hikey=47
-pitch_keycenter=36
-
-<region>
-sample=bass-c3.wav
-lokey=48
-hikey=60
-pitch_keycenter=48
+<region> sample=samples/bass-e1.wav pitch_keycenter=28 lokey=24 hikey=34
+<region> sample=samples/bass-a1.wav pitch_keycenter=33 lokey=35 hikey=41
+<region> sample=samples/bass-e2.wav pitch_keycenter=40 lokey=42 hikey=47
+<region> sample=samples/bass-a2.wav pitch_keycenter=45 lokey=48 hikey=60
