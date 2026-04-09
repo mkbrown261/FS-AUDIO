@@ -2054,8 +2054,7 @@ export function useAudioEngine() {
         
         let synth = instrumentSynthsRef.current.get(selectedTrack.id) as any
         if (!synth) {
-          // Use simple JavaScript SFZ sampler instead of WASM
-          const { SFZSampler } = require('../audio/synths/SFZSampler')
+          // Use simple JavaScript SFZ sampler
           synth = new SFZSampler(ctx, trackNodes.gain)
           instrumentSynthsRef.current.set(selectedTrack.id, synth)
           console.log('[noteOn] ✅ Created SFZ sampler')
