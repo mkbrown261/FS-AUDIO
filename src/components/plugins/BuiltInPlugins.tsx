@@ -427,6 +427,70 @@ export const PLUGIN_DEFAULTS: Record<string, { params: Record<string, number | s
     },
   },
 
+  fs_dx7: {
+    name: 'FS-DX7',
+    type: 'fs_dx7',
+    params: {
+      algorithm: 6,  // E.Piano algorithm
+      
+      // Operator 1 (Carrier)
+      op1_ratio: 1.0,
+      op1_level: 80,
+      op1_attack: 0.01,
+      op1_decay: 0.3,
+      op1_sustain: 0.7,
+      op1_release: 0.5,
+      
+      // Operator 2 (Modulator)
+      op2_ratio: 14.0,
+      op2_level: 60,
+      op2_attack: 0.01,
+      op2_decay: 0.2,
+      op2_sustain: 0.0,
+      op2_release: 0.3,
+      
+      // Operator 3 (Carrier)
+      op3_ratio: 1.0,
+      op3_level: 75,
+      op3_attack: 0.01,
+      op3_decay: 0.3,
+      op3_sustain: 0.6,
+      op3_release: 0.5,
+      
+      // Operator 4 (Modulator)
+      op4_ratio: 14.0,
+      op4_level: 55,
+      op4_attack: 0.01,
+      op4_decay: 0.2,
+      op4_sustain: 0.0,
+      op4_release: 0.3,
+      
+      // Operator 5 (Harmonic)
+      op5_ratio: 2.0,
+      op5_level: 30,
+      op5_attack: 0.02,
+      op5_decay: 0.4,
+      op5_sustain: 0.3,
+      op5_release: 0.6,
+      
+      // Operator 6 (Harmonic)
+      op6_ratio: 3.0,
+      op6_level: 25,
+      op6_attack: 0.02,
+      op6_decay: 0.4,
+      op6_sustain: 0.2,
+      op6_release: 0.6,
+      
+      // Global
+      feedback: 2,
+      lfo_rate: 5.0,
+      lfo_depth: 0.0,
+      lfo_wave: 0,
+      transpose: 0,
+      master_volume: 0.7,
+    },
+  },
+
   // ── PHASE 2: PROFESSIONAL STUDIO PLUGINS ────────────────────────────────────
 
   vocal_tuner: {
@@ -1444,6 +1508,7 @@ const INSTRUMENT_CATEGORIES: { label: string; color: string; icon: string; plugi
     icon: '♪',
     plugins: [
       { key: 'fs_analog',  name: 'FS-Analog',  type: 'fs_analog',  desc: 'Analog subtractive synthesizer' },
+      { key: 'fs_dx7',     name: 'FS-DX7',     type: 'fs_dx7',     desc: '6-operator FM synthesizer (DX7 clone)' },
     ],
   },
   {

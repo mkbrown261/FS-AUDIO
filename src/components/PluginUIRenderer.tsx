@@ -10,6 +10,7 @@ interface PluginUIRendererProps {
 // Lazy load instrument UIs to avoid loading issues
 const AnalogSynthUI = React.lazy(() => import('./instruments/AnalogSynthUI').then(m => ({ default: m.AnalogSynthUI })))
 const DrumSamplerUI = React.lazy(() => import('./instruments/DrumSamplerUI').then(m => ({ default: m.DrumSamplerUI })))
+const DX7SynthUI = React.lazy(() => import('./plugins/DX7SynthUI').then(m => ({ default: m.DX7SynthUI })))
 
 // Professional Knob Component
 function ProfessionalKnob({ 
@@ -607,6 +608,14 @@ export function PluginUIRenderer({ plugin, trackId, onUpdateParams }: PluginUIRe
     return (
       <React.Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#fff' }}>Loading Sampler...</div>}>
         <DrumSamplerUI params={plugin.params} onUpdate={onUpdateParams} />
+      </React.Suspense>
+    )
+  }
+  
+  if (plugin.type === 'fs_dx7') {
+    return (
+      <React.Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#fff' }}>Loading DX7...</div>}>
+        <DX7SynthUI params={plugin.params} onParamChange={(key, value) => onUpdateParams({ [key]: value })} />
       </React.Suspense>
     )
   }
