@@ -1,0 +1,30 @@
+// Synth Bass
+// Built-in analog-style bass for FS-AUDIO
+
+<group>
+amp_veltrack=100
+ampeg_attack=0.001
+ampeg_decay=0.5
+ampeg_sustain=0.7
+ampeg_release=0.2
+cutoff=1200
+fil_type=lpf_2p
+resonance=3
+
+<region>
+sample=bass-c1.wav
+lokey=24
+hikey=35
+pitch_keycenter=24
+
+<region>
+sample=bass-c2.wav
+lokey=36
+hikey=47
+pitch_keycenter=36
+
+<region>
+sample=bass-c3.wav
+lokey=48
+hikey=60
+pitch_keycenter=48

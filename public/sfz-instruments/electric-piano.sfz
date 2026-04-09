@@ -1,0 +1,39 @@
+// Electric Piano
+// Built-in Rhodes-style electric piano for FS-AUDIO
+
+<group>
+amp_veltrack=100
+ampeg_attack=0.005
+ampeg_release=1.5
+loop_mode=loop_continuous
+
+// Low octave
+<region>
+sample=epiano-c2.wav
+lokey=36
+hikey=42
+pitch_keycenter=36
+
+<region>
+sample=epiano-c3.wav
+lokey=43
+hikey=54
+pitch_keycenter=48
+
+<region>
+sample=epiano-c4.wav
+lokey=55
+hikey=66
+pitch_keycenter=60
+
+<region>
+sample=epiano-c5.wav
+lokey=67
+hikey=78
+pitch_keycenter=72
+
+<region>
+sample=epiano-c6.wav
+lokey=79
+hikey=96
+pitch_keycenter=84

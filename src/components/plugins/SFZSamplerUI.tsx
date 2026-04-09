@@ -1,6 +1,7 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Plugin, useProjectStore } from '../../store/projectStore'
 import { loadSFZFile, loadSFZSamples, extractSamplePaths } from '../../utils/sfzLoader'
+import { BUILTIN_INSTRUMENTS, BuiltInInstrument } from '../../data/builtinInstruments'
 
 interface SFZSamplerUIProps {
   trackId: string
@@ -9,8 +10,29 @@ interface SFZSamplerUIProps {
 }
 
 export function SFZSamplerUI({ trackId, plugin, onParamChange }: SFZSamplerUIProps) {
+  const [showBuiltIns, setShowBuiltIns] = useState(true)
   const sfzPath = plugin.params.sfzPath as string || ''
   const sfzLoaded = !!plugin.params.sfzContent
+
+  const handleLoadBuiltIn = async (instrument: BuiltInInstrument) => {
+    try {
+      // Load built-in SFZ file
+      const response = await fetch(instrument.sfzPath)
+      const sfzContent = await response.text()
+
+      // Update plugin params
+      useProjectStore.getState().updatePlugin(trackId, plugin.id, {
+        sfzContent,
+        sfzPath: instrument.sfzPath,
+      })
+
+      console.log('[SFZ] Loaded built-in instrument:', instrument.name)
+      setShowBuiltIns(false)
+    } catch (error) {
+      console.error('[SFZ] Failed to load built-in instrument:', error)
+      alert('Failed to load instrument')
+    }
+  }
 
   const handleLoadClick = async () => {
     try {
@@ -54,52 +76,126 @@ export function SFZSamplerUI({ trackId, plugin, onParamChange }: SFZSamplerUIPro
         </p>
       </div>
 
-      <div style={{ marginBottom: '12px' }}>
-        <button
-          onClick={handleLoadClick}
-          style={{
-            width: '100%',
-            padding: '8px 12px',
-            background: sfzLoaded ? '#22c55e' : '#3b82f6',
-            border: 'none',
-            borderRadius: '4px',
-            color: '#fff',
-            fontSize: '13px',
-            cursor: 'pointer',
-            fontWeight: '500'
-          }}
-        >
-          {sfzLoaded ? '✓ SFZ Loaded' : 'Load SFZ File...'}
-        </button>
-      </div>
-
-      {sfzLoaded && sfzPath && (
-        <div style={{
-          padding: '8px',
-          background: '#0a0a0a',
-          borderRadius: '4px',
-          fontSize: '12px',
-          color: '#aaa'
-        }}>
-          <div style={{ marginBottom: '4px', color: '#666' }}>Loaded:</div>
-          <div style={{ color: '#fff', fontFamily: 'monospace' }}>
-            {sfzPath.split('/').pop() || sfzPath}
+      {!sfzLoaded && showBuiltIns ? (
+        <>
+          <div style={{ marginBottom: '8px', fontSize: '12px', color: '#aaa', fontWeight: '500' }}>
+            Built-in Instruments:
           </div>
-        </div>
-      )}
-
-      {!sfzLoaded && (
-        <div style={{
-          padding: '12px',
-          background: '#0a0a0a',
-          borderRadius: '4px',
-          fontSize: '12px',
-          color: '#666',
-          textAlign: 'center'
-        }}>
-          No SFZ file loaded.<br />
-          Click "Load SFZ File" to get started.
-        </div>
+          <div style={{ display: 'grid', gap: '6px', marginBottom: '12px' }}>
+            {BUILTIN_INSTRUMENTS.map(instrument => (
+              <button
+                key={instrument.id}
+                onClick={() => handleLoadBuiltIn(instrument)}
+                style={{
+                  padding: '8px 12px',
+                  background: '#2a2a2a',
+                  border: '1px solid #3a3a3a',
+                  borderRadius: '4px',
+                  color: '#fff',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = '#3a3a3a'}
+                onMouseLeave={(e) => e.currentTarget.style.background = '#2a2a2a'}
+              >
+                <div style={{ fontWeight: '500' }}>{instrument.name}</div>
+                <div style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
+                  {instrument.description}
+                </div>
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => setShowBuiltIns(false)}
+            style={{
+              width: '100%',
+              padding: '6px',
+              background: 'transparent',
+              border: '1px dashed #444',
+              borderRadius: '4px',
+              color: '#888',
+              fontSize: '12px',
+              cursor: 'pointer'
+            }}
+          >
+            Or load your own SFZ file...
+          </button>
+        </>
+      ) : !sfzLoaded ? (
+        <>
+          <div style={{ marginBottom: '12px' }}>
+            <button
+              onClick={handleLoadClick}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                background: '#3b82f6',
+                border: 'none',
+                borderRadius: '4px',
+                color: '#fff',
+                fontSize: '13px',
+                cursor: 'pointer',
+                fontWeight: '500'
+              }}
+            >
+              Load SFZ File...
+            </button>
+          </div>
+          <button
+            onClick={() => setShowBuiltIns(true)}
+            style={{
+              width: '100%',
+              padding: '6px',
+              background: 'transparent',
+              border: '1px dashed #444',
+              borderRadius: '4px',
+              color: '#888',
+              fontSize: '12px',
+              cursor: 'pointer'
+            }}
+          >
+            ← Back to built-in instruments
+          </button>
+        </>
+      ) : (
+        <>
+          <div style={{
+            padding: '8px',
+            background: '#0a0a0a',
+            borderRadius: '4px',
+            fontSize: '12px',
+            color: '#aaa',
+            marginBottom: '8px'
+          }}>
+            <div style={{ marginBottom: '4px', color: '#666' }}>Loaded:</div>
+            <div style={{ color: '#22c55e', fontWeight: '500' }}>
+              {sfzPath.split('/').pop()?.replace('.sfz', '') || sfzPath}
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              useProjectStore.getState().updatePlugin(trackId, plugin.id, {
+                sfzContent: '',
+                sfzPath: '',
+              })
+              setShowBuiltIns(true)
+            }}
+            style={{
+              width: '100%',
+              padding: '6px',
+              background: '#dc2626',
+              border: 'none',
+              borderRadius: '4px',
+              color: '#fff',
+              fontSize: '12px',
+              cursor: 'pointer'
+            }}
+          >
+            Unload Instrument
+          </button>
+        </>
       )}
     </div>
   )
