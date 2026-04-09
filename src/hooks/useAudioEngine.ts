@@ -1759,9 +1759,10 @@ export function useAudioEngine() {
         recordedBuffers.push(buffer)
       }
       
-      // Connect: micSource -> highpass -> scriptProcessor -> destination (for monitoring)
+      // Connect: micSource -> highpass -> analyser (for metering)
+      //          micSource -> highpass -> scriptProcessor (for recording)
+      // DO NOT connect to destination - that causes feedback and clipping!
       highpassFilter.connect(scriptProcessor)
-      scriptProcessor.connect(ctx.destination)
       
       // Store the recorder state
       mediaRecorderRef.current = {
