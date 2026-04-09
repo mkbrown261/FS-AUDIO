@@ -762,7 +762,7 @@ export function Timeline({
     }
   }, [setScrollLeft])
 
-  // Auto-scroll playhead into view (only when NOT manually scrolling)
+  // Auto-scroll playhead into view ONLY when it goes out of frame
   useEffect(() => {
     // Don't auto-scroll if user is currently scrolling
     if (userScrollingRef.current) return
@@ -770,15 +770,16 @@ export function Timeline({
     const el = scrollRef.current
     if (!el) return
     const viewW = el.clientWidth
-    const absoluteX = playheadX + scrollLeft
+    const playheadAbsoluteX = playheadX // playheadX is already relative to scroll position
     
-    // Scroll right if playhead goes off right edge
-    if (absoluteX > scrollLeft + viewW - 80) {
-      el.scrollLeft = absoluteX - 60
+    // Only scroll if playhead is COMPLETELY out of view
+    // Scroll right if playhead is past the right edge
+    if (playheadAbsoluteX > viewW) {
+      el.scrollLeft = scrollLeft + (playheadAbsoluteX - viewW / 2)
     }
-    // Scroll left if playhead goes off left edge
-    else if (absoluteX < scrollLeft + 80) {
-      el.scrollLeft = Math.max(0, absoluteX - 60)
+    // Scroll left if playhead is past the left edge
+    else if (playheadAbsoluteX < 0) {
+      el.scrollLeft = Math.max(0, scrollLeft + playheadAbsoluteX - viewW / 2)
     }
   }, [playheadX, scrollLeft])
 

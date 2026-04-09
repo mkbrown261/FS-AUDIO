@@ -97,7 +97,8 @@ export function useTransport(
       const armedTrack = st.tracks.find(t => t.armed)
       if (armedTrack) {
         const bpm = st.bpm
-        const durationBeats = Math.max(0.25, (audioBuffer.duration / 60) * bpm)
+        // Convert audio duration (seconds) to beats: duration_seconds * (beats/minute) / (60 seconds/minute)
+        const durationBeats = (audioBuffer.duration * bpm) / 60
         const startBeat = recordStartBeatRef.current
         const id = `clip-rec-${Date.now()}`
         const audioUrl = `rec:${id}`

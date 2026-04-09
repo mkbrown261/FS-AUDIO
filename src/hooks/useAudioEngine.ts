@@ -1723,9 +1723,16 @@ export function useAudioEngine() {
       const ctx = getCtx()
       if (ctx.state === 'suspended') await ctx.resume()
 
-      // Direct audio capture - NO PROCESSING, NO FILTERS
-      // Raw, unprocessed microphone input
+      // Direct audio capture with minimal processing
       const micSource = ctx.createMediaStreamSource(stream)
+      
+      // Very gentle highpass at 40Hz to remove ONLY AC hum/rumble
+      // This is a standard practice in professional recording
+      // Q=0.5 makes it very gentle (12dB/octave slope)
+      const dcBlocker = ctx.createBiquadFilter()
+      dcBlocker.type = 'highpass'
+      dcBlocker.frequency.value = 40  // Only removes subsonic rumble and AC hum
+      dcBlocker.Q.value = 0.5          // Gentle slope, won't affect vocal/instrument tone
       
       // Add analyser for metering only (doesn't affect audio)
       const micAnalyser = ctx.createAnalyser()
@@ -1740,7 +1747,7 @@ export function useAudioEngine() {
       const recordedBuffers: Float32Array[] = []
       
       scriptProcessor.onaudioprocess = (e) => {
-        // Copy the input buffer (raw, unprocessed audio)
+        // Copy the input buffer (clean audio with hum removed)
         const inputData = e.inputBuffer.getChannelData(0)
         const buffer = new Float32Array(inputData.length)
         buffer.set(inputData)
@@ -1753,10 +1760,11 @@ export function useAudioEngine() {
       silentGain.gain.value = 0 // Complete silence - no monitoring
       silentGain.connect(ctx.destination)
       
-      // Connect: micSource -> analyser (metering only)
-      //          micSource -> scriptProcessor -> silent destination (recording)
-      micSource.connect(micAnalyser)
-      micSource.connect(scriptProcessor)
+      // Connect: micSource -> DC blocker (removes hum) -> analyser (metering)
+      //          micSource -> DC blocker -> scriptProcessor -> silent destination (recording)
+      micSource.connect(dcBlocker)
+      dcBlocker.connect(micAnalyser)
+      dcBlocker.connect(scriptProcessor)
       scriptProcessor.connect(silentGain)
       
       // Store the recorder state
