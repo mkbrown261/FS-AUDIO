@@ -1,290 +1,264 @@
+/**
+ * FS-AUDIO Vocal Tuner UI
+ * Professional pitch correction interface with visual pitch display
+ */
+
 import React, { useState, useEffect } from 'react'
 
 interface VocalTunerUIProps {
-  params: Record<string, number | string>
-  onUpdate: (params: Record<string, number | string>) => void
+  plugin: {
+    id: string
+    params: Record<string, number>
+  }
+  onParamChange: (pluginId: string, params: Record<string, number>) => void
 }
 
-const Knob: React.FC<{
-  label: string
-  value: number
-  min: number
-  max: number
-  step?: number
-  unit?: string
-  size?: number
-  color?: string
-  onChange: (v: number) => void
-}> = ({ label, value, min, max, step = 1, unit = '', size = 50, color = '#10b981', onChange }) => {
-  const [dragging, setDragging] = useState(false)
-  const [startY, setStartY] = useState(0)
-  const [startValue, setStartValue] = useState(0)
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault()
-    setDragging(true)
-    setStartY(e.clientY)
-    setStartValue(value)
-  }
-
-  const handleMouseMove = (e: MouseEvent) => {
-    if (!dragging) return
-    const deltaY = startY - e.clientY
-    const range = max - min
-    const sensitivity = range / 150
-    let newValue = startValue + deltaY * sensitivity
-    newValue = Math.max(min, Math.min(max, newValue))
-    newValue = Math.round(newValue / step) * step
-    onChange(newValue)
-  }
-
-  const handleMouseUp = () => {
-    setDragging(false)
-  }
-
-  React.useEffect(() => {
-    if (dragging) {
-      document.addEventListener('mousemove', handleMouseMove)
-      document.addEventListener('mouseup', handleMouseUp)
-      return () => {
-        document.removeEventListener('mousemove', handleMouseMove)
-        document.removeEventListener('mouseup', handleMouseUp)
-      }
-    }
-  }, [dragging, startY, startValue])
-
-  const normalized = (value - min) / (max - min)
-  const angle = -135 + normalized * 270
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
-      <div style={{ fontSize: 9, fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase' }}>
-        {label}
-      </div>
-      <svg width={size} height={size} onMouseDown={handleMouseDown} style={{ cursor: 'ns-resize' }}>
-        <circle cx={size/2} cy={size/2} r={size/2-2} fill="#1a1a2e" stroke="#3a3a4e" strokeWidth="1" />
-        <circle
-          cx={size/2}
-          cy={size/2}
-          r={size/2-3}
-          fill="none"
-          stroke={color}
-          strokeWidth="3"
-          strokeLinecap="round"
-          strokeDasharray={`${normalized * 200} 200`}
-          transform={`rotate(-135 ${size/2} ${size/2})`}
-        />
-        <line
-          x1={size/2}
-          y1={size/2}
-          x2={size/2}
-          y2={size/2 - size/3}
-          stroke={color}
-          strokeWidth="2"
-          strokeLinecap="round"
-          transform={`rotate(${angle} ${size/2} ${size/2})`}
-        />
-      </svg>
-      <div style={{ fontSize: 11, fontWeight: 700, color: color, fontFamily: 'monospace' }}>
-        {value}{unit}
-      </div>
-    </div>
-  )
-}
-
-export const VocalTunerUI: React.FC<VocalTunerUIProps> = ({ params, onUpdate }) => {
-  const [pitchDisplay, setPitchDisplay] = useState({ detected: 0, target: 0, note: 'N/A' })
+export function VocalTunerUI({ plugin, onParamChange }: VocalTunerUIProps) {
+  const [pitchInfo, setPitchInfo] = useState({
+    detectedHz: 0,
+    detectedNote: 'N/A',
+    centsOff: 0,
+    targetHz: 0,
+    isActive: false
+  })
   
-  const keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+  const params = plugin.params
+  const retuneSpeed = params.retuneSpeed ?? 50
+  const scale = params.scale ?? 0 // 0=chromatic, 1=major, 2=minor, 3=pentatonic
+  const key = params.key ?? 0 // 0=C, 1=C#, etc.
+  const mix = params.mix ?? 100
+  
+  const scaleNames = ['Chromatic', 'Major', 'Minor', 'Pentatonic']
+  const keyNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+  
+  // Update parameter
+  const updateParam = (param: string, value: number) => {
+    onParamChange(plugin.id, {
+      ...params,
+      [param]: value
+    })
+  }
+  
+  // Pitch display colors
+  const getPitchColor = () => {
+    if (!pitchInfo.isActive) return '#444'
+    const cents = Math.abs(pitchInfo.centsOff)
+    if (cents < 10) return '#10b981' // Green - in tune
+    if (cents < 30) return '#f59e0b' // Orange - slightly off
+    return '#ef4444' // Red - out of tune
+  }
   
   return (
     <div style={{
-      background: 'linear-gradient(135deg, #064e3b 0%, #065f46 50%, #047857 100%)',
-      padding: '24px',
-      borderRadius: '12px',
-      minHeight: '500px',
-      position: 'relative',
-      overflow: 'hidden'
+      background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+      borderRadius: 8,
+      padding: '16px',
+      color: '#e2e8f0'
     }}>
-      {/* Animated background */}
-      <div style={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'radial-gradient(circle at 50% 50%, rgba(16, 185, 129, 0.2) 0%, transparent 70%)',
-        animation: 'pulse 3s ease-in-out infinite',
-        pointerEvents: 'none'
-      }} />
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+        <div style={{
+          width: 32,
+          height: 32,
+          borderRadius: 6,
+          background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 16
+        }}>
+          🎤
+        </div>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#f1f5f9' }}>FS-VocalTune</div>
+          <div style={{ fontSize: 10, color: '#94a3b8' }}>Professional Pitch Correction</div>
+        </div>
+      </div>
       
-      <div style={{ position: 'relative', zIndex: 1 }}>
-        {/* Header */}
-        <div style={{ marginBottom: '24px', textAlign: 'center' }}>
-          <div style={{ fontSize: '24px', fontWeight: 700, color: '#10b981', marginBottom: '4px' }}>
-            🎤 FS-VOCAL TUNER
+      {/* Pitch Display */}
+      <div style={{
+        background: 'rgba(0,0,0,0.3)',
+        borderRadius: 6,
+        padding: 12,
+        marginBottom: 16,
+        border: `2px solid ${getPitchColor()}`
+      }}>
+        <div style={{ textAlign: 'center', marginBottom: 8 }}>
+          <div style={{ fontSize: 32, fontWeight: 900, color: getPitchColor(), fontFamily: 'monospace' }}>
+            {pitchInfo.detectedNote}
           </div>
-          <div style={{ fontSize: '12px', color: '#6ee7b7', letterSpacing: '1px' }}>
-            PROFESSIONAL AUTO-TUNE STYLE PITCH CORRECTION
+          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>
+            {pitchInfo.isActive ? `${pitchInfo.detectedHz} Hz` : 'No signal'}
           </div>
         </div>
-
-        {/* Pitch Display */}
+        
+        {/* Cents meter */}
         <div style={{
-          background: 'rgba(0, 0, 0, 0.3)',
-          borderRadius: '12px',
-          padding: '20px',
-          marginBottom: '24px',
-          border: '1px solid rgba(16, 185, 129, 0.3)'
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginTop: 8
         }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#6ee7b7', marginBottom: '12px', textAlign: 'center' }}>
-            PITCH MONITOR
-          </div>
-          
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', textAlign: 'center' }}>
-            <div>
-              <div style={{ fontSize: 10, color: '#9ca3af', marginBottom: '4px' }}>DETECTED</div>
-              <div style={{ fontSize: 24, fontWeight: 700, color: '#fbbf24', fontFamily: 'monospace' }}>
-                {pitchDisplay.detected} Hz
-              </div>
-              <div style={{ fontSize: 14, color: '#6ee7b7', marginTop: '4px' }}>
-                {pitchDisplay.note}
-              </div>
-            </div>
-            
+          <div style={{ fontSize: 10, color: '#64748b', minWidth: 30 }}>-50¢</div>
+          <div style={{
+            flex: 1,
+            height: 4,
+            background: 'rgba(255,255,255,0.1)',
+            borderRadius: 2,
+            position: 'relative',
+            overflow: 'hidden'
+          }}>
+            {/* Center line */}
             <div style={{
+              position: 'absolute',
+              left: '50%',
+              top: 0,
+              bottom: 0,
               width: 2,
-              background: 'linear-gradient(to bottom, transparent, rgba(16, 185, 129, 0.5), transparent)',
-              justifySelf: 'center'
+              background: '#10b981',
+              transform: 'translateX(-50%)'
             }} />
             
-            <div>
-              <div style={{ fontSize: 10, color: '#9ca3af', marginBottom: '4px' }}>TARGET</div>
-              <div style={{ fontSize: 24, fontWeight: 700, color: '#10b981', fontFamily: 'monospace' }}>
-                {pitchDisplay.target} Hz
-              </div>
-              <div style={{ fontSize: 12, color: '#6ee7b7', marginTop: '8px' }}>
-                ⚡ {Math.abs(pitchDisplay.target - pitchDisplay.detected).toFixed(1)} cents
-              </div>
-            </div>
+            {/* Pitch indicator */}
+            {pitchInfo.isActive && (
+              <div style={{
+                position: 'absolute',
+                left: `${50 + pitchInfo.centsOff}%`,
+                top: '50%',
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                background: getPitchColor(),
+                transform: 'translate(-50%, -50%)',
+                boxShadow: `0 0 8px ${getPitchColor()}`,
+                transition: 'left 0.1s ease'
+              }} />
+            )}
           </div>
+          <div style={{ fontSize: 10, color: '#64748b', minWidth: 30, textAlign: 'right' }}>+50¢</div>
         </div>
-
-        {/* Key and Scale */}
+        
         <div style={{
-          background: 'rgba(16, 185, 129, 0.1)',
-          border: '1px solid rgba(16, 185, 129, 0.3)',
-          borderRadius: '12px',
-          padding: '16px',
-          marginBottom: '20px'
+          textAlign: 'center',
+          fontSize: 11,
+          color: '#94a3b8',
+          marginTop: 6
         }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#10b981', marginBottom: '12px', textAlign: 'center' }}>
-            KEY & SCALE
-          </div>
-          
-          {/* Key Selector */}
-          <div style={{ marginBottom: '16px' }}>
-            <div style={{ fontSize: 10, color: '#9ca3af', marginBottom: '8px' }}>KEY</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '4px' }}>
-              {keys.map(key => (
-                <button
-                  key={key}
-                  onClick={() => onUpdate({ ...params, key })}
-                  style={{
-                    padding: '8px 4px',
-                    border: params.key === key ? '2px solid #10b981' : '1px solid #3a3a4e',
-                    background: params.key === key ? 'rgba(16, 185, 129, 0.3)' : '#1a1a2e',
-                    color: params.key === key ? '#10b981' : '#6b7280',
-                    borderRadius: '6px',
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    transition: 'all 0.2s'
-                  }}
-                >
-                  {key}
-                </button>
-              ))}
-            </div>
-          </div>
-          
-          {/* Scale Selector */}
-          <div>
-            <div style={{ fontSize: 10, color: '#9ca3af', marginBottom: '8px' }}>SCALE</div>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              {['chromatic', 'major', 'minor'].map(scale => (
-                <button
-                  key={scale}
-                  onClick={() => onUpdate({ ...params, scale })}
-                  style={{
-                    flex: 1,
-                    padding: '10px',
-                    border: params.scale === scale ? '2px solid #10b981' : '1px solid #3a3a4e',
-                    background: params.scale === scale ? 'rgba(16, 185, 129, 0.3)' : '#1a1a2e',
-                    color: params.scale === scale ? '#10b981' : '#6b7280',
-                    borderRadius: '8px',
-                    fontSize: '12px',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    textTransform: 'uppercase',
-                    transition: 'all 0.2s'
-                  }}
-                >
-                  {scale}
-                </button>
-              ))}
-            </div>
-          </div>
+          {pitchInfo.isActive ? `${pitchInfo.centsOff > 0 ? '+' : ''}${pitchInfo.centsOff}¢` : '---'}
         </div>
-
-        {/* Controls */}
-        <div style={{ display: 'flex', justifyContent: 'space-around', flexWrap: 'wrap', gap: '16px' }}>
-          <Knob
-            label="RETUNE SPEED"
-            value={Number(params.retuneSpeed) || 10}
+      </div>
+      
+      {/* Controls */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* Retune Speed */}
+        <div>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            marginBottom: 4,
+            fontSize: 11,
+            color: '#94a3b8'
+          }}>
+            <span>Retune Speed</span>
+            <span style={{ color: '#f1f5f9', fontWeight: 700 }}>{Math.round(retuneSpeed)}%</span>
+          </div>
+          <input
+            type="range"
             min={0}
             max={100}
             step={1}
-            color="#10b981"
-            size={60}
-            onChange={v => onUpdate({ ...params, retuneSpeed: v })}
+            value={retuneSpeed}
+            onChange={e => updateParam('retuneSpeed', parseInt(e.target.value))}
+            style={{
+              width: '100%',
+              accentColor: '#8b5cf6',
+              cursor: 'pointer'
+            }}
           />
-          
-          <Knob
-            label="HUMANIZE"
-            value={Number(params.humanize) || 0.3}
-            min={0}
-            max={1}
-            step={0.01}
-            color="#6ee7b7"
-            size={60}
-            onChange={v => onUpdate({ ...params, humanize: v })}
-          />
-          
-          <Knob
-            label="MIX"
-            value={Number(params.mix) || 1}
-            min={0}
-            max={1}
-            step={0.01}
-            unit="%"
-            color="#34d399"
-            size={60}
-            onChange={v => onUpdate({ ...params, mix: v })}
-          />
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: '#64748b', marginTop: 2 }}>
+            <span>Natural</span>
+            <span>T-Pain</span>
+          </div>
         </div>
         
-        {/* Info */}
-        <div style={{
-          marginTop: '20px',
-          padding: '12px',
-          background: 'rgba(0, 0, 0, 0.3)',
-          borderRadius: '8px',
-          fontSize: '10px',
-          color: '#9ca3af',
-          textAlign: 'center'
-        }}>
-          💡 <strong>Retune Speed:</strong> 0 = Instant (T-Pain effect) • 10-30 = Natural correction • 100 = Off
+        {/* Scale Selection */}
+        <div>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Scale</div>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {scaleNames.map((name, idx) => (
+              <button
+                key={idx}
+                onClick={() => updateParam('scale', idx)}
+                style={{
+                  flex: 1,
+                  padding: '6px 8px',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  border: scale === idx ? '1px solid #8b5cf6' : '1px solid #334155',
+                  background: scale === idx ? 'rgba(139,92,246,0.2)' : 'rgba(0,0,0,0.2)',
+                  color: scale === idx ? '#c4b5fd' : '#94a3b8',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s'
+                }}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+        </div>
+        
+        {/* Key Selection */}
+        <div>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Key</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 4 }}>
+            {keyNames.map((name, idx) => (
+              <button
+                key={idx}
+                onClick={() => updateParam('key', idx)}
+                style={{
+                  padding: '6px 4px',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  border: key === idx ? '1px solid #8b5cf6' : '1px solid #334155',
+                  background: key === idx ? 'rgba(139,92,246,0.2)' : 'rgba(0,0,0,0.2)',
+                  color: key === idx ? '#c4b5fd' : '#94a3b8',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s'
+                }}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+        </div>
+        
+        {/* Mix */}
+        <div>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            marginBottom: 4,
+            fontSize: 11,
+            color: '#94a3b8'
+          }}>
+            <span>Dry/Wet Mix</span>
+            <span style={{ color: '#f1f5f9', fontWeight: 700 }}>{Math.round(mix)}%</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={1}
+            value={mix}
+            onChange={e => updateParam('mix', parseInt(e.target.value))}
+            style={{
+              width: '100%',
+              accentColor: '#06b6d4',
+              cursor: 'pointer'
+            }}
+          />
         </div>
       </div>
     </div>
