@@ -836,9 +836,41 @@ export function useAudioEngine() {
     }
   }, [getCtx, getTrackNodes])
 
+  // ── MIDI Panic: Stop all held notes (Logic Pro behavior) ──
+  const stopAllHeldNotes = useCallback(() => {
+    console.log('[MIDI Panic] Stopping all held notes:', heldNotesRef.current.size)
+    
+    // Stop all oscillators from heldNotesRef
+    const ctx = getCtx()
+    for (const [pitch, held] of heldNotesRef.current.entries()) {
+      const { osc, gain } = held
+      if (osc && gain) {
+        try {
+          gain.gain.cancelScheduledValues(ctx.currentTime)
+          gain.gain.setValueAtTime(0, ctx.currentTime)
+          osc.stop(ctx.currentTime + 0.01)
+        } catch (e) {
+          console.warn('[MIDI Panic] Error stopping oscillator:', e)
+        }
+      }
+    }
+    heldNotesRef.current.clear()
+    
+    // Stop all DX7 synth voices
+    for (const [trackId, synth] of instrumentSynthsRef.current.entries()) {
+      console.log('[MIDI Panic] Stopping DX7 synth on track:', trackId)
+      synth.allNotesOff()
+    }
+  }, [getCtx])
+
   const startPlayback = useCallback(async (fromBeat: number) => {
     const ctx = getCtx()
     console.log('[startPlayback] fromBeat:', fromBeat, 'ctx.state:', ctx.state)
+    
+    // LOGIC PRO BEHAVIOR: Pressing Play = All Notes Off (MIDI Panic)
+    // This stops any stuck notes from live MIDI/musical typing
+    stopAllHeldNotes()
+    
     if (ctx.state === 'suspended') await ctx.resume()
     const { tracks, bpm, isLooping, loopStart, loopEnd } = useProjectStore.getState()
     const anySolo = tracks.some(t => t.solo && t.type !== 'master')
@@ -870,7 +902,7 @@ export function useAudioEngine() {
         }
       }
     }
-  }, [getCtx, getTrackNodes, playClip, scheduleMidiClip])
+  }, [getCtx, getTrackNodes, playClip, scheduleMidiClip, stopAllHeldNotes])
 
   // ── Bus/Send routing — connect track analyser outputs to bus track gains ──
   const applySends = useCallback(() => {
