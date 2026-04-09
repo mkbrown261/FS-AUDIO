@@ -230,10 +230,8 @@ export class SFZSampler {
         const sampleRef = region.sample
         if (!sampleRef) continue
 
-        const filename = sampleRef.split('/').pop() ?? sampleRef
-        const buffer   = this.cache
-          ? (await this.cache.getSample(this.ctx, filename) ?? await this.cache.getSample(this.ctx, sampleRef))
-          : null
+        // getSample accepts the full ref; internally stores under both keys
+        const buffer = this.cache ? await this.cache.getSample(this.ctx, sampleRef) : null
 
         if (!buffer) {
           console.warn(`[SFZ] No buffer for "${sampleRef}" (note=${note})`)

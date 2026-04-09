@@ -8,16 +8,21 @@
  *   - Samples saved to userData/sample-cache/<instrumentId>/
  *   - Downloads happen once; served from disk forever after (offline)
  *
- * In browser (dev/web):
+ * In browser/dev (no electronAPI):
  *   - Falls back to direct fetch() from the provided baseUrl
+ *
+ * IMPORTANT: filenames passed here are the FULL relative path as written in
+ * the SFZ file (e.g. "samples/ep-c4.wav" or "G#0_1_1.wav").
+ * The decoded buffer is stored under BOTH the full relative path AND the
+ * bare filename so any lookup variant succeeds.
  */
 
 export interface DownloadProgress {
   instrumentId: string
   filename: string
-  pct: number          // 0-100
-  received: number     // bytes received
-  total: number        // bytes total (0 if unknown)
+  pct: number
+  received: number
+  total: number
   done: boolean
   error?: string
 }
@@ -41,11 +46,11 @@ const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.sample
 
 export class SampleCacheManager {
   private instrumentId: string
-  private baseUrl: string          // GitHub raw URL prefix for samples
+  private baseUrl: string
   private onProgress?: ProgressCallback
   private unsubProgress?: () => void
 
-  // In-memory decoded buffer cache (so we don't re-decode every noteOn)
+  // Keyed by BOTH bare filename AND full relative path
   private decodedCache = new Map<string, AudioBuffer>()
 
   constructor(instrumentId: string, baseUrl: string, onProgress?: ProgressCallback) {
@@ -53,7 +58,6 @@ export class SampleCacheManager {
     this.baseUrl      = baseUrl
     this.onProgress   = onProgress
 
-    // Wire up Electron progress events
     if (isElectron && onProgress) {
       this.unsubProgress = window.electronAPI!.onSampleProgress((p) => {
         if (p.instrumentId === instrumentId) onProgress(p)
@@ -66,96 +70,82 @@ export class SampleCacheManager {
   }
 
   /**
-   * Fetch and decode a sample, using local disk cache when in Electron.
-   * Returns null if the sample cannot be loaded.
+   * Get a decoded AudioBuffer for a sample reference.
+   * @param sampleRef - exactly as written in the SFZ (e.g. "samples/ep-c4.wav")
    */
-  async getSample(ctx: AudioContext, filename: string): Promise<AudioBuffer | null> {
-    // Already decoded in memory
-    if (this.decodedCache.has(filename)) return this.decodedCache.get(filename)!
+  async getSample(ctx: AudioContext, sampleRef: string): Promise<AudioBuffer | null> {
+    const bareFilename = sampleRef.split('/').pop() ?? sampleRef
+
+    // Check in-memory cache under either key
+    if (this.decodedCache.has(sampleRef))    return this.decodedCache.get(sampleRef)!
+    if (this.decodedCache.has(bareFilename)) return this.decodedCache.get(bareFilename)!
 
     try {
       let arrayBuffer: ArrayBuffer
 
       if (isElectron) {
-        arrayBuffer = await this.getViaElectron(filename)
+        arrayBuffer = await this.getViaElectron(sampleRef, bareFilename)
       } else {
-        arrayBuffer = await this.getViaFetch(filename)
+        arrayBuffer = await this.getViaFetch(sampleRef)
       }
 
       const decoded = await ctx.decodeAudioData(arrayBuffer)
-      this.decodedCache.set(filename, decoded)
+
+      // Store under both keys so any lookup hits
+      this.decodedCache.set(sampleRef, decoded)
+      this.decodedCache.set(bareFilename, decoded)
+
       return decoded
     } catch (err) {
-      console.error(`[SampleCache] Failed to load "${filename}":`, err)
-      this.onProgress?.({
-        instrumentId: this.instrumentId,
-        filename,
-        pct: 0,
-        received: 0,
-        total: 0,
-        done: true,
-        error: String(err),
-      })
+      console.error(`[SampleCache] Failed to load "${sampleRef}":`, err)
       return null
     }
   }
 
   /**
-   * Pre-download a list of samples in parallel (up to concurrency limit).
-   * Call this when an instrument is selected, before notes are played.
+   * Preload all samples in the list concurrently.
    */
-  async preloadSamples(ctx: AudioContext, filenames: string[], concurrency = 4): Promise<void> {
-    // Skip already decoded
-    const needed = filenames.filter(f => !this.decodedCache.has(f))
+  async preloadSamples(ctx: AudioContext, sampleRefs: string[], concurrency = 4): Promise<void> {
+    const needed = sampleRefs.filter(r => {
+      const bare = r.split('/').pop() ?? r
+      return !this.decodedCache.has(r) && !this.decodedCache.has(bare)
+    })
     if (needed.length === 0) return
 
     console.log(`[SampleCache] Preloading ${needed.length} samples for "${this.instrumentId}"`)
 
-    // Download in chunks to avoid flooding the network
     for (let i = 0; i < needed.length; i += concurrency) {
-      const batch = needed.slice(i, i + concurrency)
-      await Promise.all(batch.map(f => this.getSample(ctx, f)))
+      await Promise.all(needed.slice(i, i + concurrency).map(r => this.getSample(ctx, r)))
     }
 
-    console.log(`[SampleCache] ✅ Preload complete for "${this.instrumentId}"`)
-  }
-
-  /** Check how many of these filenames are already cached on disk */
-  async getCachedStatus(filenames: string[]): Promise<Record<string, boolean>> {
-    if (!isElectron) {
-      // In browser mode we can't know without fetching
-      return Object.fromEntries(filenames.map(f => [f, false]))
-    }
-    const result = await window.electronAPI!.sampleCheckCache(this.instrumentId, filenames)
-    return Object.fromEntries(Object.entries(result).map(([k, v]) => [k, v !== null]))
+    console.log(`[SampleCache] ✅ Done — ${this.decodedCache.size} buffers in memory`)
   }
 
   // ── Private ────────────────────────────────────────────────────────────────
 
-  private async getViaElectron(filename: string): Promise<ArrayBuffer> {
+  private async getViaElectron(sampleRef: string, bareFilename: string): Promise<ArrayBuffer> {
     const api = window.electronAPI!
-    const url = `${this.baseUrl}/${filename}`
+    // URL is baseUrl + full relative path (preserves subdirectory like "samples/")
+    const url = `${this.baseUrl}/${sampleRef}`
 
-    // Trigger download (IPC handler caches to disk automatically)
-    const result = await api.sampleDownload(this.instrumentId, filename, url)
-    if (!result?.ok) throw new Error(`Download failed for ${filename}`)
+    const result = await api.sampleDownload(this.instrumentId, bareFilename, url)
+    if (!result?.ok) throw new Error(`Download failed for ${sampleRef}`)
 
-    // Report 100% if we didn't get streaming progress (was cached)
     if (result.cached) {
-      this.onProgress?.({ instrumentId: this.instrumentId, filename, pct: 100, received: 0, total: 0, done: true })
+      this.onProgress?.({ instrumentId: this.instrumentId, filename: bareFilename, pct: 100, received: 0, total: 0, done: true })
     }
 
-    // Read the cached file back
-    const uint8 = await api.sampleReadCached(this.instrumentId, filename)
-    if (!uint8) throw new Error(`Failed to read cached file: ${filename}`)
+    const uint8 = await api.sampleReadCached(this.instrumentId, bareFilename)
+    if (!uint8) throw new Error(`Failed to read cached file: ${bareFilename}`)
 
-    // uint8.buffer may be SharedArrayBuffer; slice() gives us a plain ArrayBuffer
     const ab = uint8.buffer.slice(uint8.byteOffset, uint8.byteOffset + uint8.byteLength)
     return ab as ArrayBuffer
   }
 
-  private async getViaFetch(filename: string): Promise<ArrayBuffer> {
-    const url = `${this.baseUrl}/${filename}`
+  private async getViaFetch(sampleRef: string): Promise<ArrayBuffer> {
+    // Build URL: baseUrl + "/" + sampleRef  (e.g. /sfz-instruments/samples/ep-c4.wav)
+    const url = `${this.baseUrl}/${sampleRef}`
+    console.log(`[SampleCache] fetch → ${url}`)
     const resp = await fetch(url)
     if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${url}`)
     return resp.arrayBuffer()
