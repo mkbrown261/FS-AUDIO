@@ -1875,6 +1875,9 @@ export function useAudioEngine() {
     return peak > 0 ? Math.min(2, 0.9 / peak) : 1
   }, [])
 
+  // ── Instrument Synth Instances (per track) ────────────────────────────────
+  const instrumentSynthsRef = useRef<Map<string, DX7Synth>>(new Map())
+
   // ── Play a preview note (piano roll key click) ────────────────────────────
   const heldNotesRef = useRef<Map<number, { osc: OscillatorNode; gain: GainNode }>>(new Map())
 
@@ -1886,6 +1889,44 @@ export function useAudioEngine() {
       console.log('[noteOn] Resuming suspended audio context')
       ctx.resume()
     }
+    
+    // Check for selected track with instrument plugins
+    const { selectedTrackId, tracks } = useProjectStore.getState()
+    const selectedTrack = selectedTrackId ? tracks.find(t => t.id === selectedTrackId) : null
+    
+    if (selectedTrack) {
+      // Check for FS-DX7 instrument
+      const dx7Plugin = selectedTrack.plugins.find(p => p.type === 'fs_dx7' && p.enabled)
+      if (dx7Plugin) {
+        console.log('[noteOn] Using FS-DX7 synth for track:', selectedTrack.name)
+        
+        // Get or create DX7 synth instance for this track
+        let synth = instrumentSynthsRef.current.get(selectedTrack.id)
+        if (!synth) {
+          const trackNodes = trackNodesRef.current.get(selectedTrack.id)
+          if (trackNodes) {
+            synth = new DX7Synth(ctx, trackNodes.gain, dx7Plugin.params)
+            instrumentSynthsRef.current.set(selectedTrack.id, synth)
+            console.log('[noteOn] Created new DX7 synth instance for track:', selectedTrack.id)
+          }
+        } else {
+          // Update params if they changed
+          synth.updateParams(dx7Plugin.params)
+        }
+        
+        if (synth) {
+          synth.noteOn(pitch, velocity)
+          console.log('[noteOn] Triggered DX7 note:', pitch, 'velocity:', velocity)
+          // Store a reference for noteOff
+          heldNotesRef.current.set(pitch, { osc: null as any, gain: null as any }) // Just mark as held
+          return
+        }
+      }
+      
+      // TODO: Add support for fs_analog, fs_sampler, etc.
+    }
+    
+    // Fallback to simple oscillator (for testing or tracks without instruments)
     const freq = 440 * Math.pow(2, (pitch - 69) / 12)
     const osc = ctx.createOscillator()
     const gain = ctx.createGain()
@@ -1906,12 +1947,33 @@ export function useAudioEngine() {
   const noteOff = useCallback((pitch: number) => {
     const held = heldNotesRef.current.get(pitch)
     if (!held) return
+    
+    // Check for instrument synths
+    const { selectedTrackId, tracks } = useProjectStore.getState()
+    const selectedTrack = selectedTrackId ? tracks.find(t => t.id === selectedTrackId) : null
+    
+    if (selectedTrack) {
+      const dx7Plugin = selectedTrack.plugins.find(p => p.type === 'fs_dx7' && p.enabled)
+      if (dx7Plugin) {
+        const synth = instrumentSynthsRef.current.get(selectedTrack.id)
+        if (synth) {
+          synth.noteOff(pitch)
+          console.log('[noteOff] Released DX7 note:', pitch)
+          heldNotesRef.current.delete(pitch)
+          return
+        }
+      }
+    }
+    
+    // Fallback to simple oscillator
     const ctx = getCtx()
     const { osc, gain } = held
-    gain.gain.cancelScheduledValues(ctx.currentTime)
-    gain.gain.setValueAtTime(gain.gain.value, ctx.currentTime)
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08)
-    try { osc.stop(ctx.currentTime + 0.09) } catch {}
+    if (osc && gain) {
+      gain.gain.cancelScheduledValues(ctx.currentTime)
+      gain.gain.setValueAtTime(gain.gain.value, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08)
+      try { osc.stop(ctx.currentTime + 0.09) } catch {}
+    }
     heldNotesRef.current.delete(pitch)
   }, [getCtx])
 
