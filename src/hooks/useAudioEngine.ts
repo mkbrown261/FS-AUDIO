@@ -2065,16 +2065,17 @@ export function useAudioEngine() {
 
         if (!synth) {
           synth = new SFZSampler(ctx, trackNodes.gain)
-          ;(synth as any)._loadedSfzPath = newSfzPath
+          synth._loadedSfzPath = newSfzPath
           instrumentSynthsRef.current.set(selectedTrack.id, synth)
           console.log('[noteOn] ✅ Created SFZ sampler')
           
-          // Load SFZ + fetch samples from their URL (no ArrayBuffers in Zustand)
           if (sfzPlugin.params.sfzContent) {
-            const sfzContent = sfzPlugin.params.sfzContent as string
+            const sfzContent     = sfzPlugin.params.sfzContent     as string
             const samplesBaseUrl = sfzPlugin.params.samplesBaseUrl as string || ''
-            console.log('[SFZ] Loading SFZ with samplesBaseUrl:', samplesBaseUrl)
-            synth.loadSFZ(sfzContent, samplesBaseUrl)
+            const remoteBaseUrl  = sfzPlugin.params.remoteBaseUrl  as string || ''
+            const instrumentId   = sfzPlugin.params.instrumentId   as string || 'sfz'
+            console.log('[SFZ] Loading instrument:', instrumentId, '| remote:', remoteBaseUrl || 'none')
+            synth.loadSFZ(sfzContent, samplesBaseUrl, remoteBaseUrl, instrumentId)
               .catch(err => console.error('[SFZ] Failed to load:', err))
           }
         }

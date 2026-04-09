@@ -1,6 +1,7 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron')
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell, net } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const https = require('https')
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
@@ -260,6 +261,110 @@ ipcMain.handle('project:load', async () => {
     return JSON.parse(fs.readFileSync(res.filePaths[0], 'utf8'))
   }
   return null
+})
+
+// ─── Sample Cache System ─────────────────────────────────────────────────────
+// Samples are cached in userData/sample-cache/<instrumentId>/<filename>
+// so they only download once and work offline forever.
+
+function getSampleCacheDir(instrumentId) {
+  return path.join(app.getPath('userData'), 'sample-cache', instrumentId)
+}
+
+function ensureDir(dir) {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+}
+
+// Check which samples from a list are already cached
+ipcMain.handle('samples:check-cache', async (_, { instrumentId, filenames }) => {
+  const cacheDir = getSampleCacheDir(instrumentId)
+  const result = {}
+  for (const filename of filenames) {
+    const filePath = path.join(cacheDir, filename)
+    result[filename] = fs.existsSync(filePath) ? filePath : null
+  }
+  return result
+})
+
+// Read a cached sample as ArrayBuffer
+ipcMain.handle('samples:read-cached', async (_, { instrumentId, filename }) => {
+  const filePath = path.join(getSampleCacheDir(instrumentId), filename)
+  if (!fs.existsSync(filePath)) return null
+  const buf = fs.readFileSync(filePath)
+  // Return as Uint8Array (serializable over IPC)
+  return new Uint8Array(buf)
+})
+
+// Download a single sample from a URL and cache it, streaming progress back
+ipcMain.handle('samples:download', async (event, { instrumentId, filename, url }) => {
+  const cacheDir = getSampleCacheDir(instrumentId)
+  ensureDir(cacheDir)
+  const filePath = path.join(cacheDir, filename)
+
+  // Already cached — skip
+  if (fs.existsSync(filePath)) {
+    return { ok: true, cached: true, path: filePath }
+  }
+
+  return new Promise((resolve, reject) => {
+    const tmpPath = filePath + '.tmp'
+    const file = fs.createWriteStream(tmpPath)
+
+    const doRequest = (urlStr) => {
+      const mod = urlStr.startsWith('https') ? https : require('http')
+      const req = mod.get(urlStr, (res) => {
+        // Follow redirects
+        if (res.statusCode === 301 || res.statusCode === 302) {
+          file.destroy()
+          fs.unlink(tmpPath, () => {})
+          doRequest(res.headers.location)
+          return
+        }
+        if (res.statusCode !== 200) {
+          file.destroy()
+          fs.unlink(tmpPath, () => {})
+          reject(new Error(`HTTP ${res.statusCode} for ${url}`))
+          return
+        }
+
+        const total = parseInt(res.headers['content-length'] || '0', 10)
+        let received = 0
+
+        res.on('data', (chunk) => {
+          received += chunk.length
+          if (total > 0) {
+            const pct = Math.round((received / total) * 100)
+            // Send progress to renderer
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('samples:progress', { instrumentId, filename, pct, received, total })
+            }
+          }
+        })
+
+        res.pipe(file)
+        file.on('finish', () => {
+          file.close(() => {
+            fs.rename(tmpPath, filePath, (err) => {
+              if (err) { reject(err); return }
+              resolve({ ok: true, cached: false, path: filePath })
+            })
+          })
+        })
+      })
+      req.on('error', (err) => {
+        file.destroy()
+        fs.unlink(tmpPath, () => {})
+        reject(err)
+      })
+    }
+
+    doRequest(url)
+  })
+})
+
+// Get the sample cache directory path for an instrument
+ipcMain.handle('samples:cache-dir', async (_, { instrumentId }) => {
+  return getSampleCacheDir(instrumentId)
 })
 
 // ─── App lifecycle ─────────────────────────────────────────────────────────────
