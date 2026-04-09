@@ -426,6 +426,104 @@ export const PLUGIN_DEFAULTS: Record<string, { params: Record<string, number | s
       }), {})
     },
   },
+
+  // ── PHASE 2: PROFESSIONAL STUDIO PLUGINS ────────────────────────────────────
+
+  vocal_tuner: {
+    name: 'FS-Vocal Tuner',
+    type: 'vocal_tuner',
+    params: {
+      scale: 'major',          // major, minor, chromatic
+      key: 'C',                // C, C#, D, etc.
+      retuneSpeed: 50,         // 0-100 (0=instant, 100=natural)
+      formantPreserve: 1,      // 0=off, 1=on
+      mix: 100,                // 0-100
+      cents: 0,                // fine tune ±50 cents
+    },
+  },
+
+  parametric_eq8: {
+    name: 'FS-EQ Pro',
+    type: 'parametric_eq8',
+    params: {
+      // 8 bands (30Hz, 100Hz, 250Hz, 750Hz, 2kHz, 5kHz, 10kHz, 16kHz)
+      band0_freq: 30,
+      band0_gain: 0,
+      band0_q: 0.7,
+      band0_type: 'lowshelf',
+      band1_freq: 100,
+      band1_gain: 0,
+      band1_q: 1.0,
+      band1_type: 'peaking',
+      band2_freq: 250,
+      band2_gain: 0,
+      band2_q: 1.0,
+      band2_type: 'peaking',
+      band3_freq: 750,
+      band3_gain: 0,
+      band3_q: 1.0,
+      band3_type: 'peaking',
+      band4_freq: 2000,
+      band4_gain: 0,
+      band4_q: 1.0,
+      band4_type: 'peaking',
+      band5_freq: 5000,
+      band5_gain: 0,
+      band5_q: 1.0,
+      band5_type: 'peaking',
+      band6_freq: 10000,
+      band6_gain: 0,
+      band6_q: 1.0,
+      band6_type: 'peaking',
+      band7_freq: 16000,
+      band7_gain: 0,
+      band7_q: 0.7,
+      band7_type: 'highshelf',
+      output: 0,               // Output gain (dB)
+    },
+  },
+
+  multiband_comp: {
+    name: 'FS-Multiband',
+    type: 'multiband_comp',
+    params: {
+      // Crossover frequencies
+      lowCrossover: 200,       // Hz
+      highCrossover: 4000,     // Hz
+      // Low band
+      lowThreshold: -24,
+      lowRatio: 4,
+      lowAttack: 3,            // ms
+      lowRelease: 250,         // ms
+      lowMakeup: 0,            // dB
+      // Mid band
+      midThreshold: -24,
+      midRatio: 4,
+      midAttack: 3,
+      midRelease: 250,
+      midMakeup: 0,
+      // High band
+      highThreshold: -24,
+      highRatio: 4,
+      highAttack: 3,
+      highRelease: 250,
+      highMakeup: 0,
+      // Global
+      mix: 100,                // 0-100
+    },
+  },
+
+  deesser: {
+    name: 'FS-DeEsser',
+    type: 'deesser',
+    params: {
+      frequency: 7000,         // Hz (4000-10000)
+      threshold: -24,          // dB
+      ratio: 6,                // 1-10
+      range: 10,               // max reduction (dB)
+      listen: 0,               // 0=off, 1=on (solo detection band)
+    },
+  },
 }
 
 // ── Per-plugin UI ─────────────────────────────────────────────────────────────
