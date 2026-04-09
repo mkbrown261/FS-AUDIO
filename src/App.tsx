@@ -319,19 +319,7 @@ export default function App() {
   }, [])
 
   // ── Load SFZ Instrument ───────────────────────────────────────────────────
-  const handleLoadSFZ = useCallback(async () => {
-    const selectedTrackId = useProjectStore.getState().selectedTrackId
-    if (!selectedTrackId) {
-      alert('Please select a MIDI track first')
-      return
-    }
-
-    const track = useProjectStore.getState().tracks.find(t => t.id === selectedTrackId)
-    if (!track || track.type !== 'midi') {
-      alert('Please select a MIDI track to load an SFZ instrument')
-      return
-    }
-
+  const handleLoadSFZ = useCallback(async (trackId: string, pluginId: string) => {
     try {
       // Load SFZ file
       const sfzData = await loadSFZFile()
@@ -339,21 +327,22 @@ export default function App() {
 
       console.log('[SFZ] Loaded SFZ file:', sfzData.name)
 
-      // Load SFZ into track
-      useProjectStore.getState().loadSFZInstrument(selectedTrackId, sfzData.content, sfzData.path)
+      // Update the plugin params with SFZ content
+      useProjectStore.getState().updatePlugin(trackId, pluginId, {
+        sfzContent: sfzData.content,
+        sfzPath: sfzData.path,
+      })
 
       // Prompt for samples folder
       alert(`SFZ file "${sfzData.name}" loaded. Now select the folder containing the samples.`)
       const samples = await loadSFZSamples()
 
       if (samples.size > 0) {
-        // Register samples with audio engine
         const requiredSamples = extractSamplePaths(sfzData.content)
         console.log(`[SFZ] Required samples:`, requiredSamples)
         console.log(`[SFZ] Loaded ${samples.size} sample files`)
-
-        // TODO: Load samples into SFZ sampler instance
-        // This will be handled when the instrument is created in noteOn
+        
+        // TODO: Pass samples to the SFZ engine
         alert(`Loaded SFZ "${sfzData.name}" with ${samples.size} samples`)
       }
     } catch (error) {
@@ -479,13 +468,6 @@ export default function App() {
       if (e.shiftKey && (e.key === 'P' || e.key === 'p')) {
         e.preventDefault()
         setShowMusicalTyping(prev => !prev)
-        return
-      }
-
-      // Shift+L — Load SFZ Instrument
-      if (e.shiftKey && (e.key === 'L' || e.key === 'l')) {
-        e.preventDefault()
-        handleLoadSFZ()
         return
       }
 

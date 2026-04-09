@@ -2037,19 +2037,26 @@ export function useAudioEngine() {
         }
       }
       
-      // Check for SFZ instrument
-      if (selectedTrack.instrument?.type === 'sfz') {
+      // Check for SFZ sampler plugin
+      const sfzPlugin = selectedTrack.plugins.find(p => p.type === 'fs_sfz' && p.enabled)
+      if (sfzPlugin) {
+        const trackNodes = getOrCreateTrackNodes(selectedTrack.id)
+        if (!trackNodes) {
+          console.error('[noteOn] No track nodes for SFZ')
+          return
+        }
+        
         let synth = instrumentSynthsRef.current.get(selectedTrack.id) as SFZSamplerWasm
         if (!synth) {
-          const trackNodes = getOrCreateTrackNodes(selectedTrack.id)
-          if (trackNodes && selectedTrack.instrument.sfzContent) {
-            synth = new SFZSamplerWasm(ctx, trackNodes.gain)
-            // Initialize and load SFZ content
+          synth = new SFZSamplerWasm(ctx, trackNodes.gain)
+          instrumentSynthsRef.current.set(selectedTrack.id, synth)
+          console.log('[noteOn] ✅ Created SFZ WASM sampler')
+          
+          // Initialize and load if SFZ content exists
+          if (sfzPlugin.params.sfzContent) {
             synth.initialize()
-              .then(() => synth.loadSFZ(selectedTrack.instrument!.sfzContent!, selectedTrack.instrument!.sfzPath || ''))
+              .then(() => synth.loadSFZ(sfzPlugin.params.sfzContent as string, sfzPlugin.params.sfzPath as string || ''))
               .catch(err => console.error('[SFZ WASM] Failed to load:', err))
-            instrumentSynthsRef.current.set(selectedTrack.id, synth)
-            console.log('[noteOn] ✅ Created SFZ WASM sampler')
           }
         }
         

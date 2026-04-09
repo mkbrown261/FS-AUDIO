@@ -491,6 +491,17 @@ export const PLUGIN_DEFAULTS: Record<string, { params: Record<string, number | s
     },
   },
 
+  fs_sfz: {
+    name: 'FS-SFZ Sampler',
+    type: 'fs_sfz',
+    params: {
+      sfzPath: '',
+      sfzContent: '',
+      volume: 1.0,
+      pan: 0,
+    },
+  },
+
   // ── PHASE 2: PROFESSIONAL STUDIO PLUGINS ────────────────────────────────────
 
   vocal_tuner: {
@@ -1516,6 +1527,7 @@ const INSTRUMENT_CATEGORIES: { label: string; color: string; icon: string; plugi
     color: '#f59e0b',
     icon: '◉',
     plugins: [
+      { key: 'fs_sfz',     name: 'FS-SFZ Sampler', type: 'fs_sfz',     desc: 'Professional SFZ sample player (load .sfz files)' },
       { key: 'fs_sampler', name: 'FS-Sampler', type: 'fs_sampler', desc: '16-pad drum machine & sampler' },
     ],
   },
