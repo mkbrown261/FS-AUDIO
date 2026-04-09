@@ -1,5 +1,6 @@
 import { useRef, useCallback, useEffect } from 'react'
 import { useProjectStore, Clip } from '../store/projectStore'
+import { DX7Synth } from '../audio/synths/DX7Synth'
 
 interface TrackNodes {
   gain: GainNode
