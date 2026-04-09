@@ -1690,28 +1690,29 @@ export function useAudioEngine() {
   // ── Microphone Recording ─────────────────────────────────────────────────
   const startRecording = useCallback(async (): Promise<void> => {
     try {
-      // Professional audio constraints to eliminate noise and humming
+      // RAW, UNPROCESSED AUDIO - Professional studio quality
+      // Disable ALL browser processing for clean, natural sound
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          // Professional quality settings
-          sampleRate: 48000,          // Studio-quality sample rate
-          sampleSize: 24,             // 24-bit depth for pro audio
-          channelCount: 1,            // Mono for vocals (change to 2 for stereo)
+          // Quality settings
+          sampleRate: 48000,           // Studio-quality sample rate
+          sampleSize: 24,              // 24-bit depth
+          channelCount: 1,             // Mono
           
-          // Noise reduction and processing
-          echoCancellation: true,     // Remove echo/feedback
-          noiseSuppression: true,     // Remove background noise (AC hum, fan noise, etc.)
-          autoGainControl: true,      // Automatic level control
+          // CRITICAL: DISABLE ALL PROCESSING FOR CLEAN AUDIO
+          echoCancellation: false,     // ❌ Causes artifacts
+          noiseSuppression: false,     // ❌ Destroys natural sound
+          autoGainControl: false,      // ❌ Causes pumping/oscillation
           
-          // Latency optimization
-          latency: 0.01,              // 10ms latency for monitoring
+          // Low latency
+          latency: 0.01,               // 10ms latency
           
-          // Advanced constraints (if supported)
-          googEchoCancellation: true,
-          googAutoGainControl: true,
-          googNoiseSuppression: true,
-          googHighpassFilter: true,   // Critical: removes low-frequency hum (60Hz/50Hz)
-          googTypingNoiseDetection: true,
+          // Disable Google's aggressive processing
+          googEchoCancellation: false,
+          googAutoGainControl: false,
+          googNoiseSuppression: false,
+          googHighpassFilter: false,
+          googTypingNoiseDetection: false,
         } as any,
         video: false
       })
@@ -1722,49 +1723,40 @@ export function useAudioEngine() {
       const ctx = getCtx()
       if (ctx.state === 'suspended') await ctx.resume()
 
-      // Create audio processing chain for additional noise reduction
+      // Direct audio capture - NO PROCESSING, NO FILTERS
+      // Raw, unprocessed microphone input
       const micSource = ctx.createMediaStreamSource(stream)
       
-      // Add high-pass filter to remove sub-bass rumble and AC hum
-      const highpassFilter = ctx.createBiquadFilter()
-      highpassFilter.type = 'highpass'
-      highpassFilter.frequency.value = 80  // Remove everything below 80Hz (removes hum)
-      highpassFilter.Q.value = 0.7
-      
-      // Add analyser for metering
+      // Add analyser for metering only (doesn't affect audio)
       const micAnalyser = ctx.createAnalyser()
       micAnalyser.fftSize = 2048
       micAnalyser.smoothingTimeConstant = 0.8
-      
-      // Connect chain: source -> highpass -> analyser
-      micSource.connect(highpassFilter)
-      highpassFilter.connect(micAnalyser)
       
       micSourceRef.current = micSource
       micAnalyserRef.current = micAnalyser
 
       // Use ScriptProcessorNode for direct, lossless audio capture
-      // This avoids sample rate mismatches and ensures perfect quality
       const scriptProcessor = ctx.createScriptProcessor(4096, 1, 1)
       const recordedBuffers: Float32Array[] = []
       
       scriptProcessor.onaudioprocess = (e) => {
-        // Copy the input buffer to avoid it being reused
+        // Copy the input buffer (raw, unprocessed audio)
         const inputData = e.inputBuffer.getChannelData(0)
         const buffer = new Float32Array(inputData.length)
         buffer.set(inputData)
         recordedBuffers.push(buffer)
       }
       
-      // Create a gain node set to 0 to act as a "dummy" destination
-      // ScriptProcessor needs to be connected to destination to fire onaudioprocess
-      // but we don't want to hear it (feedback loop), so we use a silent gain node
+      // Create a silent gain node as dummy destination
+      // (ScriptProcessor needs destination to fire onaudioprocess)
       const silentGain = ctx.createGain()
-      silentGain.gain.value = 0 // Mute it completely
+      silentGain.gain.value = 0 // Complete silence - no monitoring
       silentGain.connect(ctx.destination)
       
-      // Connect: micSource -> highpass -> scriptProcessor -> silent destination
-      highpassFilter.connect(scriptProcessor)
+      // Connect: micSource -> analyser (metering only)
+      //          micSource -> scriptProcessor -> silent destination (recording)
+      micSource.connect(micAnalyser)
+      micSource.connect(scriptProcessor)
       scriptProcessor.connect(silentGain)
       
       // Store the recorder state
