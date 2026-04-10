@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react'
 import { useProjectStore } from '../store/projectStore'
+import { useAuthGate, AuthGateModal } from './AuthGateModal'
 
 const FLOWSTATE_HUB = 'https://flowstate-67g.pages.dev'
 
@@ -142,11 +143,11 @@ async function pollStemJob(jobId: string, maxMs = 300_000): Promise<StemResult[]
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export function ClawbotPanel() {
-  const { aiLevel, bpm, key, addClip, tracks, selectedTrackId, selectedClipIds } = useProjectStore()
+  const { bpm, key, addClip, tracks, selectedTrackId, selectedClipIds } = useProjectStore()
 
   const [messages, setMessages] = useState<Message[]>([{
     role: 'clawbot',
-    content: `Clawbot — AI music assistant for Flowstate Audio.\n\nI can generate beats, melodies, and full tracks, separate stems, suggest arrangements, and help with your workflow.\n\n🟢 LOCAL — runs instantly, no credits\n☁️ CLOUD — requires Flowstate account + ClawFlow\n\nSign in at flowstate-67g.pages.dev to unlock cloud features.`,
+    content: `Clawbot — AI music assistant for Flowstate Audio.\n\nI can generate beats, melodies, and full tracks, separate stems, suggest arrangements, and help with your workflow.\n\n🟢 LOCAL — runs instantly, no credits, no account needed\n⚡ CLOUD — requires ClawFlow subscription ($40/mo)\n\nLocal features (Key & BPM, Arrangement) always work for free.`,
   }])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -154,6 +155,9 @@ export function ClawbotPanel() {
   const [generatingTool, setGeneratingTool] = useState<string | null>(null)
   const [authStatus, setAuthStatus] = useState<'unknown' | 'ok' | 'needs_login'>('unknown')
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // Auth gate hook — shows a modal when ClawFlow is required
+  const { modal: authModal, checkAndRun, closeModal } = useAuthGate()
 
   function scrollToBottom() {
     setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
@@ -178,6 +182,20 @@ export function ClawbotPanel() {
   async function sendMessage(text?: string) {
     const msg = text ?? input
     if (!msg.trim()) return
+
+    // Gate: require ClawFlow for chat
+    await checkAndRun(
+      {
+        toolName: 'Clawbot Chat',
+        toolIcon: '🤖',
+        requiredAccess: 'clawflow',
+        description: 'AI music chat and creative suggestions',
+      },
+      () => _doSendMessage(msg),
+    )
+  }
+
+  async function _doSendMessage(msg: string) {
     setInput('')
     addMsg({ role: 'user', content: msg })
     setLoading(true)
@@ -192,15 +210,10 @@ export function ClawbotPanel() {
         }),
       })
 
+      // Fallback for unexpected auth errors (gate should have caught these)
       if (res.status === 401 || res.status === 402) {
         setAuthStatus('needs_login')
-        const d: any = await res.json().catch(() => ({}))
-        addMsg({
-          role: 'clawbot',
-          content: res.status === 401
-            ? `🔐 Sign in required\n\nPlease log in at ${FLOWSTATE_HUB} to use Clawbot chat.\n\nLocal features (Key & BPM analysis, Arrangement suggestions) work without an account.`
-            : `⚡ ClawFlow subscription required\n\nCloud AI features need an active ClawFlow subscription ($40/mo).\n\nGet it at ${FLOWSTATE_HUB} → Account.\n\n${d.promo?.pitch ?? ''}`,
-        })
+        addMsg({ role: 'clawbot', content: `🔐 Please activate ClawFlow to use Clawbot chat.` })
         return
       }
 
@@ -210,7 +223,7 @@ export function ClawbotPanel() {
       addMsg({ role: 'clawbot', content: data.reply ?? data.message ?? 'No response.', coinCost: data.coinCost })
       if (data.coinCost) setCoinsUsed(c => c + data.coinCost)
     } catch {
-      addMsg({ role: 'clawbot', content: `Cloud AI isn't reachable right now. Try the 🟢 LOCAL actions — they work offline.\n\nMake sure you're signed in at ${FLOWSTATE_HUB}.` })
+      addMsg({ role: 'clawbot', content: `Cloud AI isn't reachable right now. Try the 🟢 LOCAL actions — they work offline.` })
     } finally {
       setLoading(false)
       scrollToBottom()
@@ -219,12 +232,9 @@ export function ClawbotPanel() {
 
   // ── Action runner ─────────────────────────────────────────────────────────
   async function runAction(tool: string, cost: number, isLocal: boolean) {
-    setGeneratingTool(tool)
-    const promptEl = document.getElementById('clawbot-prompt') as HTMLTextAreaElement
-    const prompt = promptEl?.value || `Create a ${key} ${tool.replace(/_/g, ' ')} at ${bpm} BPM`
-
-    // ── LOCAL actions ───────────────────────────────────────────────────────
+    // LOCAL actions always run freely — no gate needed
     if (isLocal) {
+      setGeneratingTool(tool)
       addMsg({ role: 'user', content: tool === 'detect_key_bpm' ? 'Analyze Key & BPM' : `Suggest arrangement for ${key} @ ${bpm.toFixed(0)} BPM` })
       setTimeout(() => {
         addMsg({
@@ -237,9 +247,24 @@ export function ClawbotPanel() {
       return
     }
 
-    // ── CLOUD actions ───────────────────────────────────────────────────────
-    addMsg({ role: 'user', content: `${tool.replace(/_/g, ' ')}: ${prompt}` })
-    setLoading(true)
+    // CLOUD actions require ClawFlow — show modal if not authenticated
+    const actionLabel = QUICK_ACTIONS.find(a => a.tool === tool)?.label ?? tool
+    await checkAndRun(
+      {
+        toolName: actionLabel,
+        toolIcon: '⚡',
+        requiredAccess: 'clawflow',
+        description: 'Cloud AI music generation requires a ClawFlow subscription.',
+        creditCost: cost,
+      },
+      () => _doRunCloudAction(tool, cost),
+    )
+  }
+
+  async function _doRunCloudAction(tool: string, cost: number) {
+    setGeneratingTool(tool)
+    const promptEl = document.getElementById('clawbot-prompt') as HTMLTextAreaElement
+    const prompt = promptEl?.value || `Create a ${key} ${tool.replace(/_/g, ' ')} at ${bpm} BPM`
 
     // For stem separation, we need an audioUrl from the selected clip
     let audioUrlForStems: string | null = null
@@ -247,14 +272,17 @@ export function ClawbotPanel() {
       audioUrlForStems = getSelectedClipUrl()
       if (!audioUrlForStems) {
         addMsg({ role: 'clawbot', content: `🎚 Stem Separation\n\nPlease select a clip on the timeline first. The clip's audio will be sent for separation.\n\nSelect a clip → click "Separate Stems".` })
-        setLoading(false)
         setGeneratingTool(null)
         return
       }
+      addMsg({ role: 'user', content: `Separate stems` })
       addMsg({ role: 'clawbot', content: `🎚 Separating stems...\n\nSending to AudioShake API. This typically takes 1–3 minutes.\nStems: Vocals, Drums, Bass, Other` })
     } else {
+      addMsg({ role: 'user', content: `${tool.replace(/_/g, ' ')}: ${prompt}` })
       addMsg({ role: 'clawbot', content: `Working on it... ⏳\n\nThis may take up to a minute for AI generation.` })
     }
+
+    setLoading(true)
 
     try {
       const body: any = { tool, prompt, bpm, key, style: 'pop', durationSeconds: 30 }
@@ -262,15 +290,10 @@ export function ClawbotPanel() {
 
       const res = await hubFetch('/api/audio/generate', { method: 'POST', body: JSON.stringify(body) })
 
-      if (res.status === 401) {
+      // Fallback for unexpected auth errors (gate should have caught these)
+      if (res.status === 401 || res.status === 402) {
         setAuthStatus('needs_login')
-        addMsg({ role: 'clawbot', content: `🔐 Sign in required\n\nPlease log in at ${FLOWSTATE_HUB} to use cloud generation features.\n\nLocal actions (Key & BPM, Arrangement) work without an account.` })
-        return
-      }
-      if (res.status === 402) {
-        setAuthStatus('needs_login')
-        const d: any = await res.json().catch(() => ({}))
-        addMsg({ role: 'clawbot', content: `⚡ ClawFlow required\n\nGet your subscription at ${FLOWSTATE_HUB} → Account.\n\n${d.promo?.pitch ?? ''}` })
+        addMsg({ role: 'clawbot', content: `🔐 ClawFlow required to generate audio. Activate at flowst8.cc.` })
         return
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -307,7 +330,6 @@ export function ClawbotPanel() {
         addMsg({ role: 'clawbot', content: `🎚 Stems separating... (job: ${jid})\nPolling AudioShake — usually 1–3 minutes.` })
         const stems = await pollStemJob(jid)
         if (stems && stems.length > 0) {
-          // Create a clip per stem on separate tracks
           stems.forEach((stem, i) => {
             const targetTrack = tracks[i % Math.max(tracks.filter(t => t.type === 'audio').length, 1)]
             if (targetTrack) {
@@ -333,8 +355,7 @@ export function ClawbotPanel() {
           })
           setCoinsUsed(c => c + cost)
         } else {
-          // AudioShake polling not yet wired on Hub — show direct result
-          addMsg({ role: 'clawbot', content: `🎚 Stem separation job submitted (${jid}).\n\nAudioShake is processing your audio. Check back at ${FLOWSTATE_HUB} for results, or stems will appear when polling completes.\n\n${data.message ?? ''}` })
+          addMsg({ role: 'clawbot', content: `🎚 Stem separation job submitted (${jid}).\n\nAudioShake is processing your audio. Results will appear when polling completes.\n\n${data.message ?? ''}` })
         }
         return
       }
@@ -353,7 +374,7 @@ export function ClawbotPanel() {
       addMsg({ role: 'clawbot', content: data.message ?? 'Done.', coinCost: data.coinCost ?? 0 })
 
     } catch (err: any) {
-      addMsg({ role: 'clawbot', content: `☁️ Cloud generation unavailable right now.\n\nMake sure you're signed in at ${FLOWSTATE_HUB}.\n\nError: ${err?.message ?? 'Network error'}` })
+      addMsg({ role: 'clawbot', content: `☁️ Cloud generation unavailable right now.\n\nError: ${err?.message ?? 'Network error'}` })
     } finally {
       setLoading(false)
       setGeneratingTool(null)
@@ -365,7 +386,6 @@ export function ClawbotPanel() {
     const audioTracks = tracks.filter(t => t.type !== 'master')
     const targetTrack = audioTracks.find(t => t.id === selectedTrackId) ?? audioTracks[0] ?? tracks[0]
     if (!targetTrack) return
-    // Find end of last clip on target track to place after it
     const lastEnd = targetTrack.clips.reduce((mx, c) => Math.max(mx, c.startBeat + c.durationBeats), 0)
     addClip({
       id: `clip-ai-${Date.now()}`,
@@ -391,14 +411,10 @@ export function ClawbotPanel() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           {authStatus === 'needs_login' && (
-            <a
-              href={FLOWSTATE_HUB}
-              target="_blank"
-              rel="noreferrer"
-              style={{ fontSize: 9, color: '#f59e0b', textDecoration: 'none', border: '1px solid rgba(245,158,11,.3)', borderRadius: 3, padding: '2px 6px' }}
-            >
-              Sign in
-            </a>
+            <span style={{ fontSize: 9, color: '#f59e0b', border: '1px solid rgba(245,158,11,.3)', borderRadius: 3, padding: '2px 6px', cursor: 'pointer' }}
+              onClick={() => checkAndRun({ toolName: 'Clawbot', toolIcon: '🤖', requiredAccess: 'clawflow' }, () => {})}>
+              Activate ClawFlow
+            </span>
           )}
           {authStatus === 'ok' && (
             <span style={{ fontSize: 9, color: '#10b981' }}>● Connected</span>
@@ -473,7 +489,7 @@ export function ClawbotPanel() {
             title={
               tool === 'separate_stems'
                 ? 'Select a clip on the timeline first, then click to separate stems via AudioShake'
-                : isLocal ? 'Runs locally — no credits needed' : `Requires cloud API — ${cost} credits`
+                : isLocal ? 'Runs locally — no credits needed' : `Requires ClawFlow — ${cost} credits`
             }
           >
             {generatingTool === tool ? '⏳ Working...' : label}
@@ -497,6 +513,16 @@ export function ClawbotPanel() {
           {loading ? '...' : 'Send'}
         </button>
       </div>
+
+      {/* Auth Gate Modal — shown when ClawFlow is required */}
+      {authModal && (
+        <AuthGateModal
+          config={authModal.config}
+          auth={authModal.auth}
+          onClose={closeModal}
+          onGranted={authModal.onGranted}
+        />
+      )}
     </div>
   )
 }
