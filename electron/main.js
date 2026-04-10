@@ -230,21 +230,26 @@ function createMainWindow() {
 }
 
 // ─── Launch flow ──────────────────────────────────────────────────────────────
+// FS-Audio is a FREE desktop DAW — it opens immediately without any sign-in.
+// Sign-in is only required when the user tries to use AI tools (ClawBot,
+// Suno, MusicGen) or cloud save/load. Those features check the token at
+// call-time and prompt for auth if needed — they do NOT block startup.
 async function launch() {
-  const token = await readToken()
+  buildMenu()
+  createMainWindow()
 
+  // Silently verify token in the background (no UI shown on failure).
+  // This warms up the auth state so AI features feel instant when used.
+  const token = await readToken()
   if (token) {
     const result = await verifyToken(token)
-    if (result.valid) {
-      buildMenu()
-      createMainWindow()
-      return
+    if (!result.valid) {
+      // Token expired/revoked — clear it silently. User will be prompted
+      // when they actually try to use an AI feature.
+      await clearToken()
     }
-    await clearToken()
   }
-
-  // No valid token — show gate
-  createGateWindow()
+  // No token at all is fine — app works fully for local DAW use.
 }
 
 // ─── Menu ─────────────────────────────────────────────────────────────────────
@@ -344,8 +349,14 @@ function buildMenu() {
         { type: 'separator' },
         { label: 'Sign Out', click: async () => {
           await clearToken()
-          if (mainWindow) mainWindow.close()
-          createGateWindow()
+          // Keep app open — just clear auth state and notify renderer
+          if (mainWindow) mainWindow.webContents.send('menu:action', 'signed-out')
+        }},
+        { label: 'Sign In / Connect Account', click: async () => {
+          // Open FlowState in browser for sign-in
+          const state = Math.random().toString(36).slice(2)
+          pendingAuthState = state
+          shell.openExternal(`${FS_BASE_URL}/api/fsaudio/auth?state=${encodeURIComponent(state)}&redirect=fsaudio://auth`)
         }},
       ],
     },
@@ -527,12 +538,13 @@ ipcMain.handle('flowstate:api-call',   async (_, path, method, body) => {
 
 ipcMain.handle('flowstate:sign-out',   async () => {
   await clearToken()
-  if (mainWindow) mainWindow.close()
-  createGateWindow()
+  // Don't close the app — just clear token. The renderer will update its
+  // UI to show "Sign In" state. App stays open for local DAW work.
+  if (mainWindow) mainWindow.webContents.send('menu:action', 'signed-out')
   return { ok: true }
 })
 
-// Gate-specific IPC
+// Auth IPC — trigger sign-in from within the running app (no gate window)
 ipcMain.handle('gate:get-version',    () => app.getVersion())
 ipcMain.handle('gate:open-external',  (_, url) => shell.openExternal(url))
 ipcMain.handle('gate:start-auth',     (_, state) => {
@@ -540,6 +552,7 @@ ipcMain.handle('gate:start-auth',     (_, state) => {
   const authUrl = `${FS_BASE_URL}/api/fsaudio/auth?state=${encodeURIComponent(state)}&redirect=fsaudio://auth`
   shell.openExternal(authUrl)
 })
+ipcMain.handle('flowstate:get-version', () => app.getVersion())
 
 // ─── Deep-link handler: fsaudio://auth?token=...&state=... ───────────────────
 
@@ -561,27 +574,24 @@ async function handleDeepLink(url) {
     const state = parsed.searchParams.get('state')
 
     if (!token || state !== pendingAuthState) {
-      gateWindow?.webContents?.executeJavaScript(
-        `window.postMessage({ type: 'auth-result', success: false, error: 'State mismatch' }, '*')`
-      )
+      // Notify renderer of failure (if it opened auth flow)
+      mainWindow?.webContents.send('menu:action', 'auth-failed')
       return
     }
 
     // Verify token
     const result = await verifyToken(token)
     if (!result.valid) {
-      gateWindow?.webContents?.executeJavaScript(
-        `window.postMessage({ type: 'auth-result', success: false, error: 'Token rejected' }, '*')`
-      )
+      mainWindow?.webContents.send('menu:action', 'auth-failed')
       return
     }
 
-    // Save token and launch editor
+    // Save token and notify renderer — app is already open, just unlock AI features
     await writeToken(token)
-    gateWindow?.close()
-    gateWindow = null
-    buildMenu()
-    createMainWindow()
+    pendingAuthState = null
+    buildMenu() // Rebuild menu to show signed-in state
+    // Notify renderer that user is now authenticated
+    mainWindow?.webContents.send('menu:action', 'signed-in')
   } catch (err) {
     console.error('[Electron] Deep link error:', err.message)
   }
