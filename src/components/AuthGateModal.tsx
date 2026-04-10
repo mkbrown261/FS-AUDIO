@@ -29,22 +29,25 @@ interface AuthState {
 async function getAuthState(): Promise<AuthState> {
   try {
     const user = await window.electronAPI?.getUser?.()
-    if (!user) return { signedIn: false, tier: '', hasClawflow: false, email: '' }
+    if (!user) return { signedIn: false, tier: '', hasClawflow: false, hasPro: false, email: '' }
     const tier = ((user as any).tier ?? 'free').toLowerCase()
+    const hasPro = ['pro', 'personal_pro', 'team', 'team_starter', 'team_growth', 'enterprise', 'clawflow'].includes(tier)
     return {
       signedIn: true,
       tier,
       hasClawflow: tier === 'clawflow',
+      hasPro,
       email: (user as any).email ?? '',
     }
   } catch {
-    return { signedIn: false, tier: '', hasClawflow: false, email: '' }
+    return { signedIn: false, tier: '', hasClawflow: false, hasPro: false, email: '' }
   }
 }
 
 function hasAccess(auth: AuthState, required: RequiredAccess): boolean {
   if (!auth.signedIn) return false
   if (required === 'any_account') return true
+  if (required === 'pro') return auth.hasPro
   if (required === 'clawflow') return auth.hasClawflow
   return false
 }
@@ -153,16 +156,25 @@ export function AuthGateModal({ config, auth, onClose, onGranted }: AuthGateModa
 
   if (!auth.signedIn) {
     headline = 'Sign in to use ' + config.toolName
-    body = 'Connect your FlowState account to unlock AI features. Recording, editing, mixing, and all DAW tools remain completely free — no account needed.'
+    body = 'You need a FlowState account to use this feature. Recording, editing, mixing, and all DAW tools stay completely free — this only applies to AI plugins.'
     primaryLabel = 'Sign In with FlowState'
     primaryAction = openSignIn
     secondaryLabel = 'Create a Free Account'
     secondaryAction = openCreateAccount
     badge = 'FREE ACCOUNT'
     badgeColor = '#6b7280'
+  } else if (config.requiredAccess === 'pro') {
+    headline = config.toolName + ' requires a Pro plan'
+    body = `You're on the Free plan. ${config.toolName} is available on Pro, Team, and Enterprise — upgrade to unlock all AI plugins in FS-Audio.`
+    primaryLabel = 'Upgrade to Pro'
+    primaryAction = () => openExternal(`${FS_BASE}/pricing`)
+    secondaryLabel = 'View Pricing'
+    secondaryAction = () => openExternal(`${FS_BASE}/pricing`)
+    badge = 'PRO FEATURE'
+    badgeColor = '#f59e0b'
   } else if (config.requiredAccess === 'clawflow') {
     headline = config.toolName + ' is part of ClawFlow'
-    body = `ClawFlow is a separate AI subscription — it's not a tier upgrade, it's its own thing. It unlocks ClawBot, AI music generation, stem separation, AI mastering, and advanced tools across all your FlowState apps.`
+    body = `ClawFlow is a separate AI subscription — it's not a plan upgrade, it's its own thing. It unlocks ClawBot, AI music generation, stem separation, AI mastering, and advanced tools across all your FlowState apps.`
     primaryLabel = `Get ClawFlow — ${CLAWFLOW_PRICE}`
     primaryAction = openClawFlow
     secondaryLabel = 'Learn More About ClawFlow'

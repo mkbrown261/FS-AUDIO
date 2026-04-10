@@ -23,6 +23,16 @@ import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { useProjectStore, Track, Plugin } from '../../store/projectStore'
 import { FLOWSTATE_PRO_DEFAULTS, renderFlowstatePlugin } from './FlowstatePro'
 import { AI_PLUGIN_DEFAULTS, renderAiPlugin } from './AiPlugins'
+import { useAuthGate, AuthGateModal } from '../AuthGateModal'
+
+// AI plugins that require a Pro (or higher) plan to add.
+// Free AI plugins (pure DSP, no network call): fs_bpmfinder, fs_phantom, fs_dream, fs_ouroboros
+const PRO_REQUIRED_AI_PLUGINS = new Set([
+  'fs_oracle', 'fs_clone', 'fs_architect', 'fs_nerve',
+  'fs_seance', 'fs_synapse',
+  // Experimental suite
+  'fs_ghost', 'fs_prophet', 'fs_void', 'fs_alchemy',
+])
 
 // ── Knob Component ────────────────────────────────────────────────────────────
 interface KnobProps {
@@ -1592,9 +1602,10 @@ const AI_CATEGORIES: { label: string; color: string; icon: string; plugins: Plug
 interface PluginDropdownProps {
   onSelect: (key: string) => void
   onClose: () => void
+  onGatedSelect: (key: string, pluginName: string) => void
 }
 
-function PluginDropdown({ onSelect, onClose }: PluginDropdownProps) {
+function PluginDropdown({ onSelect, onClose, onGatedSelect }: PluginDropdownProps) {
   const [activeTab, setActiveTab] = useState<'classic'|'elite'|'pro'|'instruments'|'ai'>('classic')
   const [expandedCat, setExpandedCat] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -1654,20 +1665,32 @@ function PluginDropdown({ onSelect, onClose }: PluginDropdownProps) {
             {/* Plugin list inside category */}
             {expandedCat === cat.label && (
               <div className="pdd-plugin-list">
-                {cat.plugins.map(plugin => (
-                  <button
-                    key={plugin.key}
-                    className="pdd-plugin-row"
-                    onClick={() => onSelect(plugin.key)}
-                  >
-                    <div className="pdd-plugin-dot" style={{ background: cat.color }} />
-                    <div className="pdd-plugin-info">
-                      <span className="pdd-plugin-name" style={{ color: cat.color }}>{plugin.name}</span>
-                      <span className="pdd-plugin-desc">{plugin.desc}</span>
-                    </div>
-                    <span className="pdd-plugin-add">+</span>
-                  </button>
-                ))}
+                {cat.plugins.map(plugin => {
+                  const needsPro = activeTab === 'ai' && PRO_REQUIRED_AI_PLUGINS.has(plugin.key)
+                  return (
+                    <button
+                      key={plugin.key}
+                      className="pdd-plugin-row"
+                      onClick={() => {
+                        if (needsPro) {
+                          onGatedSelect(plugin.key, plugin.name)
+                        } else {
+                          onSelect(plugin.key)
+                        }
+                      }}
+                    >
+                      <div className="pdd-plugin-dot" style={{ background: cat.color }} />
+                      <div className="pdd-plugin-info">
+                        <span className="pdd-plugin-name" style={{ color: cat.color }}>{plugin.name}</span>
+                        <span className="pdd-plugin-desc">{plugin.desc}</span>
+                      </div>
+                      {needsPro
+                        ? <span style={{ fontSize: 9, color: '#f59e0b', fontWeight: 800, letterSpacing: '.4px' }}>PRO</span>
+                        : <span className="pdd-plugin-add">+</span>
+                      }
+                    </button>
+                  )
+                })}
               </div>
             )}
           </div>
@@ -1680,6 +1703,7 @@ function PluginDropdown({ onSelect, onClose }: PluginDropdownProps) {
 export function PluginRack({ track }: PluginRackProps) {
   const { addPlugin } = useProjectStore()
   const [showAdd, setShowAdd] = useState(false)
+  const { modal, checkAndRun, closeModal } = useAuthGate()
 
   const allDefs: Record<string, { name: string; type: string; params: Record<string, number> }> = {
     ...PLUGIN_DEFAULTS,
@@ -1700,7 +1724,16 @@ export function PluginRack({ track }: PluginRackProps) {
     setShowAdd(false)
   }, [track.id, addPlugin, allDefs])
 
+  // Called when a Pro-gated AI plugin is clicked in the dropdown
+  const handleGatedSelect = useCallback((key: string, pluginName: string) => {
+    checkAndRun(
+      { toolName: pluginName, toolIcon: '🤖', requiredAccess: 'pro' },
+      () => addNewPlugin(key),
+    )
+  }, [checkAndRun, addNewPlugin])
+
   return (
+    <>
     <div className="plugin-rack">
       <div className="plugin-rack-header">
         <span className="plugin-rack-title">INSERT EFFECTS</span>
@@ -1717,6 +1750,7 @@ export function PluginRack({ track }: PluginRackProps) {
         <PluginDropdown
           onSelect={addNewPlugin}
           onClose={() => setShowAdd(false)}
+          onGatedSelect={handleGatedSelect}
         />
       )}
 
@@ -1729,5 +1763,15 @@ export function PluginRack({ track }: PluginRackProps) {
         ))}
       </div>
     </div>
+    {/* Auth gate modal — rendered outside the rack so it covers the full screen */}
+    {modal && (
+      <AuthGateModal
+        config={modal.config}
+        auth={modal.auth}
+        onClose={closeModal}
+        onGranted={modal.onGranted}
+      />
+    )}
+    </>
   )
 }

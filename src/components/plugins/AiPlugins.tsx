@@ -30,62 +30,59 @@ async function hubPost(path: string, body: object): Promise<any> {
 }
 
 // ── Subscription gate ─────────────────────────────────────────────────────────
-// Two tiers:
-//   'clawflow' → requires an active ClawFlow subscription (d.hasClawflow)
-//   'ai'       → requires FS-Audio AI plan OR ClawFlow (d.hasAI || d.hasClawflow)
-type SubTier = 'clawflow' | 'ai'
+// Uses electronAPI.getUser() (same as AuthGateModal) instead of a cookie check.
+// AI plugins in the 🤖 AI tab require Pro, Team, or Enterprise plan.
+// ClawFlow is a separate add-on — not checked here.
 
-interface SubState { checked: boolean; loggedIn: boolean; hasClawflow: boolean; hasAI: boolean }
+interface SubState { checked: boolean; hasPro: boolean }
 
-function useSubGate(tier: SubTier): SubState {
-  const [state, setState] = useState<SubState>({ checked: false, loggedIn: false, hasClawflow: false, hasAI: false })
+const PRO_TIERS = new Set(['pro', 'personal_pro', 'team', 'team_starter', 'team_growth', 'enterprise', 'clawflow'])
+
+function useSubGate(): SubState {
+  const [state, setState] = useState<SubState>({ checked: false, hasPro: false })
   useEffect(() => {
-    fetch(`${HUB}/api/clawbot/status`, { credentials: 'include' })
-      .then(r => r.json())
-      .then((d: any) => setState({
-        checked: true,
-        loggedIn: !!d.loggedIn,
-        hasClawflow: !!d.hasClawflow,
-        hasAI: !!(d.hasAI || d.hasClawflow),
-      }))
-      .catch(() => setState({ checked: true, loggedIn: false, hasClawflow: false, hasAI: false }))
+    const check = async () => {
+      try {
+        const user = await (window as any).electronAPI?.getUser?.()
+        if (!user) { setState({ checked: true, hasPro: false }); return }
+        const tier = (user.tier ?? 'free').toLowerCase()
+        setState({ checked: true, hasPro: PRO_TIERS.has(tier) })
+      } catch {
+        setState({ checked: true, hasPro: false })
+      }
+    }
+    check()
   }, [])
   return state
 }
 
-function isUnlocked(sub: SubState, tier: SubTier): boolean {
-  if (!sub.checked) return false
-  if (tier === 'clawflow') return sub.hasClawflow
-  return sub.hasAI
-}
-
-// The locked wall shown inside the plugin body when subscription is missing
-function SubscriptionWall({ tier }: { tier: SubTier }) {
-  const isClawflow = tier === 'clawflow'
-  const accent = isClawflow ? '#a855f7' : '#f59e0b'
-  const title  = isClawflow ? '⚡ ClawFlow Required' : '🤖 AI Subscription Required'
-  const desc   = isClawflow
-    ? 'This plugin uses AI features powered by the FlowState hub.\nAn active ClawFlow subscription is required.'
-    : 'This plugin uses FS-Audio AI services.\nAn FS-Audio AI plan or ClawFlow subscription is required.'
+// The locked wall shown inside the plugin body when a Pro plan is required
+function SubscriptionWall() {
+  function openPricing() {
+    if ((window as any).electronAPI?.openExternal) {
+      (window as any).electronAPI.openExternal('https://flowst8.cc/pricing')
+    }
+  }
   return (
     <div style={{
       margin: '10px 12px', padding: '14px 12px',
-      background: accent + '0d', border: `1px solid ${accent}33`,
+      background: '#f59e0b0d', border: '1px solid #f59e0b33',
       borderRadius: 8, textAlign: 'center',
     }}>
-      <div style={{ fontSize: 22, marginBottom: 6 }}>{isClawflow ? '⚡' : '🤖'}</div>
-      <div style={{ fontSize: 11, fontWeight: 800, color: accent, marginBottom: 6, letterSpacing: '.4px' }}>{title}</div>
-      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', lineHeight: 1.6, whiteSpace: 'pre-line', marginBottom: 10 }}>{desc}</div>
-      <a
-        href="https://flowstate-67g.pages.dev/account"
-        target="_blank" rel="noreferrer"
+      <div style={{ fontSize: 22, marginBottom: 6 }}>🤖</div>
+      <div style={{ fontSize: 11, fontWeight: 800, color: '#f59e0b', marginBottom: 6, letterSpacing: '.4px' }}>PRO PLAN REQUIRED</div>
+      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', lineHeight: 1.6, marginBottom: 10 }}>
+        AI plugins are available on Pro, Team, and Enterprise plans.
+      </div>
+      <button
+        onClick={openPricing}
         style={{
           display: 'inline-block', padding: '6px 16px', borderRadius: 6,
-          background: `linear-gradient(135deg, ${accent}bb, ${accent})`,
+          background: 'linear-gradient(135deg, #d97706, #f59e0b)',
           color: '#fff', fontSize: 10, fontWeight: 800, letterSpacing: '.4px',
-          textDecoration: 'none', border: `1px solid ${accent}88`,
+          border: '1px solid #f59e0b88', cursor: 'pointer',
         }}
-      >UPGRADE →</a>
+      >UPGRADE →</button>
     </div>
   )
 }
@@ -167,7 +164,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 // ─────────────────────────────────────────────────────────────────────────────
 export function OracleEditor({ plugin, onChange }: { plugin: any; onChange: (p: Record<string, number>) => void }) {
   const p = plugin.params
-  const sub = useSubGate('clawflow')
+  const sub = useSubGate()
   const { bpm, tracks } = useProjectStore()
   const [status, setStatus] = useState<'idle' | 'loading' | 'ok' | 'err'>('idle')
   const [advice, setAdvice] = useState<string>('')
@@ -233,8 +230,8 @@ Give 3-5 specific recommendations covering: frequency balance, dynamics, stereo 
         <span style={{ marginLeft: 'auto', fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>Claude 3.5</span>
       </div>
       {!sub.checked && <StatusPill text="Checking subscription…" type="loading" />}
-      {sub.checked && !isUnlocked(sub, 'clawflow') && <SubscriptionWall tier="clawflow" />}
-      {sub.checked && isUnlocked(sub, 'clawflow') && (<>
+      {sub.checked && !sub.hasPro && <SubscriptionWall />}
+      {sub.checked && sub.hasPro && (<>
 
       {/* Target Platform */}
       <SectionLabel>Target Platform</SectionLabel>
@@ -314,7 +311,7 @@ Give 3-5 specific recommendations covering: frequency balance, dynamics, stereo 
 // ─────────────────────────────────────────────────────────────────────────────
 export function CloneEditor({ plugin, onChange }: { plugin: any; onChange: (p: Record<string, number>) => void }) {
   const p = plugin.params
-  const sub = useSubGate('clawflow')
+  const sub = useSubGate()
   const [status, setStatus] = useState<'idle' | 'loading' | 'ok' | 'err'>('idle')
   const [statusText, setStatusText] = useState('')
   const [referenceUrl, setReferenceUrl] = useState('')
@@ -367,8 +364,8 @@ export function CloneEditor({ plugin, onChange }: { plugin: any; onChange: (p: R
         <span style={{ marginLeft: 'auto', fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>Timbre Transfer</span>
       </div>
       {!sub.checked && <StatusPill text="Checking subscription…" type="loading" />}
-      {sub.checked && !isUnlocked(sub, 'clawflow') && <SubscriptionWall tier="clawflow" />}
-      {sub.checked && isUnlocked(sub, 'clawflow') && (<>
+      {sub.checked && !sub.hasPro && <SubscriptionWall />}
+      {sub.checked && sub.hasPro && (<>
 
       {/* Reference URL input */}
       <SectionLabel>Reference Audio URL</SectionLabel>
@@ -445,7 +442,7 @@ export function CloneEditor({ plugin, onChange }: { plugin: any; onChange: (p: R
 // ─────────────────────────────────────────────────────────────────────────────
 export function ArchitectEditor({ plugin, onChange }: { plugin: any; onChange: (p: Record<string, number>) => void }) {
   const p = plugin.params
-  const sub = useSubGate('clawflow')
+  const sub = useSubGate()
   const { bpm, key, tracks, selectedTrackId, addClip } = useProjectStore()
   const [status, setStatus] = useState<'idle' | 'loading' | 'ok' | 'err'>('idle')
   const [output, setOutput] = useState<string>('')
@@ -536,8 +533,8 @@ Use MIDI pitch numbers (60=C4). Generate ${bars * 4} beats worth of content. Mak
         <span style={{ marginLeft: 'auto', fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>Claude 3.5 Haiku</span>
       </div>
       {!sub.checked && <StatusPill text="Checking subscription…" type="loading" />}
-      {sub.checked && !isUnlocked(sub, 'clawflow') && <SubscriptionWall tier="clawflow" />}
-      {sub.checked && isUnlocked(sub, 'clawflow') && (<>
+      {sub.checked && !sub.hasPro && <SubscriptionWall />}
+      {sub.checked && sub.hasPro && (<>
 
       {/* Gen Mode */}
       <SectionLabel>Generate</SectionLabel>
@@ -722,7 +719,7 @@ export function PhantomEditor({ plugin, onChange }: { plugin: any; onChange: (p:
 // ─────────────────────────────────────────────────────────────────────────────
 export function NerveEditor({ plugin, onChange }: { plugin: any; onChange: (p: Record<string, number>) => void }) {
   const p = plugin.params
-  const sub = useSubGate('clawflow')
+  const sub = useSubGate()
   const { tracks } = useProjectStore()
   const [status, setStatus] = useState<'idle' | 'loading' | 'ok' | 'err'>('idle')
   const [analysis, setAnalysis] = useState<string>('')
@@ -789,8 +786,8 @@ Respond with JSON only: {"threshold":-20,"ratio":4,"attack":0.001,"release":0.15
         <span style={{ marginLeft: 'auto', fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>Adaptive SC</span>
       </div>
       {!sub.checked && <StatusPill text="Checking subscription…" type="loading" />}
-      {sub.checked && !isUnlocked(sub, 'clawflow') && <SubscriptionWall tier="clawflow" />}
-      {sub.checked && isUnlocked(sub, 'clawflow') && (<>
+      {sub.checked && !sub.hasPro && <SubscriptionWall />}
+      {sub.checked && sub.hasPro && (<>
 
       {/* Track routing */}
       <SectionLabel>Sidechain Routing</SectionLabel>
@@ -1123,7 +1120,7 @@ export function BpmFinderEditor({ plugin, onChange }: { plugin: any; onChange: (
 // ─────────────────────────────────────────────────────────────────────────────
 export function SeanceEditor({ plugin, onChange }: { plugin: any; onChange: (p: Record<string, number>) => void }) {
   const p = plugin.params
-  const sub = useSubGate('clawflow')
+  const sub = useSubGate()
   const { tracks, selectedTrackId, updatePlugin } = useProjectStore()
   const [status, setStatus] = useState<'idle'|'loading'|'ok'|'err'>('idle')
   const [prompt, setPrompt] = useState('')
@@ -1231,8 +1228,8 @@ Return ONLY a JSON object (no explanation) that maps audio DSP parameters to thi
         <span style={{ marginLeft: 'auto', fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>Mood → DSP</span>
       </div>
       {!sub.checked && <StatusPill text="Checking subscription…" type="loading" />}
-      {sub.checked && !isUnlocked(sub, 'clawflow') && <SubscriptionWall tier="clawflow" />}
-      {sub.checked && isUnlocked(sub, 'clawflow') && (<>
+      {sub.checked && !sub.hasPro && <SubscriptionWall />}
+      {sub.checked && sub.hasPro && (<>
         {/* Emotion prompt */}
         <SectionLabel>Describe the emotion / scene / feeling</SectionLabel>
         <textarea
@@ -1805,7 +1802,7 @@ export function OuroborosEditor({ plugin, onChange }: { plugin: any; onChange: (
 // ─────────────────────────────────────────────────────────────────────────────
 export function SynapseEditor({ plugin, onChange }: { plugin: any; onChange: (p: Record<string, number>) => void }) {
   const p = plugin.params
-  const sub = useSubGate('clawflow')
+  const sub = useSubGate()
   const { bpm, tracks } = useProjectStore()
   const [status, setStatus] = useState<'idle'|'loading'|'ok'|'err'>('idle')
   const [brainState, setBrainState] = useState<string>('Idle')
@@ -2027,8 +2024,8 @@ Format: JSON only: {"score":75,"emotion":"Tense","fix":"Add more low end, sub fr
 
       {/* AI insight — gated */}
       {!sub.checked && <StatusPill text="Checking subscription…" type="loading" />}
-      {sub.checked && !isUnlocked(sub, 'clawflow') && <SubscriptionWall tier="clawflow" />}
-      {sub.checked && isUnlocked(sub, 'clawflow') && (<>
+      {sub.checked && !sub.hasPro && <SubscriptionWall />}
+      {sub.checked && sub.hasPro && (<>
         <button onClick={runAIInsight} disabled={status === 'loading'} style={{
           width: '100%', padding: '7px 0', borderRadius: 6,
           cursor: status === 'loading' ? 'not-allowed' : 'pointer',
@@ -2062,7 +2059,7 @@ Format: JSON only: {"score":75,"emotion":"Tense","fix":"Add more low end, sub fr
 // ─────────────────────────────────────────────────────────────────────────────
 export function GhostEditor({ plugin, onChange }: { plugin: any; onChange: (p: Record<string, number>) => void }) {
   const p = plugin.params
-  const sub = useSubGate('clawflow')
+  const sub = useSubGate()
   const [status, setStatus] = useState<'idle'|'loading'|'ok'|'err'>('idle')
   const [listening, setListening] = useState(false)
   const [ghostDNA, setGhostDNA] = useState<string>('')
@@ -2228,8 +2225,8 @@ Make the partials genuinely interesting, not just basic overtones. Be creative a
         <span style={{ marginLeft: 'auto', fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>Phantom Harmonics</span>
       </div>
       {!sub.checked && <StatusPill text="Checking subscription…" type="loading" />}
-      {sub.checked && !isUnlocked(sub, 'clawflow') && <SubscriptionWall tier="clawflow" />}
-      {sub.checked && isUnlocked(sub, 'clawflow') && (<>
+      {sub.checked && !sub.hasPro && <SubscriptionWall />}
+      {sub.checked && sub.hasPro && (<>
 
       {/* Spectrum canvas */}
       <canvas ref={canvasRef} width={220} height={56}
@@ -2329,7 +2326,7 @@ Make the partials genuinely interesting, not just basic overtones. Be creative a
 // ─────────────────────────────────────────────────────────────────────────────
 export function ProphetEditor({ plugin, onChange }: { plugin: any; onChange: (p: Record<string, number>) => void }) {
   const p = plugin.params
-  const sub = useSubGate('clawflow')
+  const sub = useSubGate()
   const { tracks, selectedClipIds, addClip, selectedTrackId, bpm } = useProjectStore()
   const [status, setStatus] = useState<'idle'|'loading'|'synthesizing'|'ok'|'err'>('idle')
   const [prophecy, setProphecy] = useState<string>('')
@@ -2545,8 +2542,8 @@ Create ${predictBars * 4} beats worth of synthesis parameters. Partials can be s
         <span style={{ marginLeft: 'auto', fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>Continuation Cast</span>
       </div>
       {!sub.checked && <StatusPill text="Checking subscription…" type="loading" />}
-      {sub.checked && !isUnlocked(sub, 'clawflow') && <SubscriptionWall tier="clawflow" />}
-      {sub.checked && isUnlocked(sub, 'clawflow') && (<>
+      {sub.checked && !sub.hasPro && <SubscriptionWall />}
+      {sub.checked && sub.hasPro && (<>
 
       {/* Prophetic canvas */}
       <canvas ref={canvasRef} width={220} height={50}
@@ -2625,7 +2622,7 @@ Create ${predictBars * 4} beats worth of synthesis parameters. Partials can be s
 // ─────────────────────────────────────────────────────────────────────────────
 export function VoidEditor({ plugin, onChange }: { plugin: any; onChange: (p: Record<string, number>) => void }) {
   const p = plugin.params
-  const sub = useSubGate('clawflow')
+  const sub = useSubGate()
   const { tracks, addClip, bpm, selectedTrackId } = useProjectStore()
   const [status, setStatus] = useState<'idle'|'loading'|'synthesizing'|'ok'|'err'>('idle')
   const [voidMap, setVoidMap] = useState<{ band: string; gap: number; color: string }[]>([])
@@ -2839,8 +2836,8 @@ Focus on GAPS: if Bass is empty, create bass content. If Air is empty, add shimm
         <span style={{ marginLeft: 'auto', fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>Negative Space</span>
       </div>
       {!sub.checked && <StatusPill text="Checking subscription…" type="loading" />}
-      {sub.checked && !isUnlocked(sub, 'clawflow') && <SubscriptionWall tier="clawflow" />}
-      {sub.checked && isUnlocked(sub, 'clawflow') && (<>
+      {sub.checked && !sub.hasPro && <SubscriptionWall />}
+      {sub.checked && sub.hasPro && (<>
 
       {/* Void canvas */}
       <canvas ref={canvasRef} width={220} height={52}
@@ -2946,7 +2943,7 @@ Focus on GAPS: if Bass is empty, create bass content. If Air is empty, add shimm
 // ─────────────────────────────────────────────────────────────────────────────
 export function AlchemyEditor({ plugin, onChange }: { plugin: any; onChange: (p: Record<string, number>) => void }) {
   const p = plugin.params
-  const sub = useSubGate('clawflow')
+  const sub = useSubGate()
   const { tracks, selectedClipIds, addClip, selectedTrackId, bpm } = useProjectStore()
   const [status, setStatus] = useState<'idle'|'loading'|'transmuting'|'ok'|'err'>('idle')
   const [formula, setFormula] = useState<{ step: string; desc: string; progress: number }[]>([])
@@ -3176,8 +3173,8 @@ Make each step genuinely different and transformative. ${steps} steps total.`,
         <span style={{ marginLeft: 'auto', fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>Material Transform</span>
       </div>
       {!sub.checked && <StatusPill text="Checking subscription…" type="loading" />}
-      {sub.checked && !isUnlocked(sub, 'clawflow') && <SubscriptionWall tier="clawflow" />}
-      {sub.checked && isUnlocked(sub, 'clawflow') && (<>
+      {sub.checked && !sub.hasPro && <SubscriptionWall />}
+      {sub.checked && sub.hasPro && (<>
 
       {/* Alchemical canvas */}
       <canvas ref={canvasRef} width={220} height={60}
