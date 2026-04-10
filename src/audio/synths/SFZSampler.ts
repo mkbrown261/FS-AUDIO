@@ -157,11 +157,36 @@ function parseOpcodes(
   target: Partial<SFZRegion> | SFZGroup,
   apply: (t: Partial<SFZRegion> | SFZGroup, k: string, v: string) => void
 ) {
-  // Match key=value pairs; value runs until next key= or end of string
+  // Special handling for sample= which may contain spaces (e.g. "FF B-1.wav")
+  // Strategy: extract sample= first, then parse remaining opcodes
+  let remaining = text
+
+  // Extract sample= value: everything from sample= until the next known opcode keyword= or end
+  // Known opcodes that cannot appear in a filename:
+  const knownOpcodes = [
+    'lokey', 'hikey', 'key', 'lovel', 'hivel', 'pitch_keycenter', 'volume',
+    'pan', 'tune', 'transpose', 'loop_mode', 'loop_start', 'loop_end',
+    'ampeg_attack', 'ampeg_release', 'ampeg_decay', 'ampeg_sustain',
+    'seq_length', 'seq_position', 'region_label', 'group_label',
+    'group_volume', 'amp_veltrack', 'offset', 'group', 'cutoff',
+  ]
+  const knownOpcodePattern = knownOpcodes.join('|')
+
+  const sampleMatch = remaining.match(
+    new RegExp(`\\bsample=(.+?)(?=\\s+(?:${knownOpcodePattern})=|$)`)
+  )
+  if (sampleMatch) {
+    apply(target, 'sample', sampleMatch[1].trim())
+    remaining = remaining.replace(sampleMatch[0], '').trim()
+  }
+
+  // Match remaining key=value pairs; value runs until next key= or end of string
   const re = /(\w+)\s*=\s*(.*?)(?=\s+\w+=|$)/g
   let m: RegExpExecArray | null
-  while ((m = re.exec(text)) !== null) {
-    apply(target, m[1].trim(), m[2].trim())
+  while ((m = re.exec(remaining)) !== null) {
+    const key = m[1].trim()
+    if (key === 'sample') continue  // already handled
+    apply(target, key, m[2].trim())
   }
 }
 
@@ -175,7 +200,7 @@ export class SFZSampler {
   // Stored under EVERY key variant so lookup always succeeds:
   //   "ep-c4.wav", "samples/ep-c4.wav", "samples/bass/G#0_1_1.wav"
   private audioBuffers: Map<string, AudioBuffer> = new Map()
-  private activeNotes: Map<number, { source: AudioBufferSourceNode; gain: GainNode }[]> = new Map()
+  private activeNotes: Map<number, { source: AudioBufferSourceNode; gain: GainNode; release: number }[]> = new Map()
 
   // Per-group round-robin counters (indexed by group index)
   private seqCounters: number[] = []
@@ -222,8 +247,15 @@ export class SFZSampler {
             : `/${samplePath}`
 
           try {
-            const resp = await fetch(url)
-            if (!resp.ok) { console.warn(`[SFZ] HTTP ${resp.status} for ${url}`); return }
+            // URL-encode each path segment to handle spaces, # and special chars in filenames
+            // Split on '/', encode each segment with encodeURIComponent, rejoin with '/'
+            const encodedUrl = url.split('/').map((seg, idx) => {
+              // Don't encode empty segments (leading slash creates one) or protocol
+              if (!seg || seg.endsWith(':')) return seg
+              return encodeURIComponent(seg)
+            }).join('/')
+            const resp = await fetch(encodedUrl)
+            if (!resp.ok) { console.warn(`[SFZ] HTTP ${resp.status} for ${encodedUrl}`); return }
             const ab  = await resp.arrayBuffer()
             const buf = await this.ctx.decodeAudioData(ab)
 
@@ -328,8 +360,9 @@ export class SFZSampler {
         source.start(now)
         voicesTriggered++
 
+        const ampRelease = Math.min(region.ampeg_release ?? 0.5, 5) // cap at 5s
         if (!this.activeNotes.has(note)) this.activeNotes.set(note, [])
-        this.activeNotes.get(note)!.push({ source, gain: gainNode })
+        this.activeNotes.get(note)!.push({ source, gain: gainNode, release: ampRelease })
       }
     })
 
@@ -340,14 +373,14 @@ export class SFZSampler {
     const voices = this.activeNotes.get(note)
     if (!voices?.length) return
 
-    const now     = this.ctx.currentTime
-    const release = 0.08
+    const now = this.ctx.currentTime
 
-    for (const { source, gain } of voices) {
+    for (const { source, gain, release } of voices) {
+      const rel = release ?? 0.3
       gain.gain.cancelScheduledValues(now)
-      gain.gain.setValueAtTime(gain.gain.value, now)
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + release)
-      try { source.stop(now + release + 0.05) } catch { /* already stopped */ }
+      gain.gain.setValueAtTime(Math.max(gain.gain.value, 0.0001), now)
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + rel)
+      try { source.stop(now + rel + 0.05) } catch { /* already stopped */ }
     }
     this.activeNotes.delete(note)
   }

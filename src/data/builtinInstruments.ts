@@ -18,6 +18,14 @@ export const BUILTIN_INSTRUMENTS: BuiltInInstrument[] = [
     sfzPath: '/sfz-instruments/808-drums.sfz',
     description: 'Classic TR-808 drum machine sounds'
   },
+  // ── Real orchestral / acoustic instruments (open source, CC0/Public Domain) ──
+  {
+    id: 'grand-piano',
+    name: 'Grand Piano',
+    category: 'piano',
+    sfzPath: '/sfz-instruments/grand-piano.sfz',
+    description: 'Splendid Grand (AKAI) · 5 velocity layers · 226 samples · CC0'
+  },
   {
     id: 'electric-piano',
     name: 'Electric Piano',
