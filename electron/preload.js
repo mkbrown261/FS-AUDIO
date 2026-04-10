@@ -10,7 +10,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
 
   // ── FlowState Auth ──────────────────────────────────────────────────────────
-  startAuth: (state) => ipcRenderer.invoke('flowstate:start-auth', state),
+  // NOTE: startAuth uses 'gate:start-auth' — opens auth URL in system browser via shell.openExternal
+  startAuth: (state) => ipcRenderer.invoke('gate:start-auth', state),
+  openExternal: (url) => ipcRenderer.invoke('gate:open-external', url),
   getVersion: () => ipcRenderer.invoke('flowstate:get-version'),
   getUser: () => ipcRenderer.invoke('flowstate:get-user'),
   getToken: () => ipcRenderer.invoke('flowstate:get-token'),

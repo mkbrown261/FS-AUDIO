@@ -13,9 +13,9 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { useProjectStore } from '../store/projectStore'
+import { useAuthGate, AuthGateModal } from './AuthGateModal'
 
 const FLOWSTATE_HUB = 'https://flowstate-67g.pages.dev'
-const LOCK_MSG = `⚡ ClawFlow subscription required\n\nThis feature is powered by AudioShake AI and requires an active ClawFlow subscription.\n\nGet it at ${FLOWSTATE_HUB} → Account\n\nWith ClawFlow you unlock:\n  • Studio-grade stem separation\n  • Dolby Atmos / Sony 360 remix tools\n  • Instant instrumentals & acapellas\n  • Unlimited AI generation`
 
 interface Message {
   role: 'user' | 'bot'
@@ -85,7 +85,6 @@ async function pollStemJob(jobId: string, maxMs = 300_000): Promise<StemResult[]
 function Mascot({ size }: { size: number }) {
   const [err, setErr] = useState(false)
   if (err) {
-    // SVG fallback — a simple claw-paw emoji-style graphic
     return (
       <svg width={size} height={size} viewBox="0 0 48 48" fill="none">
         <circle cx="24" cy="24" r="22" fill="url(#cg)" stroke="rgba(168,85,247,.4)" strokeWidth="1.5"/>
@@ -95,12 +94,9 @@ function Mascot({ size }: { size: number }) {
             <stop offset="100%" stopColor="#1e1b2e"/>
           </radialGradient>
         </defs>
-        {/* eyes */}
         <circle cx="18" cy="20" r="2.5" fill="#e0d4ff"/>
         <circle cx="30" cy="20" r="2.5" fill="#e0d4ff"/>
-        {/* smile */}
         <path d="M17 28 Q24 34 31 28" stroke="#c4b5fd" strokeWidth="2" fill="none" strokeLinecap="round"/>
-        {/* claw marks */}
         <path d="M20 10 L18 17 M24 9 L24 16 M28 10 L30 17" stroke="#a855f7" strokeWidth="2" strokeLinecap="round"/>
       </svg>
     )
@@ -131,6 +127,9 @@ export function ClawflowBubble() {
   const [unread, setUnread] = useState(0)
   const msgEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // Auth gate hook — shows proper modal for sign-in / ClawFlow prompt
+  const { modal: authModal, checkAndRun, closeModal } = useAuthGate()
 
   // Check auth when panel first opens
   useEffect(() => {
@@ -197,13 +196,21 @@ export function ClawflowBubble() {
     })
   }
 
-  // ── AudioShake action runner ──────────────────────────────────────────
-  async function runAudioShake(actionId: string, tool: string, label: string, cost: number) {
-    if (!hasSubscription) {
-      addMsg({ role: 'bot', text: LOCK_MSG })
-      return
-    }
+  // ── AudioShake action — gate via modal, then run ───────────────────────
+  function handleActionClick(actionId: string, tool: string, label: string, cost: number) {
+    checkAndRun(
+      {
+        toolName: label,
+        toolIcon: AUDIOSHAKE_ACTIONS.find(a => a.id === actionId)?.emoji ?? '⚡',
+        requiredAccess: 'clawflow',
+        description: AUDIOSHAKE_ACTIONS.find(a => a.id === actionId)?.desc,
+        creditCost: cost,
+      },
+      () => _doRunAudioShake(actionId, tool, label, cost),
+    )
+  }
 
+  async function _doRunAudioShake(actionId: string, tool: string, label: string, cost: number) {
     // Stem tools require a selected clip
     const audioUrl = getSelectedClipUrl()
     if (!audioUrl) {
@@ -231,13 +238,10 @@ export function ClawflowBubble() {
         body: JSON.stringify({ tool, audioUrl, bpm, key }),
       })
 
-      if (res.status === 401) {
+      // Unexpected auth error (gate should have caught these, but handle gracefully)
+      if (res.status === 401 || res.status === 402) {
         setAuthStatus('needs_login')
-        addMsg({ role: 'bot', text: `🔐 Sign in required\n\nPlease log in at ${FLOWSTATE_HUB} to use cloud features.` })
-        return
-      }
-      if (res.status === 402) {
-        addMsg({ role: 'bot', text: LOCK_MSG })
+        addMsg({ role: 'bot', text: `🔐 Please activate ClawFlow to use this feature.` })
         return
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -260,7 +264,7 @@ export function ClawflowBubble() {
         } else {
           addMsg({
             role: 'bot',
-            text: `🎚 Job submitted to AudioShake (${data.jobId ?? ''}).\n\nCheck ${FLOWSTATE_HUB} for results — stems will be emailed when ready.\n\n${data.message ?? ''}`,
+            text: `🎚 Job submitted to AudioShake (${data.jobId ?? ''}).\n\nStems will appear when processing completes.\n\n${data.message ?? ''}`,
           })
         }
         return
@@ -275,7 +279,7 @@ export function ClawflowBubble() {
 
       addMsg({ role: 'bot', text: data.message ?? `✅ ${label} job submitted to AudioShake.` })
     } catch (err: any) {
-      addMsg({ role: 'bot', text: `☁️ AudioShake is temporarily unreachable.\n\nMake sure you're signed in at ${FLOWSTATE_HUB}.\n\nError: ${err?.message ?? 'Network error'}` })
+      addMsg({ role: 'bot', text: `☁️ AudioShake is temporarily unreachable.\n\nError: ${err?.message ?? 'Network error'}` })
     } finally {
       setLoading(false)
       setWorking(null)
@@ -307,10 +311,18 @@ export function ClawflowBubble() {
     })
   }
 
-  // ── Free-text chat ─────────────────────────────────────────────────────
+  // ── Free-text chat — also gated behind ClawFlow ────────────────────────
   async function sendChat() {
     const msg = input.trim()
     if (!msg) return
+
+    await checkAndRun(
+      { toolName: 'Clawbot Chat', toolIcon: '🤖', requiredAccess: 'clawflow', description: 'AI music chat and suggestions' },
+      () => _doSendChat(msg),
+    )
+  }
+
+  async function _doSendChat(msg: string) {
     setInput('')
     addMsg({ role: 'user', text: msg })
     setLoading(true)
@@ -325,12 +337,7 @@ export function ClawflowBubble() {
       })
       if (res.status === 401 || res.status === 402) {
         setAuthStatus('needs_login')
-        addMsg({
-          role: 'bot',
-          text: res.status === 401
-            ? `🔐 Sign in to chat\n\nLog in at ${FLOWSTATE_HUB} to use Clawbot.`
-            : `⚡ ClawFlow required for chat.\n\nGet it at ${FLOWSTATE_HUB} → Account.`,
-        })
+        addMsg({ role: 'bot', text: `🔐 Please activate ClawFlow to use Clawbot chat.` })
         return
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -338,7 +345,7 @@ export function ClawflowBubble() {
       const data: any = await res.json()
       addMsg({ role: 'bot', text: data.reply ?? data.message ?? '...' })
     } catch {
-      addMsg({ role: 'bot', text: `Cloud chat isn't reachable right now.\n\nSign in at ${FLOWSTATE_HUB} and try again.` })
+      addMsg({ role: 'bot', text: `Cloud chat isn't reachable right now.` })
     } finally {
       setLoading(false)
     }
@@ -355,12 +362,10 @@ export function ClawflowBubble() {
         aria-label="Toggle Clawflow AI assistant"
       >
         {open ? (
-          /* X close icon */
           <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
             <path d="M5 5L17 17M17 5L5 17" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
           </svg>
         ) : (
-          /* Chat bubble icon with mascot inside */
           <div className="cf-bubble-inner">
             <Mascot size={32} />
           </div>
@@ -385,20 +390,19 @@ export function ClawflowBubble() {
                   {authStatus === 'ok' && hasSubscription
                     ? '● Active — AudioShake ready'
                     : authStatus === 'ok'
-                    ? '● Connected — upgrade for AudioShake'
+                    ? '● Connected — ClawFlow needed'
                     : 'AudioShake · Music AI'}
                 </div>
               </div>
             </div>
+            {/* Sign in button — uses IPC to open in system browser */}
             {authStatus === 'needs_login' && (
-              <a
-                href={FLOWSTATE_HUB}
-                target="_blank"
-                rel="noreferrer"
+              <button
                 className="cf-signin-link"
+                onClick={() => checkAndRun({ toolName: 'Clawflow AI', toolIcon: '⚡', requiredAccess: 'clawflow' }, () => {})}
               >
                 Sign in
-              </a>
+              </button>
             )}
           </div>
 
@@ -415,15 +419,15 @@ export function ClawflowBubble() {
             </div>
           )}
 
-          {/* AudioShake action bubbles — always visible */}
+          {/* AudioShake action bubbles — gate fires on click */}
           <div className="cf-action-bubbles">
             {AUDIOSHAKE_ACTIONS.map(action => (
               <button
                 key={action.id}
                 className={`cf-action-bubble${!hasSubscription ? ' locked' : ''}${working === action.id ? ' working' : ''}`}
-                onClick={() => runAudioShake(action.id, action.tool, action.label, action.cost)}
+                onClick={() => handleActionClick(action.id, action.tool, action.label, action.cost)}
                 disabled={loading}
-                title={hasSubscription ? action.desc : 'Requires ClawFlow subscription'}
+                title={hasSubscription ? action.desc : 'Requires ClawFlow subscription — click to activate'}
               >
                 <span className="cf-ab-emoji">{action.emoji}</span>
                 <span className="cf-ab-label">{action.label}</span>
@@ -437,7 +441,7 @@ export function ClawflowBubble() {
             ))}
           </div>
 
-          {/* Message thread (only shows after first interaction) */}
+          {/* Message thread */}
           {messages.length > 0 && (
             <div className="cf-messages">
               {messages.map((m, i) => (
@@ -474,16 +478,14 @@ export function ClawflowBubble() {
             </div>
           )}
 
-          {/* Subscription CTA if no subscription */}
+          {/* Subscription CTA — clicking opens the modal */}
           {authStatus !== 'unknown' && !hasSubscription && (
-            <a
-              href={`${FLOWSTATE_HUB}/account`}
-              target="_blank"
-              rel="noreferrer"
+            <button
               className="cf-sub-cta"
+              onClick={() => checkAndRun({ toolName: 'AudioShake', toolIcon: '⚡', requiredAccess: 'clawflow' }, () => {})}
             >
               ⚡ Unlock AudioShake with ClawFlow →
-            </a>
+            </button>
           )}
 
           {/* Chat input */}
@@ -509,6 +511,16 @@ export function ClawflowBubble() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Auth Gate Modal — rendered at root level for proper z-index */}
+      {authModal && (
+        <AuthGateModal
+          config={authModal.config}
+          auth={authModal.auth}
+          onClose={closeModal}
+          onGranted={authModal.onGranted}
+        />
       )}
     </>
   )

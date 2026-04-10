@@ -108,22 +108,35 @@ export function AuthGateModal({ config, auth, onClose, onGranted }: AuthGateModa
     return () => window.removeEventListener('focus', handler)
   }, [config.requiredAccess, onClose, onGranted])
 
+  // Open a URL in the user's real browser (not an Electron window)
+  function openExternal(url: string) {
+    if (window.electronAPI?.openExternal) {
+      window.electronAPI.openExternal(url)
+    } else {
+      // Non-Electron fallback (shouldn't happen in desktop app)
+      window.open(url, '_blank', 'noopener,noreferrer')
+    }
+  }
+
   function openSignIn() {
     const state = Math.random().toString(36).slice(2)
-    const url = `${FS_BASE}/api/fsaudio/auth?state=${encodeURIComponent(state)}&redirect=fsaudio://auth`
-    window.electronAPI?.startAuth?.(state)
-    // Fallback: open in browser
-    if (typeof window !== 'undefined') window.open?.(url, '_blank')
+    // Always use the IPC bridge so auth opens in the user's system browser
+    // NEVER use window.open — it creates another Electron window → 404
+    if (window.electronAPI?.startAuth) {
+      window.electronAPI.startAuth(state)
+    } else {
+      // Fallback for web / non-Electron environment only
+      const url = `${FS_BASE}/api/fsaudio/auth?state=${encodeURIComponent(state)}&redirect=fsaudio://auth`
+      window.open(url, '_blank', 'noopener,noreferrer')
+    }
   }
 
   function openClawFlow() {
-    const url = `${FS_BASE}/#clawflow`
-    if (typeof window !== 'undefined') window.open?.(url, '_blank')
+    openExternal(`${FS_BASE}/#clawflow`)
   }
 
   function openCreateAccount() {
-    const url = `${FS_BASE}/auth`
-    if (typeof window !== 'undefined') window.open?.(url, '_blank')
+    openExternal(`${FS_BASE}/auth`)
   }
 
   const icon = config.toolIcon ?? '⚡'
