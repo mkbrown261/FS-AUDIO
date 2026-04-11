@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useProjectStore } from '../store/projectStore'
 import { ExportOptions, ExportProgress, LUFS_TARGETS } from '../hooks/useExport'
 
@@ -23,6 +23,31 @@ const LUFS_PRESETS = [
 
 export function ExportModal({ isOpen, onClose, onBounce, progress }: ExportModalProps) {
   const { name, loopStart, loopEnd, bpm, bitDepth: projectBD, sampleRate: projectSR, isLooping, tracks } = useProjectStore()
+
+  // ── CLAW Video post-export trigger ──────────────────────────────────────
+  // Fires once when bounce phase transitions to 'done'.
+  const clawTriggeredRef = useRef(false)
+  useEffect(() => {
+    if (progress.phase === 'done' && !clawTriggeredRef.current) {
+      clawTriggeredRef.current = true
+      const audioCtx = {
+        trackName: name || 'Untitled',
+        bpm: bpm ? Math.round(bpm) : undefined,
+        genre: undefined as string | undefined,
+        duration: undefined as number | undefined,
+      }
+      // If running embedded in FlowState hub, call the wizard directly
+      if (typeof (window as any).clawVideoPostExportBanner === 'function') {
+        ;(window as any).clawVideoPostExportBanner(audioCtx)
+      } else if (window.opener) {
+        // Opened as popup from hub
+        window.opener.postMessage({ type: 'claw_video_export_complete', audioCtx }, '*')
+      }
+    }
+    // Reset trigger when modal closes so next export can fire again
+    if (!isOpen) clawTriggeredRef.current = false
+  }, [progress.phase, isOpen, name, bpm])
+  // ────────────────────────────────────────────────────────────────────────
 
   const [range, setRange]         = useState<'project' | 'loop'>('project')
   const [mode, setMode]           = useState<'mix' | 'stems'>('mix')
@@ -284,9 +309,48 @@ export function ExportModal({ isOpen, onClose, onBounce, progress }: ExportModal
           )}
 
           {done && (
-            <div className="export-success">
-              {mode === 'stems' ? `✓ Stems exported (${selectedStems.size} track${selectedStems.size !== 1 ? 's' : ''}) — check your Downloads folder` : `✓ Bounce complete — check your Downloads folder`}
-            </div>
+            <>
+              <div className="export-success">
+                {mode === 'stems' ? `✓ Stems exported (${selectedStems.size} track${selectedStems.size !== 1 ? 's' : ''}) — check your Downloads folder` : `✓ Bounce complete — check your Downloads folder`}
+              </div>
+              {/* CLAW Video CTA — shown inline after successful export */}
+              <div style={{
+                marginTop: 12,
+                background: 'linear-gradient(135deg,rgba(168,85,247,.1),rgba(6,182,212,.1))',
+                border: '1px solid rgba(168,85,247,.35)',
+                borderRadius: 10,
+                padding: '10px 12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+              }}>
+                <span style={{ fontSize: 20, flexShrink: 0 }}>🎬</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 2 }}>Turn this into a video?</div>
+                  <div style={{ fontSize: 11, opacity: 0.7 }}>CLAW can generate a concept, shot list, and full music video for <strong>{name || 'this track'}</strong>.</div>
+                </div>
+                <button
+                  onClick={() => {
+                    const audioCtx = { trackName: name || 'Untitled', bpm: bpm ? Math.round(bpm) : undefined }
+                    if (typeof (window as any).clawVideoPostExportBanner === 'function') {
+                      ;(window as any).clawVideoPostExportBanner(audioCtx)
+                    } else if (typeof (window as any).openClawVideoWizard === 'function') {
+                      ;(window as any).openClawVideoWizard({ audioContext: audioCtx })
+                    } else {
+                      window.open(`https://flowst8.cc/#clawbot`, '_blank')
+                    }
+                  }}
+                  style={{
+                    padding: '6px 12px', borderRadius: 8, border: 'none',
+                    background: 'linear-gradient(135deg,#a855f7,#06b6d4)',
+                    color: '#fff', fontSize: 11, fontWeight: 700,
+                    cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                  }}
+                >
+                  Create Video
+                </button>
+              </div>
+            </>
           )}
 
           {err && (
