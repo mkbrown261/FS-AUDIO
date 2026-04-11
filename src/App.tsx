@@ -20,7 +20,7 @@ import { AudioPreferences, RestartOpts } from './components/AudioPreferences'
 import { useMidiOutput } from './hooks/useMidiOutput'
 import { parseMidiFile, downloadMidiFile } from './utils/midiFile'
 
-const FLOWSTATE_HUB = 'https://flowstate-67g.pages.dev'
+const FLOWSTATE_HUB = 'https://flowst8.cc'
 
 // ── Panel Resizer ─────────────────────────────────────────────────────────────
 function PanelResizer({ onDrag, direction = 'right' }: { onDrag: (delta: number) => void; direction?: 'right' | 'left' }) {
