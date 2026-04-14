@@ -8,6 +8,18 @@ export interface MidiNote {
   durationBeats: number
 }
 
+export interface CCPoint {
+  beat: number
+  value: number  // 0-127
+}
+
+export interface CCLane {
+  cc: number       // MIDI CC number (0-127) or -1 for pitch-bend
+  label: string
+  color: string
+  points: CCPoint[]
+}
+
 export interface Plugin {
   id: string
   name: string
@@ -69,6 +81,11 @@ export interface Clip {
   // Take folder clips (comp system)
   takes?: Take[]
   activeTakeIndex?: number
+  // CC / pitch-bend automation lanes (persisted with clip)
+  ccLanes?: CCLane[]
+  // Scale lock — root note (0-11) and scale name applied when editing this clip
+  scaleLockRoot?: number
+  scaleLockName?: string
 }
 
 export interface Take {
@@ -120,7 +137,8 @@ export type AutomationCurve = 'linear' | 'smooth' | 'step'
 export interface AutomationLane {
   id: string
   trackId: string
-  /** e.g. 'volume', 'pan', 'eq-low', 'reverb', 'delay' */
+  /** e.g. 'volume', 'pan', 'eq-low', 'reverb', 'delay', 'compressor-threshold',
+   *  'compressor-ratio', 'reverb-wet', 'send-level' */
   param: string
   label: string
   /** 0–1 normalized range */
@@ -130,6 +148,8 @@ export interface AutomationLane {
   curve: AutomationCurve
   visible: boolean
   points: AutomationPoint[]
+  /** Optional extra metadata (e.g. { busId } for send-level lanes) */
+  meta?: Record<string, string | number>
 }
 
 // ── Arrangement Markers ────────────────────────────────────────────────────
@@ -258,7 +278,7 @@ const TRACK_COLORS = [
 
 function makeTrack(name: string, type: Track['type'], idx: number): Track {
   return {
-    id: `track-${Date.now()}-${idx}`,
+    id: `track-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 7)}`,
     name,
     type,
     color: TRACK_COLORS[idx % TRACK_COLORS.length],
@@ -300,6 +320,7 @@ interface Actions {
   addClip: (clip: Clip) => void
   removeClip: (id: string) => void
   updateClip: (id: string, patch: Partial<Clip>) => void
+  updateClipCCLane: (clipId: string, cc: number, points: CCPoint[]) => void
   moveClip: (id: string, startBeat: number, trackId: string) => void
   splitClipAtBeat: (clipId: string, beat: number) => void
   duplicateClip: (id: string) => void
@@ -543,6 +564,22 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
     tracks: st.tracks.map(t => ({
       ...t,
       clips: t.clips.map(c => c.id === id ? { ...c, ...patch } : c),
+    })),
+    isDirty: true,
+  })),
+
+  updateClipCCLane: (clipId, cc, points) => set(st => ({
+    tracks: st.tracks.map(t => ({
+      ...t,
+      clips: t.clips.map(c => {
+        if (c.id !== clipId) return c
+        const existing = c.ccLanes ?? []
+        const hasLane = existing.some(l => l.cc === cc)
+        const ccLanes: CCLane[] = hasLane
+          ? existing.map(l => l.cc === cc ? { ...l, points } : l)
+          : [...existing, { cc, label: `CC ${cc}`, color: '#06b6d4', points }]
+        return { ...c, ccLanes }
+      }),
     })),
     isDirty: true,
   })),
@@ -996,6 +1033,11 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
       tracks,
       selectedTrackId: null,
       selectedClipIds: [],
+      markers: [],
+      tempoMap: [],
+      keyChanges: [],
+      sigChanges: [],
+      automationLanes: [],
       undoStack: [],
       redoStack: [],
     })
@@ -1111,6 +1153,9 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
       zoom:             (data.zoom            as number)  ?? 1,
       pixelsPerBeat:    ((data.zoom as number) ?? 1) * 40,
       markers:          (data.markers          as Marker[])          ?? [],
+      tempoMap:         (data.tempoMap         as TempoPoint[])       ?? [],
+      keyChanges:       (data.keyChanges       as KeyChange[])        ?? [],
+      sigChanges:       (data.sigChanges       as SigChange[])        ?? [],
       automationLanes:  (data.automationLanes as AutomationLane[]) ?? [],
       tracks:           (data.tracks          as Track[]) ?? defaultTracks(),
       isDirty:          false,

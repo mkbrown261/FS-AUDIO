@@ -354,6 +354,19 @@ export class FMSynth {
   }
   
   /**
+   * Apply pitch-bend in semitones to all active operator oscillators.
+   * value: -1.0 to +1.0, bendRangeSemitones default 2
+   */
+  pitchBend(value: number, bendRangeSemitones = 2) {
+    const cents = value * bendRangeSemitones * 100
+    for (const note of this.activeNotes.values()) {
+      for (const osc of note.oscillators) {
+        osc.detune.setTargetAtTime(cents, this.context.currentTime, 0.01)
+      }
+    }
+  }
+
+  /**
    * Stop all active notes immediately (MIDI panic)
    */
   allNotesOff() {

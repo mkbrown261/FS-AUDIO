@@ -32,6 +32,8 @@
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useProjectStore, Plugin } from '../../store/projectStore'
+import { FMSynthUI } from '../instruments/FMSynthUI'
+import { GranularSynthUI } from '../instruments/GranularSynthUI'
 
 /** Safely coerce a param value (string | number | undefined) to a number */
 const pn = (v: string | number | undefined, def: number): number => {
@@ -1619,6 +1621,16 @@ export function renderFlowstatePlugin(plugin: Plugin, onChange: (p: Record<strin
     case 'fs_alter':          return <MutateEditor     plugin={plugin} onChange={onChange} />
     case 'fs_glitch':         return <GlitchEditor     plugin={plugin} onChange={onChange} />
     case 'fs_wavetable':      return <SpectrumEditor   plugin={plugin} onChange={onChange} />
+    case 'fs_fm':             return (
+      <div style={{ padding: 8 }}>
+        <FMSynthUI params={plugin.params} onUpdate={onChange} />
+      </div>
+    )
+    case 'fs_granular':       return (
+      <div style={{ padding: 8 }}>
+        <GranularSynthUI params={plugin.params} onUpdate={onChange} />
+      </div>
+    )
     case 'fs_multiband_comp': return <CrushEditor      plugin={plugin} onChange={onChange} />
     case 'fs_tape_delay':     return <ReelEditor       plugin={plugin} onChange={onChange} />
     case 'fs_vocal_enhance':  return <AuraEditor       plugin={plugin} onChange={onChange} />

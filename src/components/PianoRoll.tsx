@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import { useProjectStore, MidiNote, Clip } from '../store/projectStore'
+import { useProjectStore, MidiNote, Clip, CCPoint as StoreCCPoint } from '../store/projectStore'
 import { detectChordFromSelection, detectChordAtBeat } from '../utils/chordDetect'
 
 const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B']
@@ -78,7 +78,7 @@ interface PianoRollProps {
 }
 
 export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
-  const { tracks, updateClip } = useProjectStore()
+  const { tracks, updateClip, updateClipCCLane } = useProjectStore()
   const [ppb, setPpb] = useState(BASE_PPB)
   const [quantize, setQuantize] = useState(0.25)
   const [tool, setTool] = useState<'draw' | 'select' | 'erase'>('draw')
@@ -155,6 +155,25 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
     scrollRef.current?.scrollTo({ top: Math.max(0, (127 - avgPitch) * CELL_H - 120) })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clipId, drumMode])
+
+  // ── Hydrate CC lanes and scale lock from persisted clip data ─────────────
+  useEffect(() => {
+    if (!clip) return
+    // Restore CC lanes
+    if (clip.ccLanes && clip.ccLanes.length > 0) {
+      const map = new Map<number, CCPoint[]>()
+      for (const lane of clip.ccLanes) {
+        map.set(lane.cc, lane.points as CCPoint[])
+      }
+      setCCData(map)
+    } else {
+      setCCData(new Map())
+    }
+    // Restore scale lock
+    if (clip.scaleLockRoot !== undefined) setScaleRoot(clip.scaleLockRoot)
+    if (clip.scaleLockName !== undefined) setScaleName(clip.scaleLockName)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clipId])
 
   // ── Scale-lock pitch resolver ─────────────────────────────────────────────
   const resolvedPitch = useCallback((raw: number) => {
@@ -352,9 +371,11 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
       pts.push({ beat, value })
       pts.sort((a, b) => a.beat - b.beat)
       next.set(cc, pts)
+      // Persist to store
+      updateClipCCLane(clip.id, cc, pts as StoreCCPoint[])
       return next
     })
-  }, [clip, ppb])
+  }, [clip, ppb, updateClipCCLane])
 
   if (!clip) {
     return (
@@ -511,10 +532,10 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
             style={{ color: scaleLock ? '#10b981' : undefined, borderColor: scaleLock ? '#10b981' : undefined, fontSize: 10, padding: '2px 6px' }}
           >♩ SCALE</button>
           {scaleLock && (<>
-            <select className="key-select" value={scaleRoot} onChange={e => setScaleRoot(Number(e.target.value))} style={{ fontSize: 10, padding: '1px 4px' }}>
+            <select className="key-select" value={scaleRoot} onChange={e => { const v = Number(e.target.value); setScaleRoot(v); if (clip) updateClip(clip.id, { scaleLockRoot: v }) }} style={{ fontSize: 10, padding: '1px 4px' }}>
               {KEY_ROOTS.map((k, i) => <option key={k} value={i}>{k}</option>)}
             </select>
-            <select className="key-select" value={scaleName} onChange={e => setScaleName(e.target.value)} style={{ fontSize: 10, padding: '1px 4px' }}>
+            <select className="key-select" value={scaleName} onChange={e => { const v = e.target.value; setScaleName(v); if (clip) updateClip(clip.id, { scaleLockName: v }) }} style={{ fontSize: 10, padding: '1px 4px' }}>
               {Object.keys(SCALES).map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </>)}

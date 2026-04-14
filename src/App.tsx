@@ -106,6 +106,8 @@ export default function App() {
 
         case 'open-project':
           if (!st.isDirty || confirm('Discard unsaved changes?')) {
+            engine.stopAll()
+            engine.clearNodeCache()
             await st.loadProject()
           }
           break
@@ -303,9 +305,10 @@ export default function App() {
 
   // ── MIDI Input hook — routes hardware keyboard/pad notes into engine ──────
   const midiIn = useMidiInput({
-    noteOn:    (pitch, velocity) => engine.noteOn(pitch, velocity),
-    noteOff:   (pitch)           => engine.noteOff(pitch),
-    allNotesOff: ()              => engine.allNotesOff(),
+    noteOn:     (pitch, velocity) => engine.noteOn(pitch, velocity),
+    noteOff:    (pitch)           => engine.noteOff(pitch),
+    allNotesOff: ()               => engine.allNotesOff(),
+    pitchBend:  (value, channel)  => engine.pitchBend(value, channel),
   })
 
   // Combined play-note: Web Audio preview + MIDI output if a port is selected
@@ -359,6 +362,8 @@ export default function App() {
     // applySoloMute re-computes every track's gain respecting solo bus logic:
     // if ANY track is soloed, all non-soloed tracks are silenced (Logic Pro)
     engine.applySoloMute()
+    // applySends wires up any bus-send GainNodes for tracks with sends configured
+    engine.applySends()
     for (const t of store.tracks) {
       engine.setTrackPan(t.id, t.pan)
     }
@@ -934,7 +939,12 @@ export default function App() {
           break
 
         case 'KeyO':
-          if (meta) { e.preventDefault(); store.loadProject() }
+          if (meta) {
+            e.preventDefault()
+            engine.stopAll()
+            engine.clearNodeCache()
+            store.loadProject()
+          }
           break
 
         // ── Save / Split ─────────────────────────────────────────────────
@@ -1356,6 +1366,7 @@ export default function App() {
       <NewProjectModal
         isOpen={showNewProject}
         onClose={() => setShowNewProject(false)}
+        onBeforeCreate={() => { engine.stopAll(); engine.clearNodeCache() }}
       />
 
       {/* ── Toast notifications ── */}

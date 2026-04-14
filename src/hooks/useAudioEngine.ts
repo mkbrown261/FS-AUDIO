@@ -5,6 +5,7 @@ import { SFZSampler } from '../audio/synths/SFZSampler'
 import { WavetableSynth, WavetableSynthParams, WAVETABLES } from '../audio/synths/WavetableSynth'
 import { GranularSynth, GranularSynthParams } from '../audio/synths/GranularSynth'
 import { FMSynth, FMSynthParams, FM_ALGORITHMS } from '../audio/synths/FMSynth'
+import { AnalogSynth } from '../audio/instruments/AnalogSynth'
 import { Arpeggiator, ARP_DEFAULTS } from '../audio/Arpeggiator'
 
 /** Coerce a plugin param value (string | number) to number */
@@ -43,7 +44,6 @@ interface CustomRecorder {
   sampleRate: number
   getState: () => string
   stopRecording: (callback: () => void) => void
-  getBlob: () => null
 }
 
 interface TrackNodes {
@@ -167,6 +167,9 @@ export function useAudioEngine() {
   
   // MIDI Panic ref (forward declaration for stopAll to use)
   const stopAllHeldNotesRef = useRef<(() => void) | undefined>()
+
+  // ── Typed send-gain map: key = `${trackId}:send:${busId}` → GainNode ──────
+  const sendGainsRef = useRef<Map<string, GainNode>>(new Map())
 
   const getCtx = useCallback((): AudioContext => {
     // If context doesn't exist OR is closed, create a new one
@@ -867,9 +870,10 @@ export function useAudioEngine() {
     const wavetablePlugin  = track?.plugins.find(p => p.type === 'fs_wavetable'  && p.enabled)
     const fmPlugin         = track?.plugins.find(p => p.type === 'fs_fm'         && p.enabled)
     const granularPlugin   = track?.plugins.find(p => p.type === 'fs_granular'   && p.enabled)
+    const analogPlugin     = track?.plugins.find(p => p.type === 'fs_analog'     && p.enabled)
 
     // Helper: get or create the instrument synth instance for this track
-    const getInstrumentSynth = (): DX7Synth | SFZSampler | WavetableSynth | FMSynth | GranularSynth | null => {
+    const getInstrumentSynth = (): DX7Synth | SFZSampler | WavetableSynth | FMSynth | GranularSynth | AnalogSynth | null => {
       let synth = instrumentSynthsRef.current.get(trackId)
 
       if (dx7Plugin) {
@@ -925,6 +929,17 @@ export function useAudioEngine() {
         return synth
       }
 
+      if (analogPlugin) {
+        if (!synth || !(synth instanceof AnalogSynth)) {
+          synth = new AnalogSynth(ctx)
+          ;(synth as AnalogSynth).connect(nodes.gain)
+          instrumentSynthsRef.current.set(trackId, synth)
+        } else {
+          ;(synth as AnalogSynth).updateParams(analogPlugin.params as any)
+        }
+        return synth
+      }
+
       return null
     }
 
@@ -961,6 +976,8 @@ export function useAudioEngine() {
               instrumentSynth.noteOn(note.pitch, vel / 127, (fmPlugin?.params ?? {}) as unknown as FMSynthParams)
             } else if (instrumentSynth instanceof GranularSynth) {
               instrumentSynth.noteOn(note.pitch, vel)
+            } else if (instrumentSynth instanceof AnalogSynth) {
+              instrumentSynth.noteOn(note.pitch, vel)
             } else {
               instrumentSynth.noteOn(note.pitch, vel)
             }
@@ -974,6 +991,8 @@ export function useAudioEngine() {
             } else if (instrumentSynth instanceof FMSynth) {
               instrumentSynth.noteOff(note.pitch, (fmPlugin?.params ?? {}) as unknown as FMSynthParams)
             } else if (instrumentSynth instanceof GranularSynth) {
+              instrumentSynth.noteOff(note.pitch)
+            } else if (instrumentSynth instanceof AnalogSynth) {
               instrumentSynth.noteOff(note.pitch)
             } else {
               instrumentSynth.noteOff(note.pitch)
@@ -1119,6 +1138,9 @@ export function useAudioEngine() {
     const ctx = ctxRef.current
     if (!ctx) return
 
+    // Build the set of valid send keys from the current project state
+    const validKeys = new Set<string>()
+
     for (const track of tracks) {
       if (!track.sends || track.sends.length === 0) continue
       const sourceNodes = trackNodesRef.current.get(track.id)
@@ -1129,24 +1151,29 @@ export function useAudioEngine() {
         const busNodes = trackNodesRef.current.get(send.busId)
         if (!busNodes) continue
 
-        // Create a send gain node keyed by trackId+busId
         const sendKey = `${track.id}:send:${send.busId}`
-        let sendGain = (trackNodesRef.current as any).sendGains?.get(sendKey) as GainNode | undefined
+        validKeys.add(sendKey)
+
+        let sendGain = sendGainsRef.current.get(sendKey)
         if (!sendGain) {
           sendGain = ctx.createGain()
-          // Store send gains in a side map on trackNodesRef
-          if (!(trackNodesRef.current as any).sendGains) {
-            (trackNodesRef.current as any).sendGains = new Map()
-          }
-          ;(trackNodesRef.current as any).sendGains.set(sendKey, sendGain)
+          sendGainsRef.current.set(sendKey, sendGain)
           // Connect: source analyser → sendGain → bus gain input
           try {
             sourceNodes.analyser.connect(sendGain)
             sendGain.connect(busNodes.gain)
           } catch { /* already connected */ }
         }
-        // Update send level
+        // Update send level (pre-fader ignores track volume)
         sendGain.gain.value = send.preFader ? send.level : send.level * track.volume
+      }
+    }
+
+    // Cleanup: disconnect and remove any send gains that no longer exist in the project
+    for (const [key, node] of sendGainsRef.current) {
+      if (!validKeys.has(key)) {
+        try { node.disconnect() } catch { /* already disconnected */ }
+        sendGainsRef.current.delete(key)
       }
     }
   }, [])
@@ -2088,7 +2115,6 @@ export function useAudioEngine() {
           silentGain.disconnect()
           callback()
         },
-        getBlob: () => null // Not used, we'll use recordedBuffers directly
       } as any
       
       console.log('[Audio Engine] Direct audio capture started:', {
@@ -2284,7 +2310,7 @@ export function useAudioEngine() {
   }, [])
 
   // ── Instrument Synth Instances (per track) ────────────────────────────────
-  const instrumentSynthsRef = useRef<Map<string, DX7Synth | SFZSampler | WavetableSynth | FMSynth | GranularSynth>>(new Map())
+  const instrumentSynthsRef = useRef<Map<string, DX7Synth | SFZSampler | WavetableSynth | FMSynth | GranularSynth | AnalogSynth>>(new Map())
 
   // ── Arpeggiator instances (one per track, created lazily) ─────────────────
   const arpeggiatorRef = useRef<Map<string, Arpeggiator>>(new Map())
@@ -2475,6 +2501,26 @@ export function useAudioEngine() {
         heldNotesRef.current.set(pitch, { osc: null as any, gain: null as any })
         return
       }
+
+      // ── AnalogSynth ──────────────────────────────────────────────────────
+      const analogPlugin = selectedTrack.plugins.find(p => p.type === 'fs_analog' && p.enabled)
+      if (analogPlugin) {
+        let trackNodes = trackNodesRef.current.get(selectedTrack.id)
+        if (!trackNodes) trackNodes = getTrackNodes(selectedTrack.id, selectedTrack.volume, selectedTrack.pan)
+        if (!trackNodes) { console.error('[noteOn] No track nodes for AnalogSynth'); return }
+
+        let synth = instrumentSynthsRef.current.get(selectedTrack.id)
+        if (!synth || !(synth instanceof AnalogSynth)) {
+          synth = new AnalogSynth(ctx)
+          ;(synth as AnalogSynth).connect(trackNodes.gain)
+          instrumentSynthsRef.current.set(selectedTrack.id, synth)
+        } else {
+          ;(synth as AnalogSynth).updateParams(analogPlugin.params as any)
+        }
+        ;(synth as AnalogSynth).noteOn(pitch, velocity)
+        heldNotesRef.current.set(pitch, { osc: null as any, gain: null as any })
+        return
+      }
     }
 
     // Fallback to simple oscillator (for testing or tracks without instruments)
@@ -2507,7 +2553,8 @@ export function useAudioEngine() {
       const wavetablePlugin= selectedTrack.plugins.find(p => p.type === 'fs_wavetable' && p.enabled)
       const fmPlugin       = selectedTrack.plugins.find(p => p.type === 'fs_fm'        && p.enabled)
       const granularPlugin = selectedTrack.plugins.find(p => p.type === 'fs_granular'  && p.enabled)
-      if (dx7Plugin || sfzPlugin || wavetablePlugin || fmPlugin || granularPlugin) {
+      const analogPlugin   = selectedTrack.plugins.find(p => p.type === 'fs_analog'    && p.enabled)
+      if (dx7Plugin || sfzPlugin || wavetablePlugin || fmPlugin || granularPlugin || analogPlugin) {
         const synth = instrumentSynthsRef.current.get(selectedTrack.id)
         if (synth) {
           if (synth instanceof WavetableSynth) {
@@ -2599,6 +2646,8 @@ export function useAudioEngine() {
     masterAnalyserRef.current = null
     masterLimiterRef.current = null
     trackNodesRef.current.clear()
+    // Clear send gains — they reference nodes from the old context
+    sendGainsRef.current.clear()
 
     // 3. Create new context with requested settings
     const newCtx = new AudioContext({
@@ -2694,40 +2743,79 @@ export function useAudioEngine() {
     panner.connect(offMaster)
 
     for (const clip of track.clips) {
-      if (!clip.audioUrl || clip.muted) continue
-      const buf = audioBuffersRef.current.get(clip.audioUrl)
-      if (!buf) continue
+      if (clip.muted) continue
 
       const beatDur = 60 / bpm
-      const flexRate = clip.flexRate ?? 1
-      const clipStartS = clip.startBeat * beatDur
-      const clipDurS = clip.durationBeats * beatDur
 
-      const source = offCtx.createBufferSource()
-      source.buffer = buf
-      source.playbackRate.value = flexRate
-      if (clip.looped) source.loop = true
+      if (clip.type === 'audio') {
+        if (!clip.audioUrl) continue
+        const buf = audioBuffersRef.current.get(clip.audioUrl)
+        if (!buf) continue
 
-      const clipGain = offCtx.createGain()
-      clipGain.gain.value = clip.gain
-      source.connect(clipGain)
-      clipGain.connect(trackGain)
+        const flexRate = clip.flexRate ?? 1
+        const clipStartS = clip.startBeat * beatDur
+        const clipDurS = clip.durationBeats * beatDur
 
-      const fadeInSec  = (clip.fadeIn  ?? 0) * beatDur
-      const fadeOutSec = (clip.fadeOut ?? 0) * beatDur
-      if (fadeInSec > 0) {
-        clipGain.gain.setValueAtTime(0.0001, clipStartS)
-        clipGain.gain.exponentialRampToValueAtTime(clip.gain, clipStartS + fadeInSec)
-      }
-      if (fadeOutSec > 0) {
-        const fs = clipStartS + clipDurS - fadeOutSec
-        if (fs > clipStartS) {
-          clipGain.gain.setValueAtTime(clip.gain, fs)
-          clipGain.gain.exponentialRampToValueAtTime(0.0001, clipStartS + clipDurS)
+        const source = offCtx.createBufferSource()
+        source.buffer = buf
+        source.playbackRate.value = flexRate
+        if (clip.looped) source.loop = true
+
+        const clipGain = offCtx.createGain()
+        clipGain.gain.value = clip.gain
+        source.connect(clipGain)
+        clipGain.connect(trackGain)
+
+        const fadeInSec  = (clip.fadeIn  ?? 0) * beatDur
+        const fadeOutSec = (clip.fadeOut ?? 0) * beatDur
+        if (fadeInSec > 0) {
+          clipGain.gain.setValueAtTime(0.0001, clipStartS)
+          clipGain.gain.exponentialRampToValueAtTime(clip.gain, clipStartS + fadeInSec)
+        }
+        if (fadeOutSec > 0) {
+          const fs = clipStartS + clipDurS - fadeOutSec
+          if (fs > clipStartS) {
+            clipGain.gain.setValueAtTime(clip.gain, fs)
+            clipGain.gain.exponentialRampToValueAtTime(0.0001, clipStartS + clipDurS)
+          }
+        }
+
+        source.start(clipStartS, 0, clip.looped ? undefined : clipDurS / flexRate)
+      } else if (clip.type === 'midi' && clip.midiNotes && clip.midiNotes.length > 0) {
+        // Render MIDI notes as simple sine-wave piano tones into the offline context
+        const midiToFreq = (midi: number) => 440 * Math.pow(2, (midi - 69) / 12)
+        for (const note of clip.midiNotes) {
+          const noteStartS = (clip.startBeat + note.startBeat) * beatDur
+          const noteDurS   = note.durationBeats * beatDur
+          if (noteStartS >= durationSec) continue
+
+          const vel = note.velocity / 127
+          // Simple multi-harmonic piano tone
+          const harmonics: [number, number][] = [
+            [1, 0.6], [2, 0.2], [3, 0.1], [4, 0.06], [5, 0.04],
+          ]
+          const noteGain = offCtx.createGain()
+          noteGain.gain.setValueAtTime(0, noteStartS)
+          noteGain.gain.linearRampToValueAtTime(vel * 0.3, noteStartS + 0.005)
+          noteGain.gain.setValueAtTime(vel * 0.3, noteStartS + noteDurS - 0.02)
+          noteGain.gain.exponentialRampToValueAtTime(0.0001, noteStartS + noteDurS + 0.05)
+          noteGain.connect(trackGain)
+
+          const baseFreq = midiToFreq(note.pitch)
+          for (const [harmonic, level] of harmonics) {
+            const osc = offCtx.createOscillator()
+            osc.type = 'sine'
+            osc.frequency.value = baseFreq * harmonic
+            if (harmonic > 1) osc.detune.value = (Math.random() - 0.5) * 4 // tiny chorus
+            const hGain = offCtx.createGain()
+            hGain.gain.value = level
+            osc.connect(hGain)
+            hGain.connect(noteGain)
+            osc.start(noteStartS)
+            osc.stop(Math.min(noteStartS + noteDurS + 0.1, durationSec))
+          }
         }
       }
-
-      source.start(clipStartS, 0, clip.looped ? undefined : clipDurS / flexRate)
     }
 
     onProgress?.(0.2)
@@ -2823,6 +2911,25 @@ export function useAudioEngine() {
         case 'delay':
           nodes.delayWet?.gain.setTargetAtTime(value, ctxRef.current!.currentTime, 0.02)
           break
+        case 'compressor-threshold':
+          nodes.compressor?.threshold.setTargetAtTime(value, ctxRef.current!.currentTime, 0.02)
+          break
+        case 'compressor-ratio':
+          nodes.compressor?.ratio.setTargetAtTime(value, ctxRef.current!.currentTime, 0.02)
+          break
+        case 'reverb-wet':
+          nodes.reverbGain?.gain.setTargetAtTime(value, ctxRef.current!.currentTime, 0.02)
+          break
+        case 'send-level': {
+          // lane.meta?.busId identifies the send bus target
+          const busId = (lane as any).meta?.busId as string | undefined
+          if (busId) {
+            const sendKey = `${lane.trackId}:send:${busId}`
+            const sg = sendGainsRef.current.get(sendKey)
+            if (sg) sg.gain.setTargetAtTime(value, ctxRef.current!.currentTime, 0.02)
+          }
+          break
+        }
       }
     }
   }, [])
@@ -2837,6 +2944,30 @@ export function useAudioEngine() {
     }
   }, [stopAll, stopMetronome])
 
+  // ── Arpeggiator BPM sync — keep all live arps in sync with store BPM ───────
+  useEffect(() => {
+    let prevBpm = useProjectStore.getState().bpm
+    return useProjectStore.subscribe((state) => {
+      if (state.bpm !== prevBpm) {
+        prevBpm = state.bpm
+        for (const arp of arpeggiatorRef.current.values()) {
+          arp.setBpm(state.bpm)
+        }
+      }
+    })
+  }, [])
+
+  // ── Pitch Bend — forward to all active synth instances on the selected track ─
+  const pitchBend = useCallback((value: number, _channel?: number) => {
+    const { selectedTrackId } = useProjectStore.getState()
+    if (!selectedTrackId) return
+    const synth = instrumentSynthsRef.current.get(selectedTrackId)
+    if (!synth) return
+    if ('pitchBend' in synth && typeof (synth as any).pitchBend === 'function') {
+      ;(synth as any).pitchBend(value)
+    }
+  }, [])
+
   return {
     getCtx,
     startPlayback,
@@ -2844,6 +2975,7 @@ export function useAudioEngine() {
     playClip,
     scheduleMidiClip,
     applySoloMute,
+    applySends,
     applyAutomation,
     startMetronome,
     stopMetronome,
@@ -2870,6 +3002,7 @@ export function useAudioEngine() {
     noteOn,
     noteOff,
     allNotesOff,
+    pitchBend,
     playPreviewNote,
     audioBuffersRef,
     restartAudioContext,
@@ -2879,6 +3012,37 @@ export function useAudioEngine() {
       for (const key of [...pitchBufferCache.current.keys()]) {
         if (key.startsWith(`${clipId}:pitch:`)) pitchBufferCache.current.delete(key)
       }
+    },
+    /** Clear all audio node and buffer caches (call after load/new project) */
+    clearNodeCache: () => {
+      // Stop any playing sources
+      for (const src of scheduledSourcesRef.current) {
+        try { src.source.stop() } catch {}
+      }
+      scheduledSourcesRef.current = []
+      // Disconnect and clear track nodes
+      for (const nodes of trackNodesRef.current.values()) {
+        try { nodes.gain.disconnect() } catch {}
+      }
+      trackNodesRef.current.clear()
+      // Clear send gains
+      for (const node of sendGainsRef.current.values()) {
+        try { node.disconnect() } catch {}
+      }
+      sendGainsRef.current.clear()
+      // Clear synth instances
+      for (const synth of instrumentSynthsRef.current.values()) {
+        try { (synth as any).dispose?.() || (synth as any).disconnect?.() } catch {}
+      }
+      instrumentSynthsRef.current.clear()
+      // Clear arpegiators
+      for (const arp of arpeggiatorRef.current.values()) {
+        try { arp.allNotesOff() } catch {}
+      }
+      arpeggiatorRef.current.clear()
+      // Clear audio buffer cache
+      audioBuffersRef.current.clear()
+      pitchBufferCache.current.clear()
     },
   }
 }

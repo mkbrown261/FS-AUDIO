@@ -1,6 +1,68 @@
 import { useRef, useCallback, useEffect } from 'react'
 import { useProjectStore } from '../store/projectStore'
 
+// ── Tempo-map helpers (mirrors getBpmAtBeat in useAudioEngine) ───────────────
+function getBpmAtBeat(beat: number, tempoMap: { beat: number; bpm: number }[]): number {
+  if (!tempoMap || tempoMap.length === 0) return 120
+  const sorted = [...tempoMap].sort((a, b) => a.beat - b.beat)
+  let bpm = sorted[0].bpm
+  for (const pt of sorted) {
+    if (beat >= pt.beat) bpm = pt.bpm
+    else break
+  }
+  return bpm
+}
+
+/** Integrate seconds → beats using the tempo map (handles mid-song BPM changes). */
+function integrateBeats(
+  anchorBeat: number,
+  elapsedSec: number,
+  tempoMap: { beat: number; bpm: number }[],
+): number {
+  if (!tempoMap || tempoMap.length === 0) {
+    return anchorBeat + elapsedSec * (120 / 60)
+  }
+  const sorted = [...tempoMap].sort((a, b) => a.beat - b.beat)
+  let beat = anchorBeat
+  let remaining = elapsedSec
+  while (remaining > 0) {
+    const currentBpm = getBpmAtBeat(beat, sorted)
+    const beatsPerSec = currentBpm / 60
+    // Find the next tempo-change point
+    const nextPt = sorted.find(pt => pt.beat > beat)
+    if (!nextPt) {
+      beat += remaining * beatsPerSec
+      break
+    }
+    const beatsToNext = nextPt.beat - beat
+    const secsToNext = beatsToNext / beatsPerSec
+    if (secsToNext >= remaining) {
+      beat += remaining * beatsPerSec
+      break
+    }
+    beat = nextPt.beat
+    remaining -= secsToNext
+  }
+  return beat
+}
+
+/** Convert a beat position back to wall-clock seconds using the tempo map. */
+function beatToSec(beat: number, tempoMap: { beat: number; bpm: number }[]): number {
+  if (!tempoMap || tempoMap.length === 0) return beat / (120 / 60)
+  const sorted = [...tempoMap].sort((a, b) => a.beat - b.beat)
+  let sec = 0
+  let prevBeat = 0
+  for (const pt of sorted) {
+    if (pt.beat >= beat) break
+    const segBpm = pt.bpm
+    const segEnd = Math.min(pt.beat, beat)
+    sec += (segEnd - prevBeat) / (segBpm / 60)
+    prevBeat = pt.beat
+  }
+  sec += (beat - prevBeat) / (getBpmAtBeat(beat, sorted) / 60)
+  return sec
+}
+
 export function useTransport(
   onStartPlayback: (fromBeat: number) => void,
   onStopAll: () => void,
@@ -21,7 +83,7 @@ export function useTransport(
 
   const store = useProjectStore
 
-  // ── Internal RAF clock ─────────────────────────────────────────────────────
+  // ── Internal RAF clock (tempo-map aware) ───────────────────────────────────
   const startRaf = useCallback((fromBeat: number) => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current)
     anchorBeatRef.current = fromBeat
@@ -32,7 +94,7 @@ export function useTransport(
       const st = store.getState()
       if (!st.isPlaying) return
 
-      // Stall detection
+      // Stall detection — skip large gaps (e.g. tab switched away)
       const prev = lastTimestampRef.current
       if (prev !== null && ts - prev > 200 && startedAtRef.current !== null) {
         const stall = (ts - prev) - (1000 / 60)
@@ -40,9 +102,12 @@ export function useTransport(
       }
       lastTimestampRef.current = ts
 
-      const elapsed = (ts - (startedAtRef.current ?? ts)) / 1000
-      const beat = anchorBeatRef.current + elapsed * (st.bpm / 60)
-      const timeSec = beat * (60 / st.bpm)
+      const elapsedSec = (ts - (startedAtRef.current ?? ts)) / 1000
+
+      // Use tempo-map integrator so mid-song BPM changes are respected
+      const tempoMap = st.tempoMap ?? []
+      const beat = integrateBeats(anchorBeatRef.current, elapsedSec, tempoMap)
+      const timeSec = beatToSec(beat, tempoMap)
 
       // Loop mode
       if (st.isLooping && beat >= st.loopEnd) {
@@ -60,24 +125,31 @@ export function useTransport(
       rafRef.current = requestAnimationFrame(step)
     }
     rafRef.current = requestAnimationFrame(step)
+  // onApplyAutomation is intentionally excluded to avoid stale re-creation
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onStopAll, onStartPlayback, store])
 
   const play = useCallback(async () => {
     const st = store.getState()
     if (st.isPlaying) return
+    const tempoMap = st.tempoMap ?? []
     
-    let fromBeat = st.currentTime * (st.bpm / 60)
+    let fromBeat: number
     
     // LOGIC PRO BEHAVIOR: Loop ON = ALWAYS start from loop start
     if (st.isLooping) {
       fromBeat = st.loopStart
-      store.getState().setCurrentTime(st.loopStart * (60 / st.bpm))
+      store.getState().setCurrentTime(beatToSec(st.loopStart, tempoMap))
       console.log('[play] Loop is ON - jumping to loop start:', st.loopStart)
+    } else {
+      // Derive beat from current wall-clock position using tempo map
+      fromBeat = integrateBeats(0, st.currentTime, tempoMap)
     }
     
     store.getState().setPlaying(true)
     await onStartPlayback(fromBeat)
-    if (st.metronomeEnabled) onStartMetronome(st.bpm, st.metronomeVolume)
+    const currentBpm = getBpmAtBeat(fromBeat, tempoMap)
+    if (st.metronomeEnabled) onStartMetronome(currentBpm, st.metronomeVolume)
     startRaf(fromBeat)
   }, [onStartPlayback, onStartMetronome, startRaf, store])
 
@@ -258,7 +330,8 @@ export function useTransport(
           return
         }
 
-        const fromBeat = store.getState().currentTime * (store.getState().bpm / 60)
+        const _recState = store.getState()
+        const fromBeat = integrateBeats(0, _recState.currentTime, _recState.tempoMap ?? [])
         // Capture where in the timeline recording actually starts
         recordStartBeatRef.current = fromBeat
         await onStartPlayback(fromBeat)
@@ -271,13 +344,15 @@ export function useTransport(
     const wasPlaying = store.getState().isPlaying
     if (wasPlaying) pause()
     store.getState().setCurrentTime(timeSec)
-    anchorBeatRef.current = timeSec * (store.getState().bpm / 60)
+    // Re-derive beat position using tempo map so seeks are accurate
+    const tempoMap = store.getState().tempoMap ?? []
+    anchorBeatRef.current = integrateBeats(0, timeSec, tempoMap)
     if (wasPlaying) play()
   }, [pause, play, store])
 
   const seekToBeat = useCallback((beat: number) => {
-    const bpm = store.getState().bpm
-    seekToTime(beat * (60 / bpm))
+    const tempoMap = store.getState().tempoMap ?? []
+    seekToTime(beatToSec(beat, tempoMap))
   }, [seekToTime, store])
 
   useEffect(() => {
@@ -291,9 +366,10 @@ export function useTransport(
   const toStart = useCallback(() => {
     pause()
     const st = store.getState()
+    const tempoMap = st.tempoMap ?? []
     // When looping, "to start" means go to loopStart, not absolute 0
     const targetBeat = st.isLooping ? st.loopStart : 0
-    const targetTime = targetBeat * (60 / st.bpm)
+    const targetTime = beatToSec(targetBeat, tempoMap)
     store.getState().setCurrentTime(targetTime)
     anchorBeatRef.current = targetBeat
   }, [pause, store])

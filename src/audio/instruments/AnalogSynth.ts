@@ -341,6 +341,31 @@ export class AnalogSynth {
     return this.output
   }
   
+  // ── Unified synth protocol aliases ────────────────────────────────────────
+  /** Alias for playNote — matches DX7/FM/Wavetable protocol */
+  noteOn(pitch: number, velocity = 100) { this.playNote(pitch, velocity) }
+  /** Alias for stopNote — matches DX7/FM/Wavetable protocol */
+  noteOff(pitch: number) { this.stopNote(pitch) }
+  /** Alias for panic — matches other synths */
+  allNotesOff() { this.panic() }
+  /** Connect output to a destination node */
+  connect(destination: AudioNode) { this.getOutput().connect(destination) }
+  /** Disconnect output */
+  disconnect() { this.dispose() }
+
+  /**
+   * Apply pitch-bend: value -1.0 to +1.0, bendRange in semitones (default 2)
+   */
+  pitchBend(value: number, bendRangeSemitones = 2) {
+    const cents = value * bendRangeSemitones * 100
+    for (const voiceList of this.voices.values()) {
+      for (const v of voiceList) {
+        if (v.osc1) v.osc1.detune.setTargetAtTime(cents + (this.params.osc1_detune ?? 0), this.ctx.currentTime, 0.01)
+        if (v.osc2) v.osc2.detune.setTargetAtTime(cents + (this.params.osc2_detune ?? 0), this.ctx.currentTime, 0.01)
+      }
+    }
+  }
+
   /**
    * Stop all notes
    */

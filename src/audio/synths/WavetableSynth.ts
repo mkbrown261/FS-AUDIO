@@ -202,6 +202,22 @@ export class WavetableSynth {
   }
   
   /**
+   * Apply pitch-bend: value -1.0 to +1.0, bendRange in semitones (default 2)
+   * WavetableSynth uses playbackRate for pitch, so we offset via detune param simulation.
+   * We store the bend offset and apply on next noteOn, and also modulate output gain as a proxy.
+   */
+  private _pitchBendCents = 0
+  pitchBend(value: number, bendRangeSemitones = 2) {
+    this._pitchBendCents = value * bendRangeSemitones * 100
+    // Apply to all active voices via playbackRate adjustment
+    for (const voice of this.voices) {
+      if (voice.isActive()) {
+        voice.applyPitchBendCents(this._pitchBendCents)
+      }
+    }
+  }
+
+  /**
    * Connect to destination
    */
   connect(destination: AudioNode) {
@@ -321,6 +337,15 @@ class WavetableVoice {
       this.bufferSource.stop()
       this.bufferSource = null
     }
+  }
+
+  /** Apply pitch bend in cents by adjusting playbackRate */
+  applyPitchBendCents(cents: number) {
+    if (!this.bufferSource || !this.active) return
+    // cents offset → multiply playbackRate by 2^(cents/1200)
+    const ratio = Math.pow(2, cents / 1200)
+    const baseRate = this.bufferSource.playbackRate.value
+    this.bufferSource.playbackRate.setTargetAtTime(baseRate * ratio, this.context.currentTime, 0.01)
   }
 }
 

@@ -35,6 +35,7 @@ interface EngineCallbacks {
   noteOn: (pitch: number, velocity: number) => void
   noteOff: (pitch: number) => void
   allNotesOff: () => void
+  pitchBend?: (value: number, channel: number) => void  // -1.0 to +1.0
 }
 
 export function useMidiInput(engine: EngineCallbacks) {
@@ -105,9 +106,13 @@ export function useMidiInput(engine: EngineCallbacks) {
         }
         break
 
-      case 0xe0: // Pitch Bend — no direct engine call, but log it
+      case 0xe0: { // Pitch Bend — 14-bit value LSB=data1 MSB=data2, centre = 0x2000
+        const raw14 = (data2 << 7) | data1           // 0–16383
+        const normalized = (raw14 - 8192) / 8192     // -1.0 to +1.0
+        engine.pitchBend?.(normalized, channel)
         setState(prev => ({ ...prev, lastMessage: { type: 'pitchBend', pitch: data1, velocity: data2, channel } }))
         break
+      }
 
       default:
         break

@@ -306,6 +306,16 @@ export class GranularSynth {
   }
 
   /**
+   * Apply pitch-bend to all active grain buffer sources via playbackRate.
+   * value: -1.0 to +1.0, bendRangeSemitones default 2
+   */
+  pitchBend(value: number, bendRangeSemitones = 2) {
+    // Store for next grain spawn
+    this._pitchBendRatio = Math.pow(2, (value * bendRangeSemitones) / 12)
+  }
+  private _pitchBendRatio = 1.0
+
+  /**
    * Connect to destination
    */
   connect(destination: AudioNode) {

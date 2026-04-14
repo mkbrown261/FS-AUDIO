@@ -154,9 +154,11 @@ const TEMPLATES: ProjectTemplate[] = [
 interface NewProjectModalProps {
   isOpen: boolean
   onClose: () => void
+  /** Called before creating the new project so the engine can clear its cache */
+  onBeforeCreate?: () => void
 }
 
-export function NewProjectModal({ isOpen, onClose }: NewProjectModalProps) {
+export function NewProjectModal({ isOpen, onClose, onBeforeCreate }: NewProjectModalProps) {
   const [selected, setSelected] = useState<string>('empty')
   const [projectName, setProjectName] = useState('Untitled Project')
   const store = useProjectStore()
@@ -167,6 +169,7 @@ export function NewProjectModal({ isOpen, onClose }: NewProjectModalProps) {
 
   const handleCreate = () => {
     const tmpl = TEMPLATES.find(t => t.id === selected) ?? TEMPLATES[0]
+    onBeforeCreate?.()
     store.newProjectFromTemplate(tmpl.tracks, tmpl.bpm, tmpl.timeSignature, projectName.trim() || 'Untitled Project')
     onClose()
   }
