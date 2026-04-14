@@ -8,6 +8,7 @@ import { FMSynth, FMSynthParams, FM_ALGORITHMS } from '../audio/synths/FMSynth'
 import { AnalogSynth } from '../audio/instruments/AnalogSynth'
 import { Sampler, SamplerParams } from '../audio/instruments/Sampler'
 import { Arpeggiator, ARP_DEFAULTS } from '../audio/Arpeggiator'
+import { VocalTuner, VocalTunerParams } from '../audio/plugins/VocalTuner'
 
 /** Coerce a plugin param value (string | number) to number */
 const pn = (v: string | number | undefined, fallback = 0): number =>
@@ -178,6 +179,9 @@ export function useAudioEngine() {
 
   // ── Typed send-gain map: key = `${trackId}:send:${busId}` → GainNode ──────
   const sendGainsRef = useRef<Map<string, GainNode>>(new Map())
+
+  // ── VocalTuner instances: one per track that has vocal_tuner plugin active ──
+  const vocalTunersRef = useRef<Map<string, VocalTuner>>(new Map())
 
   const getCtx = useCallback((): AudioContext => {
     // If context doesn't exist OR is closed, create a new one
@@ -2031,6 +2035,47 @@ export function useAudioEngine() {
       // These are UI-only plugins (no real DSP via Web Audio for glitch/synth)
       // Their audio content comes from MIDI notes routed through the MIDI engine
       // We just ensure they don't interfere with the signal chain
+
+      // ── vocal_tuner: insert VocalTuner AudioWorklet between transientMakeup and panner ──
+      const vtPlugin = track.plugins.find(p => p.type === 'vocal_tuner' && p.enabled)
+      const existingVt = vocalTunersRef.current.get(track.id)
+
+      if (vtPlugin && nodes.transientMakeup && nodes.panner) {
+        if (!existingVt) {
+          // Create a new VocalTuner instance and splice it into the chain
+          const vt = new VocalTuner(ctx)
+          vocalTunersRef.current.set(track.id, vt)
+          try {
+            nodes.transientMakeup.disconnect(nodes.panner)
+          } catch { /* already disconnected */ }
+          nodes.transientMakeup.connect(vt.input)
+          vt.output.connect(nodes.panner)
+        }
+        // Update VocalTuner params from plugin settings
+        const vt = vocalTunersRef.current.get(track.id)!
+        const vtP = vtPlugin.params
+        const scaleMap: Record<string, VocalTunerParams['scale']> = {
+          chromatic: 'chromatic', major: 'major', minor: 'minor', pentatonic: 'pentatonic'
+        }
+        const keyNames = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B']
+        const keyStr = String(vtP.key ?? 'C')
+        const keyIdx = keyNames.indexOf(keyStr)
+        vt.update({
+          retuneSpeed:     pn(vtP.retuneSpeed, 50),
+          scale:           scaleMap[String(vtP.scale ?? 'major')] ?? 'major',
+          key:             keyIdx >= 0 ? keyIdx : 0,
+          mix:             pn(vtP.mix, 100) / 100,
+          formantPreserve: pn(vtP.formantPreserve, 1),
+        })
+      } else if (!vtPlugin && existingVt) {
+        // Plugin was disabled — remove VocalTuner from chain
+        if (nodes.transientMakeup && nodes.panner) {
+          try { existingVt.disconnect() } catch {}
+          try { nodes.transientMakeup.disconnect() } catch {}
+          nodes.transientMakeup.connect(nodes.panner)
+        }
+        vocalTunersRef.current.delete(track.id)
+      }
     }
   }, [getCtx])
 
@@ -2831,6 +2876,11 @@ export function useAudioEngine() {
     trackNodesRef.current.clear()
     // Clear send gains — they reference nodes from the old context
     sendGainsRef.current.clear()
+    // Clear vocal tuners — they reference nodes from the old context
+    for (const vt of vocalTunersRef.current.values()) {
+      try { vt.disconnect() } catch {}
+    }
+    vocalTunersRef.current.clear()
 
     // 3. Create new context with requested settings
     const newCtx = new AudioContext({
@@ -3218,6 +3268,11 @@ export function useAudioEngine() {
         try { (synth as any).dispose?.() || (synth as any).disconnect?.() } catch {}
       }
       instrumentSynthsRef.current.clear()
+      // Clear vocal tuners
+      for (const vt of vocalTunersRef.current.values()) {
+        try { vt.disconnect() } catch {}
+      }
+      vocalTunersRef.current.clear()
       // Clear arpegiators
       for (const arp of arpeggiatorRef.current.values()) {
         try { arp.allNotesOff() } catch {}

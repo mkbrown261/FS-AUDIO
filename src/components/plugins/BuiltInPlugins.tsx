@@ -24,6 +24,11 @@ import { useProjectStore, Track, Plugin } from '../../store/projectStore'
 import { FLOWSTATE_PRO_DEFAULTS, renderFlowstatePlugin } from './FlowstatePro'
 import { AI_PLUGIN_DEFAULTS, renderAiPlugin } from './AiPlugins'
 import { useAuthGate, AuthGateModal } from '../AuthGateModal'
+import { VocalTunerUI } from './VocalTunerUI'
+import { ParametricEQ8UI } from './ParametricEQ8UI'
+import { MultibandCompressorUI } from './MultibandCompressorUI'
+import { DeEsserUI } from './DeEsserUI'
+import type { EQBand } from '../../audio/plugins/ParametricEQ8'
 
 // AI plugins that require a Pro (or higher) plan to add.
 // Free AI plugins (pure DSP, no network call): fs_bpmfinder, fs_phantom, fs_dream, fs_ouroboros
@@ -1470,6 +1475,60 @@ function PluginSlot({ trackId, plugin, slotIndex }: PluginSlotProps) {
       case 'pitch_correct':return <FluxEditor plugin={plugin} onChange={handleChange} />
       case 'parallel_comp':return <ForgeEditor plugin={plugin} onChange={handleChange} />
       case 'granular':     return <CrystalEditor plugin={plugin} onChange={handleChange} />
+      // ── Legacy Standalone Plugins ──────────────────────────────────────────
+      case 'vocal_tuner':
+        return <VocalTunerUI
+          plugin={{ id: plugin.id, params: plugin.params as Record<string, number> }}
+          onParamChange={(_id, params) => handleChange(params as Record<string, number | string>)}
+        />
+
+      case 'multiband_comp':
+        return <MultibandCompressorUI
+          plugin={{ id: plugin.id, params: plugin.params as Record<string, number> }}
+          onParamChange={(_id, params) => handleChange(params as Record<string, number | string>)}
+        />
+
+      case 'deesser':
+        return <DeEsserUI
+          plugin={{ id: plugin.id, params: plugin.params as Record<string, number> }}
+          onParamChange={(_id, params) => handleChange(params as Record<string, number | string>)}
+        />
+
+      case 'parametric_eq8': {
+        // Convert flat params (band0_freq, band0_gain, …) ↔ EQBand[] for ParametricEQ8UI
+        const NUM_BANDS = 8
+        const DEFAULT_TYPES = ['lowshelf','peaking','peaking','peaking','peaking','peaking','peaking','highshelf'] as const
+        const bands: EQBand[] = Array.from({ length: NUM_BANDS }, (_, i) => ({
+          frequency: Number(plugin.params[`band${i}_freq`] ?? [30,100,250,750,2000,5000,10000,16000][i]),
+          gain:      Number(plugin.params[`band${i}_gain`] ?? 0),
+          q:         Number(plugin.params[`band${i}_q`]    ?? 1.0),
+          type:      (plugin.params[`band${i}_type`] as BiquadFilterType) ?? DEFAULT_TYPES[i],
+        }))
+        return <ParametricEQ8UI
+          bands={bands}
+          onBandChange={(idx, partial) => {
+            const updated: Record<string, number | string> = { ...plugin.params }
+            if (partial.frequency !== undefined) updated[`band${idx}_freq`] = partial.frequency
+            if (partial.gain      !== undefined) updated[`band${idx}_gain`] = partial.gain
+            if (partial.q         !== undefined) updated[`band${idx}_q`]    = partial.q
+            if (partial.type      !== undefined) updated[`band${idx}_type`] = partial.type
+            handleChange(updated)
+          }}
+          onReset={() => {
+            const reset: Record<string, number | string> = {}
+            const freqs = [30,100,250,750,2000,5000,10000,16000]
+            for (let i = 0; i < NUM_BANDS; i++) {
+              reset[`band${i}_freq`] = freqs[i]
+              reset[`band${i}_gain`] = 0
+              reset[`band${i}_q`]    = i === 0 || i === 7 ? 0.7 : 1.0
+              reset[`band${i}_type`] = DEFAULT_TYPES[i]
+            }
+            reset.output = 0
+            handleChange(reset)
+          }}
+        />
+      }
+
       // MIDI Processors
       case 'arpeggiator':  return <ArpEditor plugin={plugin} onChange={handleChange} />
       // AI Plugin Suite
@@ -1502,6 +1561,9 @@ function PluginSlot({ trackId, plugin, slotIndex }: PluginSlotProps) {
     stereo_width: '#38bdf8', tape: '#d97706', sub_enhancer: '#7c3aed',
     noise_gate: '#14b8a6', pitch_correct: '#e879f9', parallel_comp: '#facc15',
     granular: '#818cf8',
+    // Legacy Standalone Plugins
+    vocal_tuner: '#8b5cf6', parametric_eq8: '#a855f7',
+    multiband_comp: '#fb923c', deesser: '#06b6d4',
     // AI Plugin Suite
     fs_oracle: '#d946ef', fs_clone: '#06b6d4', fs_architect: '#22c55e',
     fs_phantom: '#8b5cf6', fs_nerve: '#f59e0b', fs_bpmfinder: '#f97316',

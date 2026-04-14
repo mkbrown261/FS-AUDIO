@@ -34,7 +34,7 @@ export class VocalTuner {
 
   // Analysis
   private analyser: AnalyserNode
-  private dataArray: Float32Array
+  private dataArray: Float32Array<ArrayBuffer>
   private detectedPitch: number = 0
   private targetPitch:   number = 0
   private _rafId: number | null = null
@@ -105,7 +105,7 @@ export class VocalTuner {
    * YIN-lite autocorrelation pitch detector.
    * Returns frequency in Hz, or 0 if no pitch detected.
    */
-  private _autocorrelate(buf: Float32Array, sr: number): number {
+  private _autocorrelate(buf: Float32Array<ArrayBuffer>, sr: number): number {
     let rms = 0
     for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i]
     rms = Math.sqrt(rms / buf.length)
