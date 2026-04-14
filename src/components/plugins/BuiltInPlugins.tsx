@@ -613,6 +613,36 @@ export const PLUGIN_DEFAULTS: Record<string, { params: Record<string, number | s
     },
   },
 
+  note_repeat: {
+    name: 'FS-Note Repeat',
+    type: 'note_repeat',
+    params: {
+      rate:     4,     // repeats per beat (1=quarter, 2=8th, 4=16th, 8=32nd)
+      gate:     0.5,   // note duration as fraction of step
+      velocity: 0,     // 0=descend, 1=ascending, 2=fixed(100)
+      velDecay: 0.8,   // velocity multiplier per repeat (if descend/ascend)
+      swing:    0,     // 0-0.5
+      latch:    0,     // 0=hold while key pressed, 1=toggle latch
+      enabled:  1,
+    },
+  },
+
+  chord_memorizer: {
+    name: 'FS-Chord Mem',
+    type: 'chord_memorizer',
+    params: {
+      // 12 chord slots (one per semitone), encoded as interval bitmask 0-4095
+      // Default: no chords programmed (single-note passthrough)
+      slot0:  0,  slot1:  0,  slot2:  0,  slot3:  0,
+      slot4:  0,  slot5:  0,  slot6:  0,  slot7:  0,
+      slot8:  0,  slot9:  0,  slot10: 0,  slot11: 0,
+      // -1 = off, 0=C-reference, 1=D-reference...
+      rootKey:  0,     // root key offset 0-11
+      voicing:  0,     // 0=root, 1=first inv, 2=second inv, 3=spread
+      enabled:  1,
+    },
+  },
+
   // ── PHASE 2: PROFESSIONAL STUDIO PLUGINS ────────────────────────────────────
 
   vocal_tuner: {
@@ -1435,6 +1465,189 @@ function ArpEditor({ plugin, onChange }: PluginEditorProps) {
   )
 }
 
+// ── Note Repeat editor ───────────────────────────────────────────────────────
+const NR_RATE_OPTIONS = [
+  { value: 1,  label: '¼' },
+  { value: 2,  label: '⅛' },
+  { value: 4,  label: '¹⁄₁₆' },
+  { value: 8,  label: '¹⁄₃₂' },
+  { value: 0.5, label: '½' },
+]
+
+function NoteRepeatEditor({ plugin, onChange }: PluginEditorProps) {
+  const p = plugin.params
+  const rate    = pn(p.rate,     4)
+  const gate    = pn(p.gate,     0.5)
+  const velMode = pn(p.velocity, 0)
+  const velDecay= pn(p.velDecay, 0.8)
+  const swing   = pn(p.swing,    0)
+  const latch   = pn(p.latch,    0)
+  return (
+    <div className="plugin-editor-body">
+      <div className="plugin-step-row">
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">RATE</span>
+          {NR_RATE_OPTIONS.map(o => (
+            <button key={o.value}
+              className={`plugin-step-btn${rate === o.value ? ' active' : ''}`}
+              onClick={() => onChange({ ...p, rate: o.value })}
+            >{o.label}</button>
+          ))}
+        </div>
+      </div>
+      <div className="plugin-step-row">
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">VEL MODE</span>
+          {[['Descend','0'],['Ascend','1'],['Fixed','2']].map(([lbl, val]) => (
+            <button key={val}
+              className={`plugin-step-btn${velMode === Number(val) ? ' active' : ''}`}
+              onClick={() => onChange({ ...p, velocity: Number(val) })}
+            >{lbl}</button>
+          ))}
+        </div>
+      </div>
+      <div className="plugin-knob-row">
+        <Knob label="GATE"    value={gate}     min={0.05} max={1}    step={0.01} onChange={v => onChange({ ...p, gate: v })} />
+        <Knob label="VEL×"   value={velDecay}  min={0.5}  max={1}    step={0.01} onChange={v => onChange({ ...p, velDecay: v })} />
+        <Knob label="SWING"  value={swing}     min={0}    max={0.49} step={0.01} onChange={v => onChange({ ...p, swing: v })} />
+      </div>
+      <div className="plugin-step-row" style={{ marginTop: 2 }}>
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">LATCH</span>
+          <button className={`plugin-step-btn${latch === 1 ? ' active' : ''}`}
+            onClick={() => onChange({ ...p, latch: latch === 1 ? 0 : 1 })}
+          >{latch === 1 ? 'ON' : 'OFF'}</button>
+        </div>
+        <div className="plugin-step-group" style={{ marginLeft: 12 }}>
+          <span className="plugin-step-label">BYPASS</span>
+          <button className={`plugin-step-btn${pn(p.enabled, 1) === 0 ? ' active' : ''}`}
+            onClick={() => onChange({ ...p, enabled: pn(p.enabled, 1) === 0 ? 1 : 0 })}
+          >{pn(p.enabled, 1) === 0 ? 'ON' : 'OFF'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Chord Memorizer editor ────────────────────────────────────────────────────
+const CHORD_PRESETS: { name: string; intervals: number[] }[] = [
+  { name: 'Maj',   intervals: [0, 4, 7] },
+  { name: 'Min',   intervals: [0, 3, 7] },
+  { name: 'Maj7',  intervals: [0, 4, 7, 11] },
+  { name: 'Min7',  intervals: [0, 3, 7, 10] },
+  { name: 'Dom7',  intervals: [0, 4, 7, 10] },
+  { name: 'Sus2',  intervals: [0, 2, 7] },
+  { name: 'Sus4',  intervals: [0, 5, 7] },
+  { name: 'Dim',   intervals: [0, 3, 6] },
+  { name: 'Aug',   intervals: [0, 4, 8] },
+  { name: 'Add9',  intervals: [0, 4, 7, 14] },
+  { name: 'Maj9',  intervals: [0, 4, 7, 11, 14] },
+  { name: 'None',  intervals: [] },
+]
+
+function intervalsToMask(intervals: number[]): number {
+  return intervals.reduce((m, i) => m | (1 << Math.min(i, 23)), 0)
+}
+function maskToIntervals(mask: number): number[] {
+  const r: number[] = []
+  for (let i = 0; i < 24; i++) if (mask & (1 << i)) r.push(i)
+  return r
+}
+
+const CM_ROOT_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B']
+
+function ChordMemEditor({ plugin, onChange }: PluginEditorProps) {
+  const p = plugin.params
+  const [selSlot, setSelSlot] = useState(0)
+  const rootKey = pn(p.rootKey, 0)
+  const voicing  = pn(p.voicing, 0)
+
+  const getSlotMask = (slot: number) => pn(p[`slot${slot}`], 0)
+  const setSlotMask = (slot: number, mask: number) => onChange({ ...p, [`slot${slot}`]: mask })
+  const curMask = getSlotMask(selSlot)
+  const curIntervals = maskToIntervals(curMask)
+
+  const matchedPreset = CHORD_PRESETS.find(cp => intervalsToMask(cp.intervals) === curMask)
+
+  return (
+    <div className="plugin-editor-body">
+      {/* Slot selector — 12 keys */}
+      <div style={{ marginBottom: 8 }}>
+        <div className="plugin-step-label" style={{ marginBottom: 4 }}>KEY SLOTS</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+          {CM_ROOT_NAMES.map((name, i) => {
+            const hasMask = pn(p[`slot${i}`], 0) !== 0
+            return (
+              <button key={i}
+                className={`plugin-step-btn${selSlot === i ? ' active' : ''}`}
+                style={{ minWidth: 28, background: hasMask ? 'rgba(168,85,247,0.2)' : undefined }}
+                onClick={() => setSelSlot(i)}
+              >{name}</button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Chord preset selector */}
+      <div style={{ marginBottom: 8 }}>
+        <div className="plugin-step-label" style={{ marginBottom: 4 }}>CHORD PRESET — Slot: {CM_ROOT_NAMES[(selSlot + rootKey) % 12]}</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+          {CHORD_PRESETS.map(cp => (
+            <button key={cp.name}
+              className={`plugin-step-btn${matchedPreset?.name === cp.name ? ' active' : ''}`}
+              onClick={() => setSlotMask(selSlot, intervalsToMask(cp.intervals))}
+            >{cp.name}</button>
+          ))}
+        </div>
+        {curIntervals.length > 0 && (
+          <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>
+            Intervals: {curIntervals.join(', ')} semitones
+          </div>
+        )}
+      </div>
+
+      {/* Root key & voicing */}
+      <div className="plugin-step-row">
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">ROOT</span>
+          <select
+            style={{ fontSize: 10, background: '#1e1e2e', border: '1px solid rgba(255,255,255,0.15)', color: '#e2e8f0', borderRadius: 3, padding: '1px 4px' }}
+            value={rootKey}
+            onChange={e => onChange({ ...p, rootKey: Number(e.target.value) })}
+          >
+            {CM_ROOT_NAMES.map((n, i) => <option key={n} value={i}>{n}</option>)}
+          </select>
+        </div>
+        <div className="plugin-step-group" style={{ marginLeft: 12 }}>
+          <span className="plugin-step-label">VOICING</span>
+          {[['Root','0'],['1st','1'],['2nd','2'],['Sprd','3']].map(([lbl, val]) => (
+            <button key={val}
+              className={`plugin-step-btn${voicing === Number(val) ? ' active' : ''}`}
+              onClick={() => onChange({ ...p, voicing: Number(val) })}
+            >{lbl}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Clear slot / bypass */}
+      <div className="plugin-step-row" style={{ marginTop: 4 }}>
+        <button className="plugin-step-btn" onClick={() => setSlotMask(selSlot, 0)}>Clear Slot</button>
+        <button className="plugin-step-btn" onClick={() => {
+          const cleared: Record<string, number | string> = { ...p }
+          for (let i = 0; i < 12; i++) cleared[`slot${i}`] = 0
+          onChange(cleared)
+        }} style={{ marginLeft: 4 }}>Clear All</button>
+        <div className="plugin-step-group" style={{ marginLeft: 12 }}>
+          <span className="plugin-step-label">BYPASS</span>
+          <button className={`plugin-step-btn${pn(p.enabled, 1) === 0 ? ' active' : ''}`}
+            onClick={() => onChange({ ...p, enabled: pn(p.enabled, 1) === 0 ? 1 : 0 })}
+          >{pn(p.enabled, 1) === 0 ? 'ON' : 'OFF'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Plugin Slot ───────────────────────────────────────────────────────────────
 interface PluginSlotProps {
   trackId: string
@@ -1530,7 +1743,9 @@ function PluginSlot({ trackId, plugin, slotIndex }: PluginSlotProps) {
       }
 
       // MIDI Processors
-      case 'arpeggiator':  return <ArpEditor plugin={plugin} onChange={handleChange} />
+      case 'arpeggiator':      return <ArpEditor plugin={plugin} onChange={handleChange} />
+      case 'note_repeat':      return <NoteRepeatEditor plugin={plugin} onChange={handleChange} />
+      case 'chord_memorizer':  return <ChordMemEditor plugin={plugin} onChange={handleChange} />
       // AI Plugin Suite
       case 'fs_oracle':
       case 'fs_clone':
@@ -1576,7 +1791,7 @@ function PluginSlot({ trackId, plugin, slotIndex }: PluginSlotProps) {
     fs_glitch: '#f97316', fs_fm: '#f59e0b', fs_wavetable: '#3b82f6', fs_granular: '#10b981', fs_multiband_comp: '#fb923c',
     fs_tape_delay: '#f59e0b', fs_vocal_enhance: '#c084fc', fs_dimension: '#22d3ee',
     // MIDI processors
-    arpeggiator: '#a78bfa',
+    arpeggiator: '#a78bfa', note_repeat: '#c084fc', chord_memorizer: '#818cf8',
   }
   const color = typeColors[plugin.type] ?? '#6b7280'
 
@@ -1813,7 +2028,9 @@ const INSTRUMENT_CATEGORIES: { label: string; color: string; icon: string; plugi
     color: '#a78bfa',
     icon: '♩',
     plugins: [
-      { key: 'arpeggiator', name: 'Arpeggiator', type: 'arpeggiator', desc: 'Real-time MIDI arpeggiator — up/down/random/updown, 1-4 octaves, swing' },
+      { key: 'arpeggiator',     name: 'Arpeggiator',      type: 'arpeggiator',     desc: 'Real-time MIDI arpeggiator — up/down/random/updown, 1-4 octaves, swing' },
+      { key: 'note_repeat',     name: 'FS-Note Repeat',   type: 'note_repeat',     desc: 'Rhythmic note repeat/stutter with swing and velocity shaping' },
+      { key: 'chord_memorizer', name: 'FS-Chord Mem',     type: 'chord_memorizer', desc: 'Map single MIDI notes to full chords — 12 slots, preset library, voicings' },
     ],
   },
 ]

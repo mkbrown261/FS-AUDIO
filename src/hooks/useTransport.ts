@@ -80,6 +80,13 @@ export function useTransport(
   const countInRef = useRef<number>(0)
   const countInIntervalRef = useRef<number | null>(null)
   const recordStartBeatRef = useRef<number>(0)
+  // Punch In/Out tracking
+  const punchArmedRef = useRef<boolean>(false)   // waiting for punchIn beat
+  const punchRecordingRef = useRef<boolean>(false) // currently capturing in punch window
+  // Cycle recording pass counter
+  const cyclePassRef = useRef<number>(0)
+  // Stable ref to _saveRecordedBuffer so RAF can call it without stale closure
+  const saveBufferRef = useRef<((buf: AudioBuffer) => void) | null>(null)
 
   const store = useProjectStore
 
@@ -109,8 +116,40 @@ export function useTransport(
       const beat = integrateBeats(anchorBeatRef.current, elapsedSec, tempoMap)
       const timeSec = beatToSec(beat, tempoMap)
 
-      // Loop mode
+      // ── Punch In/Out logic ────────────────────────────────────────────────
+      if (st.punchEnabled && st.isRecording === false && punchArmedRef.current) {
+        // Playhead has entered the punch window → start recording
+        if (beat >= st.punchIn && beat < st.punchOut) {
+          punchArmedRef.current = false
+          punchRecordingRef.current = true
+          recordStartBeatRef.current = beat
+          store.getState().setRecording(true)
+          // mic stream already open; just flag it
+        }
+      }
+      if (st.punchEnabled && punchRecordingRef.current && beat >= st.punchOut) {
+        // Punch Out point reached → stop recording, keep playing
+        punchRecordingRef.current = false
+        onStopRecording().then(buf => {
+          if (buf) saveBufferRef.current?.(buf)
+        }).catch(console.error)
+        store.getState().setRecording(false)
+      }
+
+      // ── Loop / Cycle recording mode ───────────────────────────────────────
       if (st.isLooping && beat >= st.loopEnd) {
+        // If cycle record is on and we are actively recording, cap the take and start a new one
+        if (st.cycleRecordEnabled && st.isRecording) {
+          cyclePassRef.current++
+          onStopRecording().then(buf => {
+            if (buf) saveBufferRef.current?.(buf)
+            // Immediately start new recording pass
+            store.getState().setRecording(true)
+            onStartRecording().catch(console.error)
+            recordStartBeatRef.current = st.loopStart
+          }).catch(console.error)
+        }
+
         anchorBeatRef.current = st.loopStart
         startedAtRef.current = ts
         lastTimestampRef.current = null
@@ -127,7 +166,7 @@ export function useTransport(
     rafRef.current = requestAnimationFrame(step)
   // onApplyAutomation is intentionally excluded to avoid stale re-creation
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onStopAll, onStartPlayback, store])
+  }, [onStopAll, onStartPlayback, onStartRecording, onStopRecording, store])
 
   const play = useCallback(async () => {
     const st = store.getState()
@@ -153,6 +192,66 @@ export function useTransport(
     startRaf(fromBeat)
   }, [onStartPlayback, onStartMetronome, startRaf, store])
 
+  // ── Shared helper: commit an AudioBuffer as a clip / take ─────────────────
+  // (called from stopRecord AND from cycle/punch handlers in the RAF loop)
+  // We keep saveBufferRef updated so the RAF step can call it without stale closure.
+  const _saveRecordedBuffer = useCallback((audioBuffer: AudioBuffer) => {
+    const st = store.getState()
+    const armedTrack = st.tracks.find(t => t.armed)
+    if (!armedTrack) return
+
+    const bpm = st.bpm
+    const durationBeats = (audioBuffer.duration * bpm) / 60
+    const startBeat = recordStartBeatRef.current
+    const passLabel = cyclePassRef.current > 0 ? ` (Pass ${cyclePassRef.current})` : ''
+    const id = `clip-rec-${Date.now()}`
+    const audioUrl = `rec:${id}`
+    onRegisterAudioBuffer?.(audioUrl, audioBuffer)
+
+    const peaks: number[] = []
+    const ch = audioBuffer.getChannelData(0)
+    const blockSize = Math.max(1, Math.floor(ch.length / 200))
+    for (let i = 0; i < 200; i++) {
+      let max = 0
+      for (let j = 0; j < blockSize; j++) {
+        const v = Math.abs(ch[i * blockSize + j] ?? 0)
+        if (v > max) max = v
+      }
+      peaks.push(max)
+    }
+
+    const overlappingClip = armedTrack.clips.find(c => {
+      const cEnd = c.startBeat + c.durationBeats
+      const newEnd = startBeat + durationBeats
+      return c.startBeat < newEnd && cEnd > startBeat
+    })
+
+    const takeName = `Take ${new Date().toLocaleTimeString()}${passLabel}`
+
+    if (overlappingClip) {
+      const take: import('../store/projectStore').Take = {
+        id, name: takeName, audioUrl, waveformPeaks: peaks, gain: 1,
+      }
+      store.getState().addTakeToClip(overlappingClip.id, take)
+      store.getState().updateClip(overlappingClip.id, { audioUrl, waveformPeaks: peaks })
+    } else {
+      const clip: import('../store/projectStore').Clip = {
+        id, trackId: armedTrack.id, startBeat, durationBeats,
+        name: takeName, type: 'audio', audioUrl,
+        gain: 1, fadeIn: 0, fadeOut: 0,
+        fadeInCurve: 'exp', fadeOutCurve: 'exp',
+        looped: false, muted: false, aiGenerated: false,
+        waveformPeaks: peaks,
+        takes: [{ id, name: takeName, audioUrl, waveformPeaks: peaks, gain: 1 }],
+        activeTakeIndex: 0,
+      }
+      store.getState().addClip(clip)
+    }
+  }, [onRegisterAudioBuffer, store])
+
+  // Keep saveBufferRef current
+  saveBufferRef.current = _saveRecordedBuffer
+
   // ── Stop recording and save clip (does NOT reset playhead) ─────────────────
   const stopRecord = useCallback(async () => {
     // Cancel any pending count-in
@@ -162,78 +261,17 @@ export function useTransport(
     }
     store.getState().setCountIn(0)
     store.getState().setRecording(false)
+    punchArmedRef.current = false
+    punchRecordingRef.current = false
+    cyclePassRef.current = 0
 
-    const st = store.getState()
     const audioBuffer = await onStopRecording()
     if (audioBuffer) {
-      const armedTrack = st.tracks.find(t => t.armed)
-      if (armedTrack) {
-        const bpm = st.bpm
-        // Convert audio duration (seconds) to beats: duration_seconds * (beats/minute) / (60 seconds/minute)
-        const durationBeats = (audioBuffer.duration * bpm) / 60
-        const startBeat = recordStartBeatRef.current
-        const id = `clip-rec-${Date.now()}`
-        const audioUrl = `rec:${id}`
-        console.log('[stopRecord] Recording stopped, buffer duration:', audioBuffer.duration, 'audioUrl:', audioUrl)
-        onRegisterAudioBuffer?.(audioUrl, audioBuffer)
-        console.log('[stopRecord] Buffer registered')
-
-        const peaks: number[] = []
-        const ch = audioBuffer.getChannelData(0)
-        const blockSize = Math.max(1, Math.floor(ch.length / 200))
-        for (let i = 0; i < 200; i++) {
-          let max = 0
-          for (let j = 0; j < blockSize; j++) {
-            const v = Math.abs(ch[i * blockSize + j] ?? 0)
-            if (v > max) max = v
-          }
-          peaks.push(max)
-        }
-
-        // Check if there's an overlapping clip on this track → take folder mode
-        const overlappingClip = armedTrack.clips.find(c => {
-          const cEnd = c.startBeat + c.durationBeats
-          const newEnd = startBeat + durationBeats
-          return c.startBeat < newEnd && cEnd > startBeat
-        })
-
-        const takeName = `Take ${new Date().toLocaleTimeString()}`
-
-        if (overlappingClip) {
-          // Add as a new take to the existing overlapping clip
-          const take: import('../store/projectStore').Take = {
-            id,
-            name: takeName,
-            audioUrl,
-            waveformPeaks: peaks,
-            gain: 1,
-          }
-          store.getState().addTakeToClip(overlappingClip.id, take)
-          // Also update the clip to point to the new take's audio
-          store.getState().updateClip(overlappingClip.id, { audioUrl, waveformPeaks: peaks })
-        } else {
-          const clip: import('../store/projectStore').Clip = {
-            id,
-            trackId: armedTrack.id,
-            startBeat,
-            durationBeats,
-            name: takeName,
-            type: 'audio',
-            audioUrl,
-            gain: 1, fadeIn: 0, fadeOut: 0,
-            fadeInCurve: 'exp', fadeOutCurve: 'exp',
-            looped: false, muted: false, aiGenerated: false,
-            waveformPeaks: peaks,
-            takes: [{ id, name: takeName, audioUrl, waveformPeaks: peaks, gain: 1 }],
-            activeTakeIndex: 0,
-          }
-          store.getState().addClip(clip)
-        }
-      }
+      _saveRecordedBuffer(audioBuffer)
     }
     // Don't stop playback - just stop metronome
     onStopMetronome()
-  }, [onStopRecording, onRegisterAudioBuffer, onStopMetronome, store])
+  }, [onStopRecording, _saveRecordedBuffer, onStopMetronome, store])
 
   const pause = useCallback(async () => {
     console.log('[pause] PAUSING PLAYBACK - about to call onStopAll()')
@@ -279,7 +317,7 @@ export function useTransport(
     }
   }, [play, pause, store])
 
-  // ── Record — with count-in ────────────────────────────────────────────────
+  // ── Record — with count-in, punch-in, and cycle support ───────────────────
   const record = useCallback(async () => {
     const st = store.getState()
 
@@ -295,6 +333,9 @@ export function useTransport(
       await stopRecord()
       return
     }
+
+    // Reset cycle pass counter
+    cyclePassRef.current = 0
 
     // Count-in: 4 beats before recording starts
     const bpm = st.bpm
@@ -316,26 +357,42 @@ export function useTransport(
         }
         store.getState().setCountIn(0)
 
-        // NOW start recording and playing
-        store.getState().setRecording(true)
-        store.getState().setPlaying(true)
-
-        try {
-          await onStartRecording()
-        } catch (err: any) {
-          alert(err.message)
-          store.getState().setRecording(false)
-          store.getState().setPlaying(false)
-          onStopMetronome()
-          return
-        }
-
         const _recState = store.getState()
         const fromBeat = integrateBeats(0, _recState.currentTime, _recState.tempoMap ?? [])
-        // Capture where in the timeline recording actually starts
-        recordStartBeatRef.current = fromBeat
-        await onStartPlayback(fromBeat)
-        startRaf(fromBeat)
+
+        store.getState().setPlaying(true)
+
+        if (_recState.punchEnabled) {
+          // Punch mode: arm for punch-in, open mic stream early to avoid latency
+          punchArmedRef.current = true
+          punchRecordingRef.current = false
+          try {
+            await onStartRecording() // open mic stream now
+          } catch (err: any) {
+            alert(err.message)
+            store.getState().setPlaying(false)
+            onStopMetronome()
+            return
+          }
+          // isRecording stays false until punchIn beat in RAF
+          await onStartPlayback(fromBeat)
+          startRaf(fromBeat)
+        } else {
+          // Normal / cycle mode: start recording immediately
+          store.getState().setRecording(true)
+          try {
+            await onStartRecording()
+          } catch (err: any) {
+            alert(err.message)
+            store.getState().setRecording(false)
+            store.getState().setPlaying(false)
+            onStopMetronome()
+            return
+          }
+          recordStartBeatRef.current = fromBeat
+          await onStartPlayback(fromBeat)
+          startRaf(fromBeat)
+        }
       }
     }, beatMs)
   }, [stopRecord, onStartRecording, onStartPlayback, onStartMetronome, onStopMetronome, startRaf, store])

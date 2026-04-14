@@ -144,6 +144,8 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport
     setSnapEnabled, setSnapValue, inspectorOpen, setInspectorOpen,
     tracks, activeTool, setActiveTool,
     showGlobalTracks, setShowGlobalTracks,
+    punchEnabled, setPunchEnabled, punchIn, setPunchIn, punchOut, setPunchOut,
+    cycleRecordEnabled, setCycleRecordEnabled,
   } = useProjectStore()
 
   const bpmRef = useRef<HTMLInputElement>(null)
@@ -260,6 +262,46 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport
           onClick={handleTapTempo}
           title="Tap Tempo"
         >TAP</button>
+      </div>
+
+      {/* ── Punch / Cycle recording controls ──────────────────────────────── */}
+      <div className="transport" style={{ gap: 3 }}>
+        {/* Punch In/Out toggle */}
+        <button
+          className={`tbt ${punchEnabled ? 'active' : ''}`}
+          onClick={() => setPunchEnabled(!punchEnabled)}
+          title="Punch In/Out — record only between Punch In and Punch Out markers"
+          style={{ fontSize: 9, padding: '2px 5px', color: punchEnabled ? '#ef4444' : undefined, borderColor: punchEnabled ? '#ef4444' : undefined }}
+        >PUNCH</button>
+        {punchEnabled && (
+          <>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+              <span style={{ fontSize: 8, color: '#ef4444' }}>IN</span>
+              <input
+                type="number" min={0} step={1} value={punchIn.toFixed(1)}
+                onChange={e => setPunchIn(Math.max(0, parseFloat(e.target.value) || 0))}
+                title="Punch In (beats)"
+                style={{ width: 42, fontSize: 10, background: '#1e1e2e', border: '1px solid #ef4444', color: '#e2e8f0', borderRadius: 3, padding: '1px 3px', textAlign: 'center' }}
+              />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+              <span style={{ fontSize: 8, color: '#ef4444' }}>OUT</span>
+              <input
+                type="number" min={0} step={1} value={punchOut.toFixed(1)}
+                onChange={e => setPunchOut(Math.max(0, parseFloat(e.target.value) || 0))}
+                title="Punch Out (beats)"
+                style={{ width: 42, fontSize: 10, background: '#1e1e2e', border: '1px solid #ef4444', color: '#e2e8f0', borderRadius: 3, padding: '1px 3px', textAlign: 'center' }}
+              />
+            </div>
+          </>
+        )}
+        {/* Cycle recording toggle */}
+        <button
+          className={`tbt ${cycleRecordEnabled ? 'active' : ''}`}
+          onClick={() => setCycleRecordEnabled(!cycleRecordEnabled)}
+          title="Cycle Recording — create new take on each loop pass"
+          style={{ fontSize: 9, padding: '2px 5px', color: cycleRecordEnabled ? '#f59e0b' : undefined, borderColor: cycleRecordEnabled ? '#f59e0b' : undefined }}
+        >CYCLE</button>
       </div>
 
       {/* LCD */}

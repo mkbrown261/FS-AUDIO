@@ -183,6 +183,11 @@ export function useAudioEngine() {
   // ── VocalTuner instances: one per track that has vocal_tuner plugin active ──
   const vocalTunersRef = useRef<Map<string, VocalTuner>>(new Map())
 
+  // ── Note Repeat: per-pitch timer IDs ──────────────────────────────────────
+  const noteRepeatTimersRef = useRef<Map<number, number>>(new Map())
+  // ── Chord Memorizer: currently held source pitches → expanded chord pitches ─
+  const chordMemHeldRef = useRef<Map<number, number[]>>(new Map())
+
   const getCtx = useCallback((): AudioContext => {
     // If context doesn't exist OR is closed, create a new one
     if (!ctxRef.current || ctxRef.current.state === 'closed') {
@@ -2810,14 +2815,13 @@ export function useAudioEngine() {
 
   // ── Public noteOn — routes through Arpeggiator if enabled on selected track
   const noteOn = useCallback((pitch: number, velocity = 100) => {
-    const { selectedTrackId, tracks } = useProjectStore.getState()
+    const { selectedTrackId, tracks, bpm } = useProjectStore.getState()
     const selectedTrack = selectedTrackId ? tracks.find(t => t.id === selectedTrackId) : null
-    const arpPlugin = selectedTrack?.plugins.find(p => p.type === 'arpeggiator' && p.enabled && pn(p.params.enabled, 1) !== 0)
 
+    // ── Arpeggiator ──
+    const arpPlugin = selectedTrack?.plugins.find(p => p.type === 'arpeggiator' && p.enabled && pn(p.params.enabled, 1) !== 0)
     if (arpPlugin && selectedTrack) {
       const arp = _getOrCreateArp(selectedTrack.id, arpPlugin.params)
-      // Sync BPM and params on every noteOn so live changes take effect
-      const { bpm } = useProjectStore.getState()
       arp.setBpm(bpm)
       arp.setParams(Object.fromEntries(
         Object.entries(arpPlugin.params).map(([k, v]) => [k, typeof v === 'string' ? parseFloat(v) || 0 : v])
@@ -2826,18 +2830,95 @@ export function useAudioEngine() {
       return
     }
 
+    // ── Chord Memorizer ──
+    const chordPlugin = selectedTrack?.plugins.find(p => p.type === 'chord_memorizer' && p.enabled && pn(p.params.enabled, 1) !== 0)
+    if (chordPlugin) {
+      const slotKey = `slot${pitch % 12}`
+      const mask = pn(chordPlugin.params[slotKey], 0)
+      if (mask !== 0) {
+        // Build chord: apply voicing inversion
+        const voicing = pn(chordPlugin.params.voicing, 0)
+        const intervals: number[] = []
+        for (let i = 0; i < 24; i++) if (mask & (1 << i)) intervals.push(i)
+        let chord = intervals.map(iv => pitch + iv)
+        // Inversion: rotate bottom note(s) up by octave
+        for (let inv = 0; inv < voicing; inv++) {
+          if (chord.length > 1) chord = [...chord.slice(1), chord[0] + 12]
+        }
+        chord = chord.map(n => Math.min(127, Math.max(0, n)))
+        chordMemHeldRef.current.set(pitch, chord)
+        chord.forEach(n => _directNoteOn(n, velocity))
+        return
+      }
+    }
+
+    // ── Note Repeat ──
+    const nrPlugin = selectedTrack?.plugins.find(p => p.type === 'note_repeat' && p.enabled && pn(p.params.enabled, 1) !== 0)
+    if (nrPlugin) {
+      const rate     = pn(nrPlugin.params.rate, 4)           // repeats per beat
+      const gate     = pn(nrPlugin.params.gate, 0.5)         // duty cycle
+      const velMode  = pn(nrPlugin.params.velocity, 0)       // 0=descend, 1=ascend, 2=fixed
+      const velDecay = pn(nrPlugin.params.velDecay, 0.8)
+      const swing    = pn(nrPlugin.params.swing, 0)
+
+      const stepMs  = (60_000 / bpm) / rate
+      const noteMs  = stepMs * gate
+      let stepIdx   = 0
+      let vel       = velocity
+
+      const fireRepeat = () => {
+        if (velMode === 0) vel = Math.max(1, Math.round(vel * velDecay))
+        else if (velMode === 1) vel = Math.min(127, Math.round(velocity + stepIdx * (127 - velocity) / 8))
+        else vel = 100
+        _directNoteOn(pitch, vel)
+        setTimeout(() => _directNoteOff(pitch), noteMs)
+        stepIdx++
+      }
+
+      // First repeat immediately
+      _directNoteOn(pitch, vel)
+      setTimeout(() => _directNoteOff(pitch), noteMs)
+      stepIdx++
+
+      const intervalId = window.setInterval(() => {
+        const sm = (stepIdx % 2 === 1) ? swing * stepMs : 0
+        if (sm > 0) setTimeout(fireRepeat, sm)
+        else fireRepeat()
+      }, stepMs)
+      noteRepeatTimersRef.current.set(pitch, intervalId)
+      return
+    }
+
     _directNoteOn(pitch, velocity)
   }, [_directNoteOn, _getOrCreateArp])
 
-  // ── Public noteOff — routes through Arpeggiator if enabled on selected track
+  // ── Public noteOff — routes through Arpeggiator / Note Repeat / Chord Mem ──
   const noteOff = useCallback((pitch: number) => {
     const { selectedTrackId, tracks } = useProjectStore.getState()
     const selectedTrack = selectedTrackId ? tracks.find(t => t.id === selectedTrackId) : null
-    const arpPlugin = selectedTrack?.plugins.find(p => p.type === 'arpeggiator' && p.enabled && pn(p.params.enabled, 1) !== 0)
 
+    // Arpeggiator
+    const arpPlugin = selectedTrack?.plugins.find(p => p.type === 'arpeggiator' && p.enabled && pn(p.params.enabled, 1) !== 0)
     if (arpPlugin && selectedTrack) {
       const arp = arpeggiatorRef.current.get(selectedTrack.id)
       if (arp) { arp.releaseNote(pitch); return }
+    }
+
+    // Note Repeat — cancel interval
+    const timerId = noteRepeatTimersRef.current.get(pitch)
+    if (timerId !== undefined) {
+      clearInterval(timerId)
+      noteRepeatTimersRef.current.delete(pitch)
+      _directNoteOff(pitch)
+      return
+    }
+
+    // Chord Memorizer — release all expanded chord notes
+    const chordPitches = chordMemHeldRef.current.get(pitch)
+    if (chordPitches) {
+      chordPitches.forEach(n => _directNoteOff(n))
+      chordMemHeldRef.current.delete(pitch)
+      return
     }
 
     _directNoteOff(pitch)
@@ -2846,6 +2927,11 @@ export function useAudioEngine() {
   const allNotesOff = useCallback(() => {
     // Kill all arpeggiators first
     for (const arp of arpeggiatorRef.current.values()) arp.allNotesOff()
+    // Kill all note repeat timers
+    for (const timerId of noteRepeatTimersRef.current.values()) clearInterval(timerId)
+    noteRepeatTimersRef.current.clear()
+    // Release chord mem
+    chordMemHeldRef.current.clear()
     // Then clear any remaining held notes
     for (const pitch of heldNotesRef.current.keys()) _directNoteOff(pitch)
   }, [_directNoteOff])

@@ -37,7 +37,7 @@ export interface Plugin {
     // Aliased legacy types used by built-in plugin components
     | 'vocal_tuner' | 'parametric_eq8' | 'multiband_comp' | 'deesser' | 'fs_granular'
     // MIDI processors
-    | 'arpeggiator'
+    | 'arpeggiator' | 'note_repeat' | 'chord_memorizer'
   enabled: boolean
   params: Record<string, number | string>  // Allow string for waveform types, etc.
   vstPath?: string
@@ -246,6 +246,12 @@ export interface ProjectState {
 
   // Recording
   countIn: number
+  // Punch In/Out
+  punchEnabled: boolean
+  punchIn: number    // beats
+  punchOut: number   // beats
+  // Cycle recording
+  cycleRecordEnabled: boolean
 
   // Snap
   snapEnabled: boolean
@@ -394,6 +400,12 @@ interface Actions {
   setAiLevel: (v: number) => void
   setClawflowActive: (v: boolean) => void
   setCountIn: (v: number) => void
+  // Punch In/Out
+  setPunchEnabled: (v: boolean) => void
+  setPunchIn: (v: number) => void
+  setPunchOut: (v: number) => void
+  // Cycle recording
+  setCycleRecordEnabled: (v: boolean) => void
   setSnapEnabled: (v: boolean) => void
   setSnapValue: (v: string) => void
   setInspectorOpen: (v: boolean) => void
@@ -490,6 +502,10 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
   aiLevel: 50,
   clawflowActive: false,
   countIn: 0,
+  punchEnabled: false,
+  punchIn: 0,
+  punchOut: 16,
+  cycleRecordEnabled: false,
   snapEnabled: true,
   snapValue: '1/4',
   inspectorOpen: true,
@@ -965,6 +981,10 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
   setAiLevel: (v) => set({ aiLevel: v }),
   setClawflowActive: (v) => set({ clawflowActive: v }),
   setCountIn: (v) => set({ countIn: v }),
+  setPunchEnabled: (v) => set({ punchEnabled: v }),
+  setPunchIn: (v) => set({ punchIn: v }),
+  setPunchOut: (v) => set({ punchOut: v }),
+  setCycleRecordEnabled: (v) => set({ cycleRecordEnabled: v }),
   setSnapEnabled: (v) => set({ snapEnabled: v }),
   setSnapValue: (v) => set({ snapValue: v }),
   setInspectorOpen: (v) => set({ inspectorOpen: v }),

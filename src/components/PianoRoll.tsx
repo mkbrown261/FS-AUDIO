@@ -108,6 +108,18 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
   const [humanizeVel, setHumanizeVel] = useState(15)
   const [humanizeTiming, setHumanizeTiming] = useState(0.02) // beats
 
+  // ── Groove Quantize ────────────────────────────────────────────────────────
+  const [showGroove, setShowGroove] = useState(false)
+  const [quantizeStrength, setQuantizeStrength] = useState(100) // 0-100 %
+  const [swingAmount, setSwingAmount] = useState(0)             // 0-100 % swing
+
+  // ── MIDI Transform ─────────────────────────────────────────────────────────
+  const [showTransform, setShowTransform] = useState(false)
+  const [txTranspose, setTxTranspose] = useState(0)            // semitones
+  const [txVelScale, setTxVelScale] = useState(100)            // %
+  const [txVelOffset, setTxVelOffset] = useState(0)            // absolute offset
+  const [txTimeStretch, setTxTimeStretch] = useState(100)      // %
+
   // Resolve clip
   let clip: Clip | null = null
   let trackColor = '#a855f7'
@@ -288,6 +300,68 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
     }) })
     setShowHumanize(false)
   }, [clip, notes, selectedNotes, humanizeVel, humanizeTiming, updateClip])
+
+  // ── Groove / Strength Quantize ────────────────────────────────────────────
+  const doGrooveQuantize = useCallback(() => {
+    if (!clip) return
+    const strength = quantizeStrength / 100   // 0-1
+    const swing = swingAmount / 100           // 0-1 (0 = no swing, 1 = full swing = 2/3 offset)
+    const target = selectedNotes.size > 0 ? selectedNotes : new Set(notes.map(n => n.id))
+    updateClip(clip.id, { midiNotes: notes.map(n => {
+      if (!target.has(n.id)) return n
+      // Step index in grid
+      const stepIdx = Math.round(n.startBeat / quantize)
+      // Apply swing: every odd step is pushed forward by swing * quantize * 0.5
+      const swingOffset = (stepIdx % 2 === 1) ? swing * quantize * 0.5 : 0
+      const gridBeat = stepIdx * quantize + swingOffset
+      // Interpolate between current position and quantized grid (strength)
+      const newStart = n.startBeat + (gridBeat - n.startBeat) * strength
+      return { ...n, startBeat: Math.max(0, newStart) }
+    }) })
+    setShowGroove(false)
+  }, [clip, notes, selectedNotes, quantize, quantizeStrength, swingAmount, updateClip])
+
+  // ── MIDI Transform ────────────────────────────────────────────────────────
+  const doMidiTransform = useCallback((action: 'transpose' | 'vel-scale' | 'legato' | 'reverse' | 'randomize-vel') => {
+    if (!clip) return
+    const target = selectedNotes.size > 0 ? selectedNotes : new Set(notes.map(n => n.id))
+    let newNotes = [...notes]
+    if (action === 'transpose') {
+      newNotes = notes.map(n => target.has(n.id) ? { ...n, pitch: Math.max(0, Math.min(127, n.pitch + txTranspose)) } : n)
+    } else if (action === 'vel-scale') {
+      newNotes = notes.map(n => {
+        if (!target.has(n.id)) return n
+        const scaled = Math.round(n.velocity * (txVelScale / 100) + txVelOffset)
+        return { ...n, velocity: Math.max(1, Math.min(127, scaled)) }
+      })
+    } else if (action === 'legato') {
+      // Extend each note to reach the next note's start (or +1 beat if last)
+      const sorted = [...notes].filter(n => target.has(n.id)).sort((a, b) => a.startBeat - b.startBeat)
+      newNotes = notes.map(n => {
+        if (!target.has(n.id)) return n
+        const idx = sorted.findIndex(s => s.id === n.id)
+        const next = sorted[idx + 1]
+        const newDur = next ? (next.startBeat - n.startBeat) : (n.durationBeats + 1)
+        return { ...n, durationBeats: Math.max(quantize / 2, newDur - 0.01) }
+      })
+    } else if (action === 'reverse') {
+      const sel = notes.filter(n => target.has(n.id))
+      if (sel.length < 2) return
+      const minBeat = Math.min(...sel.map(n => n.startBeat))
+      const maxEnd  = Math.max(...sel.map(n => n.startBeat + n.durationBeats))
+      const span    = maxEnd - minBeat
+      newNotes = notes.map(n => {
+        if (!target.has(n.id)) return n
+        const mirrorStart = span - (n.startBeat - minBeat) - n.durationBeats + minBeat
+        return { ...n, startBeat: Math.max(0, mirrorStart) }
+      })
+    } else if (action === 'randomize-vel') {
+      newNotes = notes.map(n => !target.has(n.id) ? n : {
+        ...n, velocity: Math.max(1, Math.min(127, Math.round(40 + Math.random() * 87)))
+      })
+    }
+    updateClip(clip.id, { midiNotes: newNotes })
+  }, [clip, notes, selectedNotes, quantize, txTranspose, txVelScale, txVelOffset, updateClip])
 
   // ── Grid click ────────────────────────────────────────────────────────────
   const handleGridClick = useCallback((e: React.MouseEvent<HTMLDivElement>, pitchOverride?: number) => {
@@ -555,6 +629,62 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
               <div style={{ display: 'flex', gap: 6 }}>
                 <button className="tbt" style={{ flex: 1, background: '#10b981', color: '#fff', borderColor: '#10b981' }} onClick={doHumanize}>Apply</button>
                 <button className="tbt" style={{ flex: 1 }} onClick={() => setShowHumanize(false)}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Groove / Swing Quantize ── */}
+        <div style={{ position: 'relative' }}>
+          <button className={`tbt ${showGroove ? 'active' : ''}`} onClick={() => { setShowGroove(g => !g); setShowTransform(false) }} title="Groove & Strength Quantize" style={{ fontSize: 10, padding: '2px 6px', color: showGroove ? '#f59e0b' : undefined, borderColor: showGroove ? '#f59e0b' : undefined }}>≈ GRV</button>
+          {showGroove && (
+            <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 200, background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: 12, minWidth: 220, boxShadow: '0 8px 24px rgba(0,0,0,0.6)' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#e2e8f0', marginBottom: 8 }}>Groove Quantize</div>
+              <div style={{ fontSize: 10, color: '#f59e0b', marginBottom: 4 }}>Strength: {quantizeStrength}%</div>
+              <input type="range" min={0} max={100} value={quantizeStrength} onChange={e => setQuantizeStrength(Number(e.target.value))} style={{ width: '100%', marginBottom: 8 }} />
+              <div style={{ fontSize: 10, color: '#06b6d4', marginBottom: 4 }}>Swing: {swingAmount}%</div>
+              <input type="range" min={0} max={100} value={swingAmount} onChange={e => setSwingAmount(Number(e.target.value))} style={{ width: '100%', marginBottom: 8 }} />
+              <div style={{ fontSize: 9, color: '#64748b', marginBottom: 8 }}>{selectedNotes.size > 0 ? `${selectedNotes.size} selected` : 'All notes'}</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="tbt" style={{ flex: 1, background: '#f59e0b', color: '#000', borderColor: '#f59e0b' }} onClick={doGrooveQuantize}>Apply</button>
+                <button className="tbt" style={{ flex: 1 }} onClick={() => setShowGroove(false)}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── MIDI Transform ── */}
+        <div style={{ position: 'relative' }}>
+          <button className={`tbt ${showTransform ? 'active' : ''}`} onClick={() => { setShowTransform(t => !t); setShowGroove(false) }} title="MIDI Transform" style={{ fontSize: 10, padding: '2px 6px', color: showTransform ? '#a855f7' : undefined, borderColor: showTransform ? '#a855f7' : undefined }}>⇄ XFMR</button>
+          {showTransform && (
+            <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 200, background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: 12, minWidth: 240, boxShadow: '0 8px 24px rgba(0,0,0,0.6)' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#e2e8f0', marginBottom: 8 }}>MIDI Transform</div>
+
+              {/* Transpose */}
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 10, color: '#a855f7', marginBottom: 4 }}>Transpose: {txTranspose > 0 ? `+${txTranspose}` : txTranspose} st</div>
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                  <input type="range" min={-48} max={48} value={txTranspose} onChange={e => setTxTranspose(Number(e.target.value))} style={{ flex: 1 }} />
+                  <button className="tbt" style={{ fontSize: 10, padding: '2px 8px', background: '#a855f7', color: '#fff', borderColor: '#a855f7' }} onClick={() => doMidiTransform('transpose')}>Apply</button>
+                </div>
+              </div>
+
+              {/* Velocity scale */}
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 10, color: '#10b981', marginBottom: 2 }}>Velocity Scale: {txVelScale}%  Offset: {txVelOffset > 0 ? `+${txVelOffset}` : txVelOffset}</div>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <input type="range" min={0} max={200} value={txVelScale} onChange={e => setTxVelScale(Number(e.target.value))} style={{ flex: 1 }} title="Scale %" />
+                  <input type="range" min={-64} max={64} value={txVelOffset} onChange={e => setTxVelOffset(Number(e.target.value))} style={{ flex: 1 }} title="Offset" />
+                  <button className="tbt" style={{ fontSize: 10, padding: '2px 8px', background: '#10b981', color: '#fff', borderColor: '#10b981' }} onClick={() => doMidiTransform('vel-scale')}>Apply</button>
+                </div>
+              </div>
+
+              {/* One-shot actions */}
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                <button className="tbt" style={{ fontSize: 10, padding: '2px 8px' }} onClick={() => doMidiTransform('legato')} title="Extend each note to the start of the next">Legato</button>
+                <button className="tbt" style={{ fontSize: 10, padding: '2px 8px' }} onClick={() => doMidiTransform('reverse')} title="Mirror note positions in time">Reverse</button>
+                <button className="tbt" style={{ fontSize: 10, padding: '2px 8px' }} onClick={() => doMidiTransform('randomize-vel')} title="Randomize velocities">Rnd Vel</button>
+                <button className="tbt" style={{ flex: 1 }} onClick={() => setShowTransform(false)}>Close</button>
               </div>
             </div>
           )}
