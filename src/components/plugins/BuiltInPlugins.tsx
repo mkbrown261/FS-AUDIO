@@ -558,20 +558,13 @@ export const PLUGIN_DEFAULTS: Record<string, { params: Record<string, number | s
     name: 'FS-Granular',
     type: 'fs_granular',
     params: {
-      position: 0.5,
-      positionRandom: 0.1,
-      volume: 0.8,
-      mix: 1.0,
-      freeze: 0,
-      grain_size: 80,
-      grain_density: 12,
-      grain_spread: 30,
-      grain_pitch: 0,
-      grain_pitchRandom: 0,
-      grain_pan: 0,
-      grain_panRandom: 0.3,
-      grain_reverse: 0,
-      grain_envelope: 'gaussian',
+      position: 0.5, positionRandom: 0,
+      grainSize: 80, density: 20, spread: 10,
+      pitch: 0, pitchRandom: 0,
+      pan: 0, panRandom: 0,
+      reverse: 0,
+      envelope: 'gaussian',
+      volume: 0.8, mix: 1.0, freeze: 0,
     },
   },
 
@@ -673,37 +666,6 @@ export const PLUGIN_DEFAULTS: Record<string, { params: Record<string, number | s
     },
   },
 
-  // ── Instruments ─────────────────────────────────────────────────────────
-  fs_wavetable: {
-    name: 'FS-Wavetable',
-    type: 'fs_wavetable',
-    params: {
-      wavetableA: 0, wavetableB: 1,
-      positionA: 0,  positionB: 0,
-      mix: 0,
-      octave: 0, semitone: 0, detune: 0,
-      unison: 1, unisonDetune: 10, unisonSpread: 0.5,
-      filterType: 'lowpass', filterCutoff: 8000, filterResonance: 0, filterEnvAmount: 0,
-      ampAttack: 0.005, ampDecay: 0.3, ampSustain: 0.7, ampRelease: 0.4,
-      filterAttack: 0.01, filterDecay: 0.3, filterSustain: 0.5, filterRelease: 0.3,
-      lfoRate: 3, lfoAmount: 0, lfoDestination: 'position',
-      distortion: 0, bitcrush: 16, volume: 0.8,
-    },
-  },
-
-  fs_granular: {
-    name: 'FS-Granular',
-    type: 'fs_granular',
-    params: {
-      position: 0.5, positionRandom: 0,
-      grainSize: 80, density: 20, spread: 10,
-      pitch: 0, pitchRandom: 0,
-      pan: 0, panRandom: 0,
-      reverse: 0,
-      envelope: 'gaussian',
-      volume: 0.8, mix: 1.0, freeze: 0,
-    },
-  },
 }
 
 // ── Per-plugin UI ─────────────────────────────────────────────────────────────
