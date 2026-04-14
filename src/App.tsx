@@ -676,48 +676,100 @@ export default function App() {
   }, [store.filePath])
 
   // ── Copy audio assets to project folder when saving ───────────────────────
-  // Intercept Cmd+S / menu save by wrapping saveProject so that audio blob
-  // URLs are materialised as real files beside the .fsa before writing.
-  // We do this by overriding window.__fsSaveWithAssets, called from the store.
+  // Materialise all in-memory audio (blob: and rec: URLs) as real WAV files
+  // inside the project's _audio folder, then update clip audioUrls to the
+  // new absolute paths so they survive restarts.
   useEffect(() => {
     const eAPI = (window as any).electronAPI
-    if (!eAPI?.copyAudioToProject) return
+    if (!eAPI?.writeAudioBuffer) return
+
+    /** Encode an AudioBuffer as a 16-bit PCM WAV ArrayBuffer (stereo or mono). */
+    const encodeWAV = (audioBuffer: AudioBuffer): ArrayBuffer => {
+      const numCh    = audioBuffer.numberOfChannels
+      const numSamp  = audioBuffer.length
+      const sr       = audioBuffer.sampleRate
+      const bitsPerSample = 16
+      const byteRate = sr * numCh * bitsPerSample / 8
+      const blockAlign = numCh * bitsPerSample / 8
+      const dataLen  = numSamp * numCh * 2     // 2 bytes per 16-bit sample
+      const buf = new ArrayBuffer(44 + dataLen)
+      const view = new DataView(buf)
+      const writeStr = (off: number, s: string) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)) }
+      writeStr(0, 'RIFF'); view.setUint32(4, 36 + dataLen, true)
+      writeStr(8, 'WAVE'); writeStr(12, 'fmt ')
+      view.setUint32(16, 16, true)       // chunk size
+      view.setUint16(20, 1, true)        // PCM
+      view.setUint16(22, numCh, true)
+      view.setUint32(24, sr, true)
+      view.setUint32(28, byteRate, true)
+      view.setUint16(32, blockAlign, true)
+      view.setUint16(34, bitsPerSample, true)
+      writeStr(36, 'data'); view.setUint32(40, dataLen, true)
+      // Interleave channels
+      let pos = 44
+      for (let i = 0; i < numSamp; i++) {
+        for (let ch = 0; ch < numCh; ch++) {
+          const sample = audioBuffer.getChannelData(ch)[i]
+          const s16 = Math.max(-32768, Math.min(32767, Math.round(sample * 32767)))
+          view.setInt16(pos, s16, true)
+          pos += 2
+        }
+      }
+      return buf
+    }
 
     ;(window as any).__fsCopyAssetsOnSave = async (projectFilePath: string) => {
       const tracks = useProjectStore.getState().tracks
+      const audioBuffers: Map<string, AudioBuffer> = engine.audioBuffersRef.current
       const updates: { clipId: string; audioUrl: string }[] = []
 
       for (const track of tracks) {
         for (const clip of track.clips) {
           if (clip.type !== 'audio' || !clip.audioUrl) continue
-          if (!clip.audioUrl.startsWith('blob:')) continue  // already a file path
+          // Already a file path → nothing to do
+          if (!clip.audioUrl.startsWith('blob:') && !clip.audioUrl.startsWith('rec:')) continue
+
+          const safeName = `${clip.id}_${clip.name.replace(/[^a-z0-9._-]/gi, '_')}.wav`
 
           try {
-            // Fetch the blob data so we can get a File/path
-            const resp = await fetch(clip.audioUrl)
-            const ab   = await resp.arrayBuffer()
+            let wavBytes: Uint8Array | null = null
 
-            // Write to a temp file via Electron — use the clip name as filename
-            const safeName = `${clip.id}_${clip.name.replace(/[^a-z0-9._-]/gi, '_')}.wav`
-            // Write buffer to temp then copy to project audio folder
-            const tmpPath: string | null = await eAPI.copyAudioToProject(
-              clip.audioUrl,
-              projectFilePath,
-              safeName
-            )
-            // copyAudioToProject can't follow blob: URLs from the renderer —
-            // we need to write the buffer ourselves via a temp path.
-            // Instead write through the export IPC — simpler: use a data URL approach.
-            // Actual copy happens in main process only for file:// paths.
-            // For blob: URLs we must write the buffer to a temp file first.
-            // Write an ArrayBuffer via a new IPC call:
-            const writtenPath: string | null = await eAPI.writeAudioBuffer?.(
+            if (clip.audioUrl.startsWith('blob:')) {
+              // Imported file — the blob may be an already-encoded audio file (WAV/MP3/etc.)
+              // Just pass the raw bytes through; if it's not a WAV the DAW can still decode it.
+              const resp = await fetch(clip.audioUrl)
+              const ab   = await resp.arrayBuffer()
+              // Re-encode as WAV using in-memory decoded AudioBuffer if available,
+              // otherwise fall back to raw bytes (which are usually valid audio already).
+              const audioBuf = audioBuffers.get(clip.audioUrl)
+              wavBytes = audioBuf ? new Uint8Array(encodeWAV(audioBuf)) : new Uint8Array(ab)
+            } else if (clip.audioUrl.startsWith('rec:')) {
+              // Recorded audio — lives only in audioBuffersRef; encode to WAV now.
+              const audioBuf = audioBuffers.get(clip.audioUrl)
+              if (!audioBuf) continue
+              wavBytes = new Uint8Array(encodeWAV(audioBuf))
+            }
+
+            if (!wavBytes) continue
+
+            const writtenPath: string | null = await eAPI.writeAudioBuffer(
               projectFilePath,
               safeName,
-              new Uint8Array(ab)
+              wavBytes
             )
             if (writtenPath) {
               updates.push({ clipId: clip.id, audioUrl: writtenPath })
+              // Also update any takes that referenced this URL
+              for (const take of clip.takes ?? []) {
+                if (take.audioUrl === clip.audioUrl) {
+                  take.audioUrl = writtenPath
+                }
+              }
+              // Re-register under the new file path so playback still works
+              const audioBuf = audioBuffers.get(clip.audioUrl)
+              if (audioBuf) {
+                audioBuffers.set(writtenPath, audioBuf)
+              }
             }
           } catch (err) {
             console.warn(`[SaveAssets] Could not copy audio for clip "${clip.name}":`, err)

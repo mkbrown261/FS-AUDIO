@@ -151,7 +151,7 @@ export const PLUGIN_DEFAULTS: Record<string, { params: Record<string, number | s
   reverb: {
     name: 'FS-Reverb',
     type: 'reverb',
-    params: { wet: 0.3, size: 2.5, damping: 0.5, predelay: 0.02 },
+    params: { wet: 0.3, size: 2.5, damping: 0.5, predelay: 0.02, irType: 'hall' },
   },
   delay: {
     name: 'FS-Delay',
@@ -740,14 +740,35 @@ function LimiterEditor({ plugin, onChange }: PluginEditorProps) {
   )
 }
 
+const IR_TYPES = [
+  { value: 'small-room', label: 'Small Room' },
+  { value: 'hall',       label: 'Concert Hall' },
+  { value: 'cathedral',  label: 'Cathedral' },
+  { value: 'plate',      label: 'Plate' },
+] as const
+
 function ReverbEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
+  const irType = (p.irType as string) || 'hall'
   return (
-    <div className="plugin-knobs-row">
-      <Knob label="WET" value={pn(p.wet, 0.3)} min={0} max={1} unit="" onChange={v => onChange({ ...p, wet: v })} />
-      <Knob label="SIZE" value={pn(p.size, 2.5)} min={0.1} max={10} step={0.1} unit=" s" onChange={v => onChange({ ...p, size: v })} />
-      <Knob label="DAMP" value={pn(p.damping, 0.5)} min={0} max={1} onChange={v => onChange({ ...p, damping: v })} />
-      <Knob label="PRE-DLY" value={pn(p.predelay, 0.02) * 1000} min={0} max={100} step={1} unit=" ms" onChange={v => onChange({ ...p, predelay: v / 1000 })} />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {/* IR type selector */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 4px' }}>
+        <span style={{ fontSize: 10, color: '#9ca3af', letterSpacing: '0.05em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>Space</span>
+        <select
+          value={irType}
+          onChange={e => onChange({ ...p, irType: e.target.value })}
+          style={{ flex: 1, background: '#1f2937', color: '#e5e7eb', border: '1px solid #374151', borderRadius: 4, padding: '2px 4px', fontSize: 11 }}
+        >
+          {IR_TYPES.map(ir => <option key={ir.value} value={ir.value}>{ir.label}</option>)}
+        </select>
+      </div>
+      <div className="plugin-knobs-row">
+        <Knob label="WET" value={pn(p.wet, 0.3)} min={0} max={1} unit="" onChange={v => onChange({ ...p, wet: v })} />
+        <Knob label="SIZE" value={pn(p.size, 2.5)} min={0.1} max={10} step={0.1} unit=" s" onChange={v => onChange({ ...p, size: v })} />
+        <Knob label="DAMP" value={pn(p.damping, 0.5)} min={0} max={1} onChange={v => onChange({ ...p, damping: v })} />
+        <Knob label="PRE-DLY" value={pn(p.predelay, 0.02) * 1000} min={0} max={100} step={1} unit=" ms" onChange={v => onChange({ ...p, predelay: v / 1000 })} />
+      </div>
     </div>
   )
 }

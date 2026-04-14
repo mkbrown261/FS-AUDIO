@@ -264,6 +264,48 @@ export class GranularSynth {
   }
   
   /**
+   * noteOn — MIDI-style trigger for scheduleMidiClip.
+   * Translates pitch+velocity into GranularSynthParams and starts grains.
+   * The `pitch` param shifts the grain playback rate; velocity scales volume.
+   */
+  noteOn(midiNote: number, velocity: number, params?: Partial<GranularSynthParams>) {
+    // Transpose relative to A4 (MIDI 69) → semitones offset
+    const pitchSemitones = midiNote - 69
+    const vol            = (velocity / 127) * (params?.volume ?? 0.8)
+
+    const gp: GranularSynthParams = {
+      sampleBuffer:   params?.sampleBuffer  ?? this.buffer,
+      position:       params?.position      ?? 0.5,
+      positionRandom: params?.positionRandom ?? 0.0,
+      grainParams: {
+        size:        params?.grainParams?.size        ?? 80,
+        density:     params?.grainParams?.density     ?? 20,
+        spread:      params?.grainParams?.spread      ?? 10,
+        pitch:       pitchSemitones,           // semitones offset
+        pitchRandom: params?.grainParams?.pitchRandom ?? 0,
+        pan:         params?.grainParams?.pan         ?? 0,
+        panRandom:   params?.grainParams?.panRandom   ?? 0,
+        reverse:     params?.grainParams?.reverse     ?? 0,
+        envelope:    params?.grainParams?.envelope    ?? 'gaussian',
+      },
+      volume:  vol,
+      mix:     params?.mix    ?? 1.0,
+      freeze:  params?.freeze ?? false,
+    }
+
+    this.stop()    // stop previous grain cloud if any
+    this.start(gp)
+  }
+
+  /**
+   * noteOff — stop the grain cloud for this note.
+   * GranularSynth is monophonic per-instance so any noteOff stops it.
+   */
+  noteOff(_midiNote: number) {
+    this.stop()
+  }
+
+  /**
    * Connect to destination
    */
   connect(destination: AudioNode) {

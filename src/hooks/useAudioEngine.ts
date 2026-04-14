@@ -236,16 +236,27 @@ export function useAudioEngine() {
     const reverb = ctx.createConvolver()
     const reverbGain = ctx.createGain()
     reverbGain.gain.value = 0 // dry by default
-    // Generate a simple synthetic reverb impulse
-    const irLength = ctx.sampleRate * 2.5
-    const irBuffer = ctx.createBuffer(2, irLength, ctx.sampleRate)
-    for (let ch = 0; ch < 2; ch++) {
-      const data = irBuffer.getChannelData(ch)
-      for (let i = 0; i < irLength; i++) {
-        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / irLength, 2.5)
+    // Load the bundled hall IR (real WAV), fall back to synthetic if unavailable
+    ;(async () => {
+      try {
+        const resp = await fetch('/ir/hall.wav')
+        if (!resp.ok) throw new Error('IR fetch failed')
+        const ab = await resp.arrayBuffer()
+        const irBuf = await ctx.decodeAudioData(ab)
+        reverb.buffer = irBuf
+      } catch {
+        // Fallback: generate a simple synthetic IR
+        const irLength = ctx.sampleRate * 2.5
+        const irBuffer = ctx.createBuffer(2, irLength, ctx.sampleRate)
+        for (let ch = 0; ch < 2; ch++) {
+          const data = irBuffer.getChannelData(ch)
+          for (let i = 0; i < irLength; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / irLength, 2.5)
+          }
+        }
+        reverb.buffer = irBuffer
       }
-    }
-    reverb.buffer = irBuffer
+    })()
 
     // ── Delay ────────────────────────────────────────────────────────────
     const delay = ctx.createDelay(5.0)
@@ -848,9 +859,10 @@ export function useAudioEngine() {
     const sfzPlugin        = track?.plugins.find(p => p.type === 'fs_sfz'        && p.enabled)
     const wavetablePlugin  = track?.plugins.find(p => p.type === 'fs_wavetable'  && p.enabled)
     const fmPlugin         = track?.plugins.find(p => p.type === 'fs_fm'         && p.enabled)
+    const granularPlugin   = track?.plugins.find(p => p.type === 'fs_granular'   && p.enabled)
 
     // Helper: get or create the instrument synth instance for this track
-    const getInstrumentSynth = (): DX7Synth | SFZSampler | WavetableSynth | FMSynth | null => {
+    const getInstrumentSynth = (): DX7Synth | SFZSampler | WavetableSynth | FMSynth | GranularSynth | null => {
       let synth = instrumentSynthsRef.current.get(trackId)
 
       if (dx7Plugin) {
@@ -897,6 +909,15 @@ export function useAudioEngine() {
         return synth
       }
 
+      if (granularPlugin) {
+        if (!synth || !(synth instanceof GranularSynth)) {
+          synth = new GranularSynth(ctx)
+          ;(synth as GranularSynth).connect(nodes.gain)
+          instrumentSynthsRef.current.set(trackId, synth)
+        }
+        return synth
+      }
+
       return null
     }
 
@@ -931,6 +952,8 @@ export function useAudioEngine() {
               instrumentSynth.noteOn(note.pitch, vel / 127, (wavetablePlugin?.params ?? {}) as unknown as WavetableSynthParams)
             } else if (instrumentSynth instanceof FMSynth) {
               instrumentSynth.noteOn(note.pitch, vel / 127, (fmPlugin?.params ?? {}) as unknown as FMSynthParams)
+            } else if (instrumentSynth instanceof GranularSynth) {
+              instrumentSynth.noteOn(note.pitch, vel)
             } else {
               instrumentSynth.noteOn(note.pitch, vel)
             }
@@ -943,6 +966,8 @@ export function useAudioEngine() {
               instrumentSynth.noteOff(note.pitch, (wavetablePlugin?.params ?? {}) as unknown as WavetableSynthParams)
             } else if (instrumentSynth instanceof FMSynth) {
               instrumentSynth.noteOff(note.pitch, (fmPlugin?.params ?? {}) as unknown as FMSynthParams)
+            } else if (instrumentSynth instanceof GranularSynth) {
+              instrumentSynth.noteOff(note.pitch)
             } else {
               instrumentSynth.noteOff(note.pitch)
             }
@@ -1229,6 +1254,39 @@ export function useAudioEngine() {
         const mix = Math.max(0, Math.min(1, pp.mix ?? 1))
         nodes.pressureDry!.gain.setTargetAtTime(1 - mix, ctx.currentTime, 0.01)
         nodes.pressureWet!.gain.setTargetAtTime(mix, ctx.currentTime, 0.01)
+      }
+
+      // ── FS-Reverb: load correct IR WAV based on irType param ─────────────
+      const reverbPlugin = track.plugins.find(p => p.type === 'reverb' && p.enabled)
+      if (reverbPlugin && nodes.reverb) {
+        const rp = reverbPlugin.params
+        const irType = (rp.irType as string) || 'hall'
+        const wet    = Number(rp.wet ?? 0.3)
+        if (nodes.reverbGain) nodes.reverbGain.gain.setTargetAtTime(wet, ctx.currentTime, 0.02)
+
+        // Only reload IR if the irType changed (cache key stored on node)
+        const prevIr = (nodes.reverb as any)._loadedIrType
+        if (prevIr !== irType) {
+          ;(nodes.reverb as any)._loadedIrType = irType
+          ;(async () => {
+            try {
+              const resp = await fetch(`/ir/${irType}.wav`)
+              if (!resp.ok) throw new Error('IR fetch failed')
+              const ab   = await resp.arrayBuffer()
+              const irBuf = await ctx.decodeAudioData(ab)
+              nodes.reverb!.buffer = irBuf
+            } catch {
+              // Fallback: synthetic 2.5 s noise IR
+              const irLen = Math.ceil(ctx.sampleRate * 2.5)
+              const irBuf = ctx.createBuffer(2, irLen, ctx.sampleRate)
+              for (let ch = 0; ch < 2; ch++) {
+                const d = irBuf.getChannelData(ch)
+                for (let i = 0; i < irLen; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / irLen, 2.5)
+              }
+              nodes.reverb!.buffer = irBuf
+            }
+          })()
+        }
       }
 
       // ── FS-Spacetime: Shimmer Reverb + Ping-Pong ──────────────────────────
@@ -2141,7 +2199,7 @@ export function useAudioEngine() {
   }, [])
 
   // ── Instrument Synth Instances (per track) ────────────────────────────────
-  const instrumentSynthsRef = useRef<Map<string, DX7Synth | SFZSampler | WavetableSynth | FMSynth>>(new Map())
+  const instrumentSynthsRef = useRef<Map<string, DX7Synth | SFZSampler | WavetableSynth | FMSynth | GranularSynth>>(new Map())
 
   // ── Play a preview note (piano roll key click) ────────────────────────────
   const heldNotesRef = useRef<Map<number, { osc: OscillatorNode; gain: GainNode }>>(new Map())
@@ -2294,6 +2352,24 @@ export function useAudioEngine() {
         heldNotesRef.current.set(pitch, { osc: null as any, gain: null as any })
         return
       }
+
+      // ── GranularSynth ────────────────────────────────────────────────────
+      const granularPlugin = selectedTrack.plugins.find(p => p.type === 'fs_granular' && p.enabled)
+      if (granularPlugin) {
+        let trackNodes = trackNodesRef.current.get(selectedTrack.id)
+        if (!trackNodes) trackNodes = getTrackNodes(selectedTrack.id, selectedTrack.volume, selectedTrack.pan)
+        if (!trackNodes) { console.error('[noteOn] No track nodes for GranularSynth'); return }
+
+        let synth = instrumentSynthsRef.current.get(selectedTrack.id)
+        if (!synth || !(synth instanceof GranularSynth)) {
+          synth = new GranularSynth(ctx)
+          ;(synth as GranularSynth).connect(trackNodes.gain)
+          instrumentSynthsRef.current.set(selectedTrack.id, synth)
+        }
+        ;(synth as GranularSynth).noteOn(pitch, velocity)
+        heldNotesRef.current.set(pitch, { osc: null as any, gain: null as any })
+        return
+      }
     }
 
     // Fallback to simple oscillator (for testing or tracks without instruments)
@@ -2327,8 +2403,9 @@ export function useAudioEngine() {
       const sfzPlugin = selectedTrack.plugins.find(p => p.type === 'fs_sfz' && p.enabled)
       const wavetablePlugin = selectedTrack.plugins.find(p => p.type === 'fs_wavetable' && p.enabled)
       const fmPlugin = selectedTrack.plugins.find(p => p.type === 'fs_fm' && p.enabled)
+      const granularPlugin = selectedTrack.plugins.find(p => p.type === 'fs_granular' && p.enabled)
       
-      if (dx7Plugin || sfzPlugin || wavetablePlugin || fmPlugin) {
+      if (dx7Plugin || sfzPlugin || wavetablePlugin || fmPlugin || granularPlugin) {
         const synth = instrumentSynthsRef.current.get(selectedTrack.id)
         if (synth) {
           if (synth instanceof WavetableSynth) {
@@ -2337,6 +2414,8 @@ export function useAudioEngine() {
           } else if (synth instanceof FMSynth) {
             const fp = (fmPlugin?.params ?? {}) as unknown as FMSynthParams
             synth.noteOff(pitch, fp)
+          } else if (synth instanceof GranularSynth) {
+            synth.noteOff(pitch)
           } else {
             synth.noteOff(pitch)
           }
