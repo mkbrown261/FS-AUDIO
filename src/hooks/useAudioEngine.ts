@@ -1040,7 +1040,28 @@ export function useAudioEngine() {
             } else if (instrumentSynth instanceof FMSynth) {
               instrumentSynth.noteOn(note.pitch, vel / 127, (fmPlugin?.params ?? {}) as unknown as FMSynthParams)
             } else if (instrumentSynth instanceof GranularSynth) {
-              instrumentSynth.noteOn(note.pitch, vel)
+              // Build GranularSynthParams from flat plugin params
+              const gp = granularPlugin?.params ?? {}
+              const pn2 = (k: string, d: number) => { const v = gp[k]; return typeof v === 'number' ? v : parseFloat(v as string) || d }
+              instrumentSynth.noteOn(note.pitch, vel, {
+                sampleBuffer: null, // already loaded via loadBuffer
+                position:       pn2('position', 0.5),
+                positionRandom: pn2('positionRandom', 0),
+                grainParams: {
+                  size:        pn2('grainSize', 80),
+                  density:     pn2('density', 20),
+                  spread:      pn2('spread', 10),
+                  pitch:       pn2('pitch', 0),
+                  pitchRandom: pn2('pitchRandom', 0),
+                  pan:         pn2('pan', 0),
+                  panRandom:   pn2('panRandom', 0),
+                  reverse:     pn2('reverse', 0),
+                  envelope:    (gp.envelope as 'linear' | 'exponential' | 'gaussian') ?? 'gaussian',
+                },
+                volume: pn2('volume', 0.8),
+                mix:    pn2('mix', 1),
+                freeze: Boolean(gp.freeze),
+              })
             } else if (instrumentSynth instanceof AnalogSynth) {
               instrumentSynth.noteOn(note.pitch, vel)
             } else if (instrumentSynth instanceof Sampler) {
@@ -2689,7 +2710,28 @@ export function useAudioEngine() {
           ;(synth as GranularSynth).connect(trackNodes.gain)
           instrumentSynthsRef.current.set(selectedTrack.id, synth)
         }
-        ;(synth as GranularSynth).noteOn(pitch, velocity)
+        // Build GranularSynthParams from flat plugin params so grain controls take effect
+        const gp2 = granularPlugin.params
+        const pn3 = (k: string, d: number) => { const v = gp2[k]; return typeof v === 'number' ? v : parseFloat(v as string) || d }
+        ;(synth as GranularSynth).noteOn(pitch, velocity, {
+          sampleBuffer: null, // already loaded via loadBuffer call
+          position:       pn3('position', 0.5),
+          positionRandom: pn3('positionRandom', 0),
+          grainParams: {
+            size:        pn3('grainSize', 80),
+            density:     pn3('density', 20),
+            spread:      pn3('spread', 10),
+            pitch:       pn3('pitch', 0),
+            pitchRandom: pn3('pitchRandom', 0),
+            pan:         pn3('pan', 0),
+            panRandom:   pn3('panRandom', 0),
+            reverse:     pn3('reverse', 0),
+            envelope:    (gp2.envelope as 'linear' | 'exponential' | 'gaussian') ?? 'gaussian',
+          },
+          volume: pn3('volume', 0.8),
+          mix:    pn3('mix', 1),
+          freeze: Boolean(gp2.freeze),
+        })
         heldNotesRef.current.set(pitch, { osc: null as any, gain: null as any })
         return
       }

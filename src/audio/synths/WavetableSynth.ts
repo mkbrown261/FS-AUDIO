@@ -31,15 +31,15 @@ export interface WavetableSynthParams {
   filterEnvAmount: number // -1 to +1
   
   // Envelopes
-  ampAttack: number
-  ampDecay: number
-  ampSustain: number
-  ampRelease: number
+  ampAttack: number    // seconds (0.001 – 5)
+  ampDecay: number      // seconds (0.001 – 5)
+  ampSustain: number    // 0-1
+  ampRelease: number    // seconds (0.001 – 8)
   
-  filterAttack: number
-  filterDecay: number
-  filterSustain: number
-  filterRelease: number
+  filterAttack: number  // seconds (0.001 – 5)
+  filterDecay: number   // seconds (0.001 – 5)
+  filterSustain: number // 0-1
+  filterRelease: number // seconds (0.001 – 8)
   
   // LFO
   lfoRate: number         // 0.1-20 Hz
@@ -149,14 +149,14 @@ export class WavetableSynth {
       filterCutoff:    params.filterCutoff    ?? 8000,
       filterResonance: params.filterResonance ?? 1,
       filterEnvAmount: params.filterEnvAmount ?? 0,
-      ampAttack:  params.ampAttack  ?? 10,
-      ampDecay:   params.ampDecay   ?? 200,
+      ampAttack:  params.ampAttack  ?? 0.01,
+      ampDecay:   params.ampDecay   ?? 0.2,
       ampSustain: params.ampSustain ?? 0.7,
-      ampRelease: params.ampRelease ?? 300,
-      filterAttack:  params.filterAttack  ?? 10,
-      filterDecay:   params.filterDecay   ?? 200,
+      ampRelease: params.ampRelease ?? 0.3,
+      filterAttack:  params.filterAttack  ?? 0.01,
+      filterDecay:   params.filterDecay   ?? 0.2,
       filterSustain: params.filterSustain ?? 0.5,
-      filterRelease: params.filterRelease ?? 300,
+      filterRelease: params.filterRelease ?? 0.3,
       lfoRate:        params.lfoRate        ?? 5,
       lfoAmount:      params.lfoAmount      ?? 0,
       lfoDestination: params.lfoDestination ?? 'pitch',
@@ -192,7 +192,8 @@ export class WavetableSynth {
    * Release note
    */
   noteOff(midiNote: number, params: WavetableSynthParams) {
-    const releaseTime = (params?.ampRelease ?? 300) / 1000
+    // ampRelease is now in seconds (not ms)
+    const releaseTime = params?.ampRelease ?? 0.3
     this.voices.forEach(voice => {
       if (voice.isPlaying(midiNote)) {
         voice.stop(releaseTime)
@@ -310,6 +311,7 @@ class WavetableVoice {
   private active = false
   private _midiNote = -1   // FIX: was always 0, now -1 = inactive
   private stopScheduled = false
+  private _basePlaybackRate = 1  // FIX: store unmodified rate so pitch-bend applies correctly
   
   constructor(context: AudioContext) {
     this.context = context
@@ -340,8 +342,9 @@ class WavetableVoice {
     this.bufferSource = this.context.createBufferSource()
     this.bufferSource.buffer = buffer
     this.bufferSource.loop = true
-    // FIX: playbackRate = frequency / (sampleRate / sampleCount) = frequency * sampleCount / sampleRate
-    this.bufferSource.playbackRate.value = frequency * waveform.length / this.context.sampleRate
+    // playbackRate = frequency / (sampleRate / sampleCount) = frequency * sampleCount / sampleRate
+    this._basePlaybackRate = frequency * waveform.length / this.context.sampleRate
+    this.bufferSource.playbackRate.value = this._basePlaybackRate
     this.bufferSource.connect(this.filterNode)
     
     // Setup filter
@@ -350,24 +353,24 @@ class WavetableVoice {
     this.filterNode.frequency.value = Math.max(20, Math.min(20000, params.filterCutoff))
     this.filterNode.Q.value = Math.max(0.001, Math.min(20, params.filterResonance))
     
-    // Filter envelope
+    // Filter envelope (all times are in seconds now)
     const filterTarget = Math.max(20, Math.min(20000, params.filterCutoff * (1 + params.filterEnvAmount)))
     this.filterNode.frequency.setValueAtTime(params.filterCutoff, now)
-    this.filterNode.frequency.linearRampToValueAtTime(filterTarget, now + params.filterAttack / 1000)
+    this.filterNode.frequency.linearRampToValueAtTime(filterTarget, now + Math.max(0.001, params.filterAttack))
     this.filterNode.frequency.linearRampToValueAtTime(
       params.filterCutoff + (filterTarget - params.filterCutoff) * params.filterSustain,
-      now + params.filterAttack / 1000 + params.filterDecay / 1000
+      now + Math.max(0.001, params.filterAttack) + Math.max(0.001, params.filterDecay)
     )
     
-    // Amp envelope — velocity 0-1 here
+    // Amp envelope — velocity 0-1 here (all times in seconds)
     const peakGain = Math.max(0, Math.min(1, velocity * params.volume))
     const sustainGain = peakGain * Math.max(0, Math.min(1, params.ampSustain))
     this.gainNode.gain.cancelScheduledValues(now)
     this.gainNode.gain.setValueAtTime(0, now)
-    this.gainNode.gain.linearRampToValueAtTime(peakGain, now + Math.max(0.001, params.ampAttack / 1000))
+    this.gainNode.gain.linearRampToValueAtTime(peakGain, now + Math.max(0.001, params.ampAttack))
     this.gainNode.gain.linearRampToValueAtTime(
       sustainGain,
-      now + params.ampAttack / 1000 + Math.max(0.001, params.ampDecay / 1000)
+      now + Math.max(0.001, params.ampAttack) + Math.max(0.001, params.ampDecay)
     )
     
     this.bufferSource.onended = () => {
@@ -426,16 +429,13 @@ class WavetableVoice {
     try { this.gainNode.disconnect() } catch {}
   }
 
-  /** Apply pitch bend in cents by adjusting playbackRate */
+  /** Apply pitch bend in cents by adjusting playbackRate.
+   * FIX: use stored _basePlaybackRate so repeated bend calls don't compound. */
   applyPitchBendCents(cents: number) {
     if (!this.bufferSource || !this.active) return
-    // Store base rate at note-on, offset by bend ratio
     const ratio = Math.pow(2, cents / 1200)
-    // We can't read the original rate after modification, so apply relative to current
-    // This is approximate; a full implementation would store baseRate separately
-    const currentRate = this.bufferSource.playbackRate.value
     this.bufferSource.playbackRate.setTargetAtTime(
-      Math.abs(currentRate) * ratio,
+      this._basePlaybackRate * ratio,
       this.context.currentTime,
       0.01
     )
