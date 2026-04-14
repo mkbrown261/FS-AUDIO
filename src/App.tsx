@@ -74,6 +74,205 @@ export default function App() {
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), ms)
   }, [])
 
+  // ── Electron menu-action listener ────────────────────────────────────────
+  // Routes ipcRenderer 'menu:action' events from the native menu bar to the
+  // correct store/UI handlers.  Must be defined early (before transport is
+  // created) so that the stable reference doesn't cause stale-closure issues.
+  useEffect(() => {
+    const eAPI = (window as any).electronAPI
+    if (!eAPI?.onMenuAction) return  // not in Electron — skip
+
+    const handler = async (action: string) => {
+      const st = useProjectStore.getState()
+      switch (action) {
+        // ── File ────────────────────────────────────────────────────────────
+        case 'new-project':
+          if (!st.isDirty || confirm('Discard unsaved changes and create a new project?')) {
+            st.newProject()
+            showToast('New project created', 'ok')
+          }
+          break
+
+        case 'save-project':
+          await st.saveProject()
+          showToast('Project saved', 'ok')
+          break
+
+        case 'save-project-as':
+          await st.saveProjectAs()
+          break
+
+        case 'open-project':
+          if (!st.isDirty || confirm('Discard unsaved changes?')) {
+            await st.loadProject()
+          }
+          break
+
+        case 'import-audio': {
+          const eapi = (window as any).electronAPI
+          const filePaths: string[] | null = await eapi?.importAudioFile?.()
+          if (!filePaths || filePaths.length === 0) break
+          for (const fp of filePaths) {
+            try {
+              const buf: Uint8Array | null = await eapi.readAudioFile(fp)
+              if (!buf) continue
+              const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
+              const ctx = engine.getCtx()
+              const audioBuffer = await ctx.decodeAudioData(ab)
+              const peaks = engine.generateWaveformPeaks(audioBuffer)
+              const blob = new Blob([ab])
+              const audioUrl = URL.createObjectURL(blob)
+              engine.registerAudioBuffer(audioUrl, audioBuffer)
+              const currentSt = useProjectStore.getState()
+              const durationBeats = (audioBuffer.duration / 60) * currentSt.bpm
+              const fileName = fp.split(/[\\/]/).pop() || 'audio'
+
+              // Find the first armed audio track, or create one
+              const armedTrack = currentSt.tracks.find(t => t.armed && t.type === 'audio')
+              let targetTrackId = armedTrack?.id
+              if (!targetTrackId) {
+                useProjectStore.getState().addTrack('audio')
+                await new Promise(r => setTimeout(r, 0))
+                const freshTracks = useProjectStore.getState().tracks.filter(t => t.type !== 'master')
+                targetTrackId = freshTracks[freshTracks.length - 1]?.id
+              }
+              if (!targetTrackId) continue
+
+              // Find first empty beat on track
+              const trackClips = useProjectStore.getState().tracks.find(t => t.id === targetTrackId)?.clips ?? []
+              const startBeat = trackClips.reduce((acc, c) => Math.max(acc, c.startBeat + c.durationBeats), 0)
+
+              useProjectStore.getState().addClip({
+                id: `clip-import-${Date.now()}`,
+                trackId: targetTrackId,
+                startBeat,
+                durationBeats: Math.max(1, durationBeats),
+                name: fileName.replace(/\.[^.]+$/, ''),
+                type: 'audio', audioUrl,
+                gain: 1, fadeIn: 0, fadeOut: 0,
+                fadeInCurve: 'exp', fadeOutCurve: 'exp',
+                looped: false, muted: false, aiGenerated: false,
+                waveformPeaks: peaks,
+              })
+            } catch (err) {
+              console.error('[menu:import-audio] failed for', fp, err)
+            }
+          }
+          showToast(`Imported ${filePaths.length} audio file${filePaths.length > 1 ? 's' : ''}`, 'ok')
+          break
+        }
+
+        case 'export':
+          setShowExport(true)
+          break
+
+        // ── Transport ────────────────────────────────────────────────────────
+        case 'play-pause':
+          // Handled by transport; post a custom event keyboard shortcut reuses
+          window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }))
+          break
+
+        case 'stop':
+          window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', bubbles: true }))
+          break
+
+        case 'record':
+          window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyR', ctrlKey: false, bubbles: true }))
+          break
+
+        case 'toggle-loop':
+          st.toggleLoop()
+          break
+
+        case 'go-to-start':
+          st.setCurrentTime(0)
+          break
+
+        case 'toggle-metronome':
+          st.toggleMetronome()
+          break
+
+        // ── View ─────────────────────────────────────────────────────────────
+        case 'show-mixer':
+          st.setShowMixer(!st.showMixer)
+          break
+
+        case 'show-piano-roll':
+          if (st.activePianoRollClipId) st.setShowPianoRoll(!st.showPianoRoll)
+          break
+
+        case 'show-clawbot':
+          st.setShowClawbot(!st.showClawbot)
+          break
+
+        case 'zoom-in':
+          st.setZoom(Math.min(6, st.zoom + 0.25))
+          break
+
+        case 'zoom-out':
+          st.setZoom(Math.max(0.25, st.zoom - 0.25))
+          break
+
+        // ── Edit ─────────────────────────────────────────────────────────────
+        case 'undo':
+          st.undo()
+          break
+
+        case 'redo':
+          st.redo()
+          break
+
+        case 'select-all': {
+          const allIds: string[] = []
+          useProjectStore.getState().tracks.forEach(t => t.clips.forEach(c => allIds.push(c.id)))
+          if (allIds.length > 0) {
+            useProjectStore.getState().selectClip(allIds[0], false)
+            allIds.slice(1).forEach(id => useProjectStore.getState().selectClip(id, true))
+          }
+          break
+        }
+
+        case 'delete-selected':
+          for (const id of st.selectedClipIds) st.removeClip(id)
+          break
+
+        // ── Track ────────────────────────────────────────────────────────────
+        case 'add-audio-track':
+          st.addTrack('audio')
+          break
+
+        case 'add-midi-track':
+          st.addTrack('midi')
+          break
+
+        case 'add-bus-track':
+          st.addTrack('bus')
+          break
+
+        // ── Auth state changes ────────────────────────────────────────────────
+        case 'signed-in':
+          showToast('Signed in to FlowState', 'ok')
+          break
+
+        case 'signed-out':
+          showToast('Signed out of FlowState', 'info')
+          break
+
+        case 'auth-failed':
+          showToast('Sign-in failed. Please try again.', 'error')
+          break
+
+        default:
+          console.debug('[menu:action] unhandled:', action)
+      }
+    }
+
+    eAPI.onMenuAction(handler)
+    // Note: ipcRenderer.on doesn't return a cleanup; the handler lives for the
+    // app lifetime (single renderer process), which is the correct behaviour.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showToast, engine])
+
   // ── Panel widths (resizable) ──────────────────────────────────────────────
   const [inspectorWidth, setInspectorWidth] = useState(240)
   const [tracklistWidth, setTracklistWidth] = useState(220)
@@ -411,6 +610,113 @@ export default function App() {
     showToast(`Exported ${allNotes.length} MIDI notes from all tracks`, 'ok')
   }, [showToast])
 
+  // ── Re-hydrate audio buffers after loading a project from disk ───────────
+  // When a .fsa file is loaded, audio clips have audioUrl = absolute file paths
+  // (not blob: URLs).  We need to read those files via Electron IPC and decode
+  // them into AudioBuffers so playback works.
+  const [lastLoadedFilePath, setLastLoadedFilePath] = useState<string | null>(null)
+  useEffect(() => {
+    const currentFilePath = store.filePath
+    if (!currentFilePath || currentFilePath === lastLoadedFilePath) return
+    setLastLoadedFilePath(currentFilePath)
+
+    const eAPI = (window as any).electronAPI
+    if (!eAPI?.readAudioFile) return
+
+    const rehydrate = async () => {
+      const tracks = useProjectStore.getState().tracks
+      for (const track of tracks) {
+        for (const clip of track.clips) {
+          if (clip.type !== 'audio' || !clip.audioUrl) continue
+          // Skip if it's already a blob: URL (already decoded in memory)
+          if (clip.audioUrl.startsWith('blob:')) continue
+          // It's an absolute file path — read and decode
+          try {
+            const buf: Uint8Array | null = await eAPI.readAudioFile(clip.audioUrl)
+            if (!buf) continue
+            const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
+            const ctx = engine.getCtx()
+            const audioBuffer = await ctx.decodeAudioData(ab.slice(0))
+            const peaks = clip.waveformPeaks ?? engine.generateWaveformPeaks(audioBuffer)
+            const blobUrl = URL.createObjectURL(new Blob([ab]))
+            engine.registerAudioBuffer(blobUrl, audioBuffer)
+            // Update the clip to point at the in-memory blob URL
+            useProjectStore.getState().updateClip(clip.id, {
+              audioUrl: blobUrl,
+              waveformPeaks: peaks,
+            })
+          } catch (err) {
+            console.warn(`[Rehydrate] Could not decode audio for clip "${clip.name}":`, err)
+          }
+        }
+      }
+      showToast(`Project loaded: ${useProjectStore.getState().name}`, 'ok')
+    }
+
+    rehydrate()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.filePath])
+
+  // ── Copy audio assets to project folder when saving ───────────────────────
+  // Intercept Cmd+S / menu save by wrapping saveProject so that audio blob
+  // URLs are materialised as real files beside the .fsa before writing.
+  // We do this by overriding window.__fsSaveWithAssets, called from the store.
+  useEffect(() => {
+    const eAPI = (window as any).electronAPI
+    if (!eAPI?.copyAudioToProject) return
+
+    ;(window as any).__fsCopyAssetsOnSave = async (projectFilePath: string) => {
+      const tracks = useProjectStore.getState().tracks
+      const updates: { clipId: string; audioUrl: string }[] = []
+
+      for (const track of tracks) {
+        for (const clip of track.clips) {
+          if (clip.type !== 'audio' || !clip.audioUrl) continue
+          if (!clip.audioUrl.startsWith('blob:')) continue  // already a file path
+
+          try {
+            // Fetch the blob data so we can get a File/path
+            const resp = await fetch(clip.audioUrl)
+            const ab   = await resp.arrayBuffer()
+
+            // Write to a temp file via Electron — use the clip name as filename
+            const safeName = `${clip.id}_${clip.name.replace(/[^a-z0-9._-]/gi, '_')}.wav`
+            // Write buffer to temp then copy to project audio folder
+            const tmpPath: string | null = await eAPI.copyAudioToProject(
+              clip.audioUrl,
+              projectFilePath,
+              safeName
+            )
+            // copyAudioToProject can't follow blob: URLs from the renderer —
+            // we need to write the buffer ourselves via a temp path.
+            // Instead write through the export IPC — simpler: use a data URL approach.
+            // Actual copy happens in main process only for file:// paths.
+            // For blob: URLs we must write the buffer to a temp file first.
+            // Write an ArrayBuffer via a new IPC call:
+            const writtenPath: string | null = await eAPI.writeAudioBuffer?.(
+              projectFilePath,
+              safeName,
+              new Uint8Array(ab)
+            )
+            if (writtenPath) {
+              updates.push({ clipId: clip.id, audioUrl: writtenPath })
+            }
+          } catch (err) {
+            console.warn(`[SaveAssets] Could not copy audio for clip "${clip.name}":`, err)
+          }
+        }
+      }
+
+      // Apply path updates to the store so the snapshot uses file paths
+      for (const u of updates) {
+        useProjectStore.getState().updateClip(u.clipId, { audioUrl: u.audioUrl })
+      }
+    }
+
+    return () => { delete (window as any).__fsCopyAssetsOnSave }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // ── Warn before closing if unsaved ───────────────────────────────────────
   useEffect(() => {
     // Expose function for Electron to check unsaved status
@@ -541,13 +847,9 @@ export default function App() {
         // ── Save / Split ─────────────────────────────────────────────────
         case 'KeyS':
           if (meta && e.shiftKey) {
-            // Cmd+Shift+S = Save As
+            // Cmd+Shift+S = Save As (uses Electron dialog or prompts in web mode)
             e.preventDefault()
-            const newName = prompt('Save project as:', useProjectStore.getState().name)
-            if (newName?.trim()) {
-              useProjectStore.setState({ name: newName.trim(), isDirty: true })
-              store.saveProject()
-            }
+            store.saveProjectAs()
           } else if (meta) {
             e.preventDefault()
             store.saveProject()

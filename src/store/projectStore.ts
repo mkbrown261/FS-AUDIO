@@ -22,6 +22,8 @@ export interface Plugin {
     | 'fs_ghost' | 'fs_prophet' | 'fs_void' | 'fs_alchemy'
     // Instrument Plugins
     | 'fs_analog' | 'fs_sampler' | 'fs_dx7' | 'fs_sfz'
+    // Aliased legacy types used by built-in plugin components
+    | 'vocal_tuner' | 'parametric_eq8' | 'multiband_comp' | 'deesser' | 'fs_granular'
   enabled: boolean
   params: Record<string, number | string>  // Allow string for waveform types, etc.
   vstPath?: string
@@ -333,8 +335,12 @@ interface Actions {
   pasteClip: (atBeat: number) => void
 
   newProject: () => void
-  saveProject: () => void
-  loadProject: () => void
+  saveProject: () => void | Promise<void>
+  saveProjectAs: () => void | Promise<void>
+  loadProject: () => void | Promise<void>
+  // Internal helpers (used by save/load and App.tsx)
+  _buildSnapshot: () => Record<string, unknown>
+  _applySnapshot: (data: Record<string, unknown>) => void
   setTimeSignature: (num: number, den: number) => void
   loadSFZInstrument: (trackId: string, sfzContent: string, sfzPath: string) => void
   setBufferSize: (v: ProjectState['bufferSize']) => void
@@ -936,13 +942,16 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
     isDirty: true
   })),
 
-  // ── Persist project to localStorage as JSON ────────────────────────────────
-  saveProject: () => {
+  // ── Build a serialisable project snapshot ─────────────────────────────────
+  // Exported so App.tsx can call it before passing data to Electron IPC.
+  // Audio clips retain their audioUrl (file path or blob URL) for reference;
+  // AudioBuffer objects are stripped (not serialisable and not needed on disk).
+  _buildSnapshot: () => {
     const st = get()
-    const projectName = st.name.trim() || 'Untitled Project'
-    const snapshot = {
-      _version: 1,
-      name: projectName,
+    return {
+      _version: 2,
+      name: st.name.trim() || 'Untitled Project',
+      filePath: st.filePath ?? null,
       bpm: st.bpm,
       key: st.key,
       timeSignature: st.timeSignature,
@@ -952,27 +961,150 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
       loopEnd: st.loopEnd,
       isLooping: st.isLooping,
       metronomeEnabled: st.metronomeEnabled,
+      metronomeVolume: st.metronomeVolume,
       zoom: st.zoom,
-      // Serialize tracks — omit AudioBuffer (not serializable), keep metadata + midiNotes
+      automationLanes: st.automationLanes,
       tracks: st.tracks.map(t => ({
         ...t,
         clips: t.clips.map(c => ({
           ...c,
-          audioBuffer: undefined,   // never serializable
+          audioBuffer: undefined,   // never serialisable
         })),
       })),
     }
-    const key = `fs-audio-project-${projectName}`
-    localStorage.setItem(key, JSON.stringify(snapshot))
-    localStorage.setItem('fs-audio-last-project', key)
-    set({ isDirty: false })
-    // Trigger a save-confirm flash by briefly touching the name
-    console.info(`[FS-AUDIO] Project saved to localStorage: ${key}`)
   },
 
-  // ── Load project from localStorage ────────────────────────────────────────
-  loadProject: () => {
-    // Show a prompt listing available saves
+  // ── Apply a loaded snapshot to the store ──────────────────────────────────
+  _applySnapshot: (data: Record<string, unknown>) => {
+    set({
+      name:             (data.name            as string)  ?? 'Loaded Project',
+      filePath:         (data.filePath        as string | null) ?? null,
+      bpm:              (data.bpm             as number)  ?? 120,
+      key:              (data.key             as string)  ?? 'C major',
+      timeSignature:    (data.timeSignature   as [number, number]) ?? [4, 4],
+      sampleRate:       (data.sampleRate      as ProjectState['sampleRate']) ?? 44100,
+      bitDepth:         (data.bitDepth        as ProjectState['bitDepth'])   ?? 24,
+      loopStart:        (data.loopStart       as number)  ?? 0,
+      loopEnd:          (data.loopEnd         as number)  ?? 16,
+      isLooping:        (data.isLooping       as boolean) ?? false,
+      metronomeEnabled: (data.metronomeEnabled as boolean) ?? false,
+      metronomeVolume:  (data.metronomeVolume  as number) ?? 0.5,
+      zoom:             (data.zoom            as number)  ?? 1,
+      pixelsPerBeat:    ((data.zoom as number) ?? 1) * 40,
+      automationLanes:  (data.automationLanes as AutomationLane[]) ?? [],
+      tracks:           (data.tracks          as Track[]) ?? defaultTracks(),
+      isDirty:          false,
+      isPlaying:        false,
+      isRecording:      false,
+      currentTime:      0,
+      selectedClipIds:  [],
+      selectedTrackId:  null,
+      undoStack:        [],
+      redoStack:        [],
+    })
+  },
+
+  // ── Save project ──────────────────────────────────────────────────────────
+  // In Electron: opens Save dialog (or writes silently if filePath is known).
+  // In web mode: falls back to localStorage (development / browser preview).
+  saveProject: async () => {
+    const eAPI = (window as any).electronAPI
+    if (eAPI?.saveProject) {
+      // Step 1 — if we already have a file path, copy audio assets to the _audio
+      // folder beside it first (so they survive the session).
+      const currentPath = get().filePath
+      if (currentPath && (window as any).__fsCopyAssetsOnSave) {
+        try {
+          await (window as any).__fsCopyAssetsOnSave(currentPath)
+        } catch (err) {
+          console.warn('[FS-AUDIO] Asset copy warning:', err)
+        }
+      }
+
+      // Step 2 — build snapshot and save to disk (shows dialog if no path yet)
+      try {
+        const snapshot = (get() as any)._buildSnapshot()
+        const savedPath = await eAPI.saveProject(snapshot)
+        if (savedPath) {
+          // Step 3 — if path was just chosen (first save), copy assets now
+          if (!currentPath && (window as any).__fsCopyAssetsOnSave) {
+            try {
+              await (window as any).__fsCopyAssetsOnSave(savedPath)
+              // Re-save after asset paths updated
+              const updatedSnapshot = (get() as any)._buildSnapshot()
+              await eAPI.saveProjectToPath(savedPath, updatedSnapshot)
+            } catch (err) {
+              console.warn('[FS-AUDIO] Post-save asset copy warning:', err)
+            }
+          }
+          set({ filePath: savedPath, isDirty: false })
+          console.info(`[FS-AUDIO] Project saved to disk: ${savedPath}`)
+        }
+      } catch (err) {
+        console.error('[FS-AUDIO] Electron save failed:', err)
+        alert('Save failed: ' + (err as Error).message)
+      }
+      return
+    }
+
+    // ── Web / localStorage fallback ────────────────────────────────────────
+    const webSnapshot = (get() as any)._buildSnapshot()
+    const key = `fs-audio-project-${webSnapshot.name}`
+    try {
+      localStorage.setItem(key, JSON.stringify(webSnapshot))
+      localStorage.setItem('fs-audio-last-project', key)
+      set({ isDirty: false })
+      console.info(`[FS-AUDIO] Project saved to localStorage: ${key}`)
+    } catch (err) {
+      console.error('[FS-AUDIO] localStorage save failed:', err)
+    }
+  },
+
+  // ── Save As ───────────────────────────────────────────────────────────────
+  saveProjectAs: async () => {
+    const snapshot = (get() as any)._buildSnapshot()
+    const eAPI = (window as any).electronAPI
+    if (eAPI?.saveProjectAs) {
+      try {
+        const savedPath = await eAPI.saveProjectAs(snapshot)
+        if (savedPath) {
+          set({ filePath: savedPath, isDirty: false })
+          console.info(`[FS-AUDIO] Project saved as: ${savedPath}`)
+        }
+      } catch (err) {
+        console.error('[FS-AUDIO] Save As failed:', err)
+        alert('Save As failed: ' + (err as Error).message)
+      }
+    } else {
+      // Web fallback — prompt for name
+      const currentName = get().name
+      const newName = prompt('Save project as:', currentName)
+      if (!newName?.trim()) return
+      set({ name: newName.trim() })
+      ;(get() as any).saveProject()
+    }
+  },
+
+  // ── Load project ──────────────────────────────────────────────────────────
+  loadProject: async () => {
+    // ── Electron path ──────────────────────────────────────────────────────
+    const eAPI = (window as any).electronAPI
+    if (eAPI?.loadProject) {
+      try {
+        const result = await eAPI.loadProject()
+        if (!result) return  // user cancelled
+        if (result.error) { alert(`Load failed: ${result.error}`); return }
+        const { data } = result
+        ;(get() as any)._applySnapshot(data)
+        console.info(`[FS-AUDIO] Project loaded from disk: ${data.filePath}`)
+      } catch (err) {
+        console.error('[FS-AUDIO] Electron load failed:', err)
+        alert('Load failed: ' + (err as Error).message)
+      }
+      return
+    }
+
+    // ── Web / localStorage fallback ────────────────────────────────────────
     const keys: string[] = []
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i)
@@ -995,31 +1127,8 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
     try {
       const raw = localStorage.getItem(selectedKey)
       if (!raw) { alert('Save data is empty or corrupted.'); return }
-      const data = JSON.parse(raw)
-      set({
-        name: data.name ?? 'Loaded Project',
-        bpm: data.bpm ?? 120,
-        key: data.key ?? 'C major',
-        timeSignature: data.timeSignature ?? [4, 4],
-        sampleRate: data.sampleRate ?? 44100,
-        bitDepth: data.bitDepth ?? 24,
-        loopStart: data.loopStart ?? 0,
-        loopEnd: data.loopEnd ?? 16,
-        isLooping: data.isLooping ?? false,
-        metronomeEnabled: data.metronomeEnabled ?? false,
-        zoom: data.zoom ?? 1,
-        pixelsPerBeat: (data.zoom ?? 1) * 40,
-        tracks: data.tracks ?? defaultTracks(),
-        isDirty: false,
-        isPlaying: false,
-        isRecording: false,
-        currentTime: 0,
-        selectedClipIds: [],
-        selectedTrackId: null,
-        undoStack: [],
-        redoStack: [],
-      })
-      console.info(`[FS-AUDIO] Project loaded: ${data.name}`)
+      ;(get() as any)._applySnapshot(JSON.parse(raw))
+      console.info(`[FS-AUDIO] Project loaded from localStorage`)
     } catch (err) {
       alert('Failed to load project — data may be corrupted.')
       console.error('[FS-AUDIO] Load error:', err)

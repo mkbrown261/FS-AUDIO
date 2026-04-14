@@ -401,29 +401,173 @@ ipcMain.handle('audio:export', async (_, opts) => {
 
 // ── Local project save/load ───────────────────────────────────────────────────
 
+/**
+ * Ensure the _audio folder exists beside the .fsa project file.
+ * Returns the absolute path to that folder.
+ */
+function ensureAudioFolder(projectFilePath) {
+  const dir  = path.dirname(projectFilePath)
+  const base = path.basename(projectFilePath, '.fsa')
+  const audioDir = path.join(dir, `${base}_audio`)
+  if (!fs.existsSync(audioDir)) fs.mkdirSync(audioDir, { recursive: true })
+  return audioDir
+}
+
+/**
+ * project:save — If data.filePath is set, write directly there (no dialog).
+ * Otherwise show a Save-As dialog.  Returns { filePath } or null on cancel.
+ */
 ipcMain.handle('project:save', async (_, data) => {
-  const res = await dialog.showSaveDialog(mainWindow, {
-    title: 'Save Project',
-    defaultPath: (data?.name || 'untitled') + '.fsa',
-    filters: [{ name: 'FlowState Audio Project', extensions: ['fsa'] }],
-  })
-  if (!res.canceled && res.filePath) {
-    fs.writeFileSync(res.filePath, JSON.stringify(data, null, 2))
-    return res.filePath
+  let targetPath = data?.filePath || null
+
+  if (!targetPath) {
+    const res = await dialog.showSaveDialog(mainWindow, {
+      title: 'Save Project',
+      defaultPath: (data?.name || 'Untitled Project').replace(/[/\\?%*:|"<>]/g, '_') + '.fsa',
+      filters: [{ name: 'FlowState Audio Project', extensions: ['fsa'] }],
+    })
+    if (res.canceled || !res.filePath) return null
+    targetPath = res.filePath
   }
-  return null
+
+  // Strip non-serialisable runtime fields before writing
+  const serialisable = JSON.parse(JSON.stringify(data, (key, val) => {
+    if (key === 'audioBuffer') return undefined   // AudioBuffer — not serialisable
+    return val
+  }))
+  serialisable.filePath = targetPath  // embed path so subsequent saves are silent
+
+  fs.writeFileSync(targetPath, JSON.stringify(serialisable, null, 2), 'utf8')
+  return targetPath
 })
 
+/**
+ * project:save-as — Always shows the Save dialog.
+ */
+ipcMain.handle('project:save-as', async (_, data) => {
+  const res = await dialog.showSaveDialog(mainWindow, {
+    title: 'Save Project As…',
+    defaultPath: (data?.name || 'Untitled Project').replace(/[/\\?%*:|"<>]/g, '_') + '.fsa',
+    filters: [{ name: 'FlowState Audio Project', extensions: ['fsa'] }],
+  })
+  if (res.canceled || !res.filePath) return null
+
+  const targetPath = res.filePath
+  const serialisable = JSON.parse(JSON.stringify(data, (key, val) => {
+    if (key === 'audioBuffer') return undefined
+    return val
+  }))
+  serialisable.filePath = targetPath
+
+  fs.writeFileSync(targetPath, JSON.stringify(serialisable, null, 2), 'utf8')
+  return targetPath
+})
+
+/**
+ * project:save-to-path — Write directly to a known path (no dialog).
+ */
+ipcMain.handle('project:save-to-path', async (_, filePath, data) => {
+  if (!filePath) return null
+  const serialisable = JSON.parse(JSON.stringify(data, (key, val) => {
+    if (key === 'audioBuffer') return undefined
+    return val
+  }))
+  serialisable.filePath = filePath
+  fs.writeFileSync(filePath, JSON.stringify(serialisable, null, 2), 'utf8')
+  return filePath
+})
+
+/**
+ * project:load — Show Open dialog, return { data, filePath } or null.
+ */
 ipcMain.handle('project:load', async () => {
   const res = await dialog.showOpenDialog(mainWindow, {
     title: 'Open Project',
     filters: [{ name: 'FlowState Audio Project', extensions: ['fsa', 'json'] }],
     properties: ['openFile'],
   })
-  if (!res.canceled && res.filePaths[0]) {
-    return JSON.parse(fs.readFileSync(res.filePaths[0], 'utf8'))
+  if (res.canceled || !res.filePaths[0]) return null
+  try {
+    const filePath = res.filePaths[0]
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+    data.filePath = filePath  // ensure it's embedded
+    return { data, filePath }
+  } catch (err) {
+    return { error: `Could not read project file: ${err.message}` }
   }
-  return null
+})
+
+/**
+ * project:load-from-path — Read a .fsa at a known absolute path.
+ */
+ipcMain.handle('project:load-from-path', async (_, filePath) => {
+  if (!filePath || !fs.existsSync(filePath)) return null
+  try {
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+    data.filePath = filePath
+    return { data, filePath }
+  } catch (err) {
+    return { error: `Could not read project file: ${err.message}` }
+  }
+})
+
+/**
+ * audio:copy-to-project — Copy an audio asset (given as an absolute path) into
+ * the project's _audio folder so it persists alongside the .fsa file.
+ * Returns the new absolute path, or null on failure.
+ */
+ipcMain.handle('audio:copy-to-project', async (_, srcPath, projectFilePath, fileName) => {
+  try {
+    if (!projectFilePath || !srcPath) return null
+    // srcPath may be a file:// URL — strip protocol
+    const cleanSrc = srcPath.startsWith('file://') ? decodeURIComponent(srcPath.replace(/^file:\/\//, '')) : srcPath
+    if (!fs.existsSync(cleanSrc)) return null
+
+    const audioDir  = ensureAudioFolder(projectFilePath)
+    const safeName  = (fileName || path.basename(cleanSrc)).replace(/[/\\?%*:|"<>]/g, '_')
+    const destPath  = path.join(audioDir, safeName)
+
+    if (cleanSrc !== destPath) {
+      fs.copyFileSync(cleanSrc, destPath)
+    }
+    return destPath
+  } catch (err) {
+    console.error('[audio:copy-to-project]', err.message)
+    return null
+  }
+})
+
+/**
+ * audio:read-file — Read an audio file from an absolute path and return its
+ * contents as a Node Buffer (Electron will transfer it as Uint8Array).
+ */
+ipcMain.handle('audio:read-file', async (_, filePath) => {
+  try {
+    if (!filePath || !fs.existsSync(filePath)) return null
+    return fs.readFileSync(filePath)
+  } catch (err) {
+    console.error('[audio:read-file]', err.message)
+    return null
+  }
+})
+
+/**
+ * audio:write-audio-buffer — Write raw PCM / audio bytes (Uint8Array from
+ * renderer) into the project's _audio folder.  Returns the absolute path.
+ */
+ipcMain.handle('audio:write-audio-buffer', async (_, projectFilePath, fileName, uint8Array) => {
+  try {
+    if (!projectFilePath || !fileName) return null
+    const audioDir  = ensureAudioFolder(projectFilePath)
+    const safeName  = fileName.replace(/[/\\?%*:|"<>]/g, '_')
+    const destPath  = path.join(audioDir, safeName)
+    const buffer    = Buffer.from(uint8Array)
+    fs.writeFileSync(destPath, buffer)
+    return destPath
+  } catch (err) {
+    console.error('[audio:write-audio-buffer]', err.message)
+    return null
+  }
 })
 
 // ─── IPC: NEW — Cloud save via FLOWSTATE R2 ───────────────────────────────────
