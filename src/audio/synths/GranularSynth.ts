@@ -87,11 +87,13 @@ export class GranularSynth {
    */
   start(params: GranularSynthParams) {
     if (this.isPlaying) return
+
+    // FIX: assign buffer BEFORE the guard check so noteOn→start works first time
+    if (params.sampleBuffer) this.buffer = params.sampleBuffer
     if (!this.buffer) return
-    
+
     this.isPlaying = true
-    this.buffer = params.sampleBuffer
-    
+
     // Calculate grain interval
     const grainInterval = 1000 / params.grainParams.density
     
@@ -158,13 +160,33 @@ export class GranularSynth {
     pan += (Math.random() - 0.5) * 2 * grainParams.panRandom
     pan = Math.max(-1, Math.min(1, pan))
     
-    // Reverse
+    // Reverse — Web Audio does NOT support negative playbackRate.
+    // We create a reversed copy of the grain region so the source plays forward.
     const reverse = Math.random() < grainParams.reverse
-    
+
     // Create grain nodes
     const source = this.context.createBufferSource()
-    source.buffer = this.buffer
-    source.playbackRate.value = reverse ? -pitchShift : pitchShift
+
+    if (reverse) {
+      // Build a short reversed buffer from the grain region
+      const grainSamples = Math.max(1, Math.round(grainDuration * this.context.sampleRate))
+      const startSample  = Math.round(startOffset * this.context.sampleRate)
+      const revBuf = this.context.createBuffer(this.buffer!.numberOfChannels, grainSamples, this.context.sampleRate)
+      for (let ch = 0; ch < this.buffer!.numberOfChannels; ch++) {
+        const src  = this.buffer!.getChannelData(ch)
+        const dst  = revBuf.getChannelData(ch)
+        for (let i = 0; i < grainSamples; i++) {
+          const srcIdx = startSample + (grainSamples - 1 - i)
+          dst[i] = srcIdx >= 0 && srcIdx < src.length ? src[srcIdx] : 0
+        }
+      }
+      source.buffer = revBuf
+      source.loop   = false
+      source.playbackRate.value = pitchShift * (this._pitchBendRatio ?? 1)
+    } else {
+      source.buffer = this.buffer
+      source.playbackRate.value = pitchShift * (this._pitchBendRatio ?? 1)
+    }
     
     const gainNode = this.context.createGain()
     gainNode.gain.value = 0
@@ -184,8 +206,12 @@ export class GranularSynth {
       gainNode.gain.linearRampToValueAtTime(point * params.volume, time)
     })
     
-    // Schedule grain
-    source.start(now + randomSpread, startOffset, grainDuration)
+    // Schedule grain — reversed grains have their own buffer starting at 0
+    if (reverse) {
+      source.start(now + randomSpread, 0, grainDuration)
+    } else {
+      source.start(now + randomSpread, startOffset, grainDuration)
+    }
     source.stop(now + randomSpread + grainDuration)
     
     // Track grain

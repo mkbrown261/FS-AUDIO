@@ -216,8 +216,11 @@ export class SFZSampler {
   // Optional progress callback: (loaded, total) => void
   onProgress?: (loaded: number, total: number) => void
 
-  /** Parse SFZ text and fetch all samples from samplesBaseUrl */
-  async loadSFZ(sfzContent: string, samplesBaseUrl: string) {
+  /** Parse SFZ text and fetch all samples from samplesBaseUrl.
+   *  If samplesBaseUrl === 'blob-map:', blobUrlMap must be provided and
+   *  each samplePath filename is resolved directly from that map.
+   */
+  async loadSFZ(sfzContent: string, samplesBaseUrl: string, blobUrlMap?: Record<string, string>) {
     this.groups = parseSFZ(sfzContent)
     this.seqCounters = this.groups.map(() => 0)
     this.audioBuffers.clear()
@@ -241,22 +244,38 @@ export class SFZSampler {
       const BATCH = 8
       for (let i = 0; i < paths.length; i += BATCH) {
         await Promise.all(paths.slice(i, i + BATCH).map(async (samplePath) => {
-          // Build full URL: samplesBaseUrl + '/' + samplePath
-          const url = samplesBaseUrl
-            ? `${samplesBaseUrl}/${samplePath}`
-            : `/${samplePath}`
+          // Build full URL: use blobUrlMap when provided, else base + path
+          let url: string
+          if (samplesBaseUrl === 'blob-map:' && blobUrlMap) {
+            // Resolve by filename only — ignores subdirectory path in the SFZ
+            const filename = samplePath.replace(/\\/g, '/').split('/').pop() ?? samplePath
+            url = blobUrlMap[filename] ?? blobUrlMap[samplePath] ?? ''
+            if (!url) { console.warn(`[SFZ] blob-map: no entry for "${samplePath}"`); return }
+          } else {
+            url = samplesBaseUrl
+              ? `${samplesBaseUrl}/${samplePath}`
+              : `/${samplePath}`
+          }
 
           try {
-            // URL-encode each path segment to handle spaces, # and special chars in filenames
-            // Split on '/', encode each segment with encodeURIComponent, rejoin with '/'
-            const encodedUrl = url.split('/').map((seg, idx) => {
-              // Don't encode empty segments (leading slash creates one) or protocol
-              if (!seg || seg.endsWith(':')) return seg
-              return encodeURIComponent(seg)
-            }).join('/')
-            const resp = await fetch(encodedUrl)
-            if (!resp.ok) { console.warn(`[SFZ] HTTP ${resp.status} for ${encodedUrl}`); return }
-            const ab  = await resp.arrayBuffer()
+            let ab: ArrayBuffer
+            if (url.startsWith('blob:')) {
+              // Already a blob URL — fetch directly, no encoding needed
+              const resp = await fetch(url)
+              if (!resp.ok) { console.warn(`[SFZ] HTTP ${resp.status} for blob URL`); return }
+              ab = await resp.arrayBuffer()
+            } else {
+              // URL-encode each path segment to handle spaces, # and special chars in filenames
+              // Split on '/', encode each segment with encodeURIComponent, rejoin with '/'
+              const encodedUrl = url.split('/').map((seg: string) => {
+                // Don't encode empty segments (leading slash creates one) or protocol
+                if (!seg || seg.endsWith(':')) return seg
+                return encodeURIComponent(seg)
+              }).join('/')
+              const resp = await fetch(encodedUrl)
+              if (!resp.ok) { console.warn(`[SFZ] HTTP ${resp.status} for ${encodedUrl}`); return }
+              ab = await resp.arrayBuffer()
+            }
             const buf = await this.ctx.decodeAudioData(ab)
 
             // Store under multiple keys so any lookup variant works

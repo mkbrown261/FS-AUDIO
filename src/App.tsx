@@ -599,8 +599,36 @@ export default function App() {
         const requiredSamples = extractSamplePaths(sfzData.content)
         console.log(`[SFZ] Required samples:`, requiredSamples)
         console.log(`[SFZ] Loaded ${samples.size} sample files`)
-        
-        // TODO: Pass samples to the SFZ engine
+
+        // Build a blob-URL map: filename → object URL, so SFZSampler can fetch them
+        const blobUrlMap: Record<string, string> = {}
+        const ctx = engine.getCtx()
+        for (const [filename, arrayBuf] of samples.entries()) {
+          // Determine MIME type from extension
+          const ext = filename.split('.').pop()?.toLowerCase() ?? 'wav'
+          const mime = ext === 'mp3' ? 'audio/mpeg'
+            : ext === 'ogg' ? 'audio/ogg'
+            : ext === 'flac' ? 'audio/flac'
+            : 'audio/wav'
+          const blob = new Blob([arrayBuf], { type: mime })
+          const url  = URL.createObjectURL(blob)
+          blobUrlMap[filename] = url
+          // Pre-decode into AudioBuffer cache so playback is instant
+          ctx.decodeAudioData(arrayBuf.slice(0)).then(buf => {
+            engine.registerAudioBuffer(url, buf)
+          }).catch(console.warn)
+        }
+
+        // Store blob-URL map and a synthetic samplesBaseUrl in plugin params.
+        // The SFZSampler resolves sample paths relative to samplesBaseUrl.
+        // We pass a special 'blob-map:' scheme that the engine recognises.
+        useProjectStore.getState().updatePlugin(trackId, pluginId, {
+          sfzContent:     sfzData.content,
+          sfzPath:        sfzData.path,
+          samplesBaseUrl: 'blob-map:',          // signals use of blobUrlMap
+          sampleBlobMap:  JSON.stringify(blobUrlMap),
+        })
+
         alert(`Loaded SFZ "${sfzData.name}" with ${samples.size} samples`)
       }
     } catch (error) {

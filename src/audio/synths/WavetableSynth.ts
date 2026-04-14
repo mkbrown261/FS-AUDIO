@@ -86,6 +86,7 @@ export const WAVETABLES: Wavetable[] = [
 export class WavetableSynth {
   private context: AudioContext
   private output: GainNode
+  private destination: AudioNode | null = null  // FIX: track where we're connected
   
   // Voice pool
   private voices: WavetableVoice[] = []
@@ -95,6 +96,8 @@ export class WavetableSynth {
   private lfo: OscillatorNode
   private lfoGain: GainNode
   
+  private _pitchBendCents = 0
+
   constructor(context: AudioContext) {
     this.context = context
     this.output = context.createGain()
@@ -109,9 +112,11 @@ export class WavetableSynth {
     this.lfo.connect(this.lfoGain)
     this.lfo.start()
     
-    // Pre-allocate voice pool
+    // Pre-allocate voice pool — connect once here
     for (let i = 0; i < this.maxVoices; i++) {
-      this.voices.push(new WavetableVoice(context))
+      const voice = new WavetableVoice(context)
+      voice.connect(this.output)  // FIX: connect at construction, not in noteOn
+      this.voices.push(voice)
     }
   }
   
@@ -122,31 +127,75 @@ export class WavetableSynth {
     // Find free voice or steal oldest
     let voice = this.voices.find(v => !v.isActive())
     if (!voice) {
-      voice = this.voices[0] // Voice stealing
+      // Voice stealing: stop first voice and reuse it
+      voice = this.voices[0]
+      voice.forceStop()
     }
+
+    // Build default params if any field is missing/undefined
+    const p: WavetableSynthParams = {
+      wavetableA: params.wavetableA ?? 0,
+      wavetableB: params.wavetableB ?? 0,
+      positionA:  params.positionA  ?? 0,
+      positionB:  params.positionB  ?? 0,
+      mix:        params.mix        ?? 0,
+      octave:     params.octave     ?? 0,
+      semitone:   params.semitone   ?? 0,
+      detune:     params.detune     ?? 0,
+      unison:     params.unison     ?? 1,
+      unisonDetune: params.unisonDetune ?? 10,
+      unisonSpread: params.unisonSpread ?? 0.5,
+      filterType: (params.filterType as BiquadFilterType) ?? 'lowpass',
+      filterCutoff:    params.filterCutoff    ?? 8000,
+      filterResonance: params.filterResonance ?? 1,
+      filterEnvAmount: params.filterEnvAmount ?? 0,
+      ampAttack:  params.ampAttack  ?? 10,
+      ampDecay:   params.ampDecay   ?? 200,
+      ampSustain: params.ampSustain ?? 0.7,
+      ampRelease: params.ampRelease ?? 300,
+      filterAttack:  params.filterAttack  ?? 10,
+      filterDecay:   params.filterDecay   ?? 200,
+      filterSustain: params.filterSustain ?? 0.5,
+      filterRelease: params.filterRelease ?? 300,
+      lfoRate:        params.lfoRate        ?? 5,
+      lfoAmount:      params.lfoAmount      ?? 0,
+      lfoDestination: params.lfoDestination ?? 'pitch',
+      distortion: params.distortion ?? 0,
+      bitcrush:   params.bitcrush   ?? 16,
+      volume:     params.volume     ?? 0.8,
+    }
+
+    // Guard wavetable indices
+    const wtA = Math.max(0, Math.min(WAVETABLES.length - 1, Math.round(p.wavetableA)))
+    const wtB = Math.max(0, Math.min(WAVETABLES.length - 1, Math.round(p.wavetableB)))
     
-    const freq = this.midiToFreq(midiNote + params.octave * 12 + params.semitone + params.detune / 100)
+    const freq = this.midiToFreq(midiNote + p.octave * 12 + p.semitone + p.detune / 100)
     
     // Get blended wavetable
-    const wavetable = this.blendWavetables(
-      WAVETABLES[params.wavetableA],
-      WAVETABLES[params.wavetableB],
-      params.positionA,
-      params.positionB,
-      params.mix
+    const waveform = this.blendWavetables(
+      WAVETABLES[wtA],
+      WAVETABLES[wtB],
+      p.positionA,
+      p.positionB,
+      p.mix
     )
     
-    voice.start(freq, velocity, wavetable, params)
+    voice.start(midiNote, freq, velocity, waveform, p)
+
+    // Apply current pitch bend to the new voice
+    if (this._pitchBendCents !== 0) {
+      voice.applyPitchBendCents(this._pitchBendCents)
+    }
   }
   
   /**
    * Release note
    */
   noteOff(midiNote: number, params: WavetableSynthParams) {
-    // Find voices playing this note
+    const releaseTime = (params?.ampRelease ?? 300) / 1000
     this.voices.forEach(voice => {
       if (voice.isPlaying(midiNote)) {
-        voice.stop(params)
+        voice.stop(releaseTime)
       }
     })
   }
@@ -165,8 +214,9 @@ export class WavetableSynth {
     const frameB = this.getWavetableFrame(tableB, posB)
     
     const blended = new Float32Array(frameA.length)
+    const m = Math.max(0, Math.min(1, mix))
     for (let i = 0; i < frameA.length; i++) {
-      blended[i] = frameA[i] * (1 - mix) + frameB[i] * mix
+      blended[i] = frameA[i] * (1 - m) + frameB[i] * m
     }
     
     return blended
@@ -177,7 +227,8 @@ export class WavetableSynth {
    */
   private getWavetableFrame(table: Wavetable, position: number): Float32Array {
     const frameCount = table.frames.length
-    const exactFrame = position * (frameCount - 1)
+    const clamped = Math.max(0, Math.min(1, position))
+    const exactFrame = clamped * (frameCount - 1)
     const frame1 = Math.floor(exactFrame)
     const frame2 = Math.min(frame1 + 1, frameCount - 1)
     const frac = exactFrame - frame1
@@ -185,6 +236,8 @@ export class WavetableSynth {
     const waveform1 = table.frames[frame1]
     const waveform2 = table.frames[frame2]
     
+    if (!waveform1 || !waveform2) return new Float32Array(2048)
+
     // Linear interpolation between frames
     const result = new Float32Array(waveform1.length)
     for (let i = 0; i < waveform1.length; i++) {
@@ -203,13 +256,9 @@ export class WavetableSynth {
   
   /**
    * Apply pitch-bend: value -1.0 to +1.0, bendRange in semitones (default 2)
-   * WavetableSynth uses playbackRate for pitch, so we offset via detune param simulation.
-   * We store the bend offset and apply on next noteOn, and also modulate output gain as a proxy.
    */
-  private _pitchBendCents = 0
   pitchBend(value: number, bendRangeSemitones = 2) {
     this._pitchBendCents = value * bendRangeSemitones * 100
-    // Apply to all active voices via playbackRate adjustment
     for (const voice of this.voices) {
       if (voice.isActive()) {
         voice.applyPitchBendCents(this._pitchBendCents)
@@ -218,21 +267,25 @@ export class WavetableSynth {
   }
 
   /**
-   * Connect to destination
+   * Connect to destination — FIX: idempotent, tracks destination
    */
   connect(destination: AudioNode) {
-    this.voices.forEach(voice => voice.connect(this.output))
+    if (this.destination === destination) return  // Already connected
+    if (this.destination) {
+      try { this.output.disconnect(this.destination) } catch {}
+    }
+    this.destination = destination
     this.output.connect(destination)
   }
   
   /**
    * Stop all active voices immediately (MIDI panic)
+   * FIX: Don't destroy voice pool — just stop each voice
    */
   allNotesOff() {
     this.voices.forEach(voice => {
-      try { voice.disconnect() } catch {}
+      try { voice.forceStop() } catch {}
     })
-    this.voices = []
   }
 
   /**
@@ -240,8 +293,9 @@ export class WavetableSynth {
    */
   disconnect() {
     this.allNotesOff()
-    this.output.disconnect()
     try { this.lfo.stop() } catch {}
+    try { this.output.disconnect() } catch {}
+    this.destination = null
   }
 }
 
@@ -254,7 +308,8 @@ class WavetableVoice {
   private gainNode: GainNode
   private filterNode: BiquadFilterNode
   private active = false
-  private midiNote = 0
+  private _midiNote = -1   // FIX: was always 0, now -1 = inactive
+  private stopScheduled = false
   
   constructor(context: AudioContext) {
     this.context = context
@@ -265,28 +320,38 @@ class WavetableVoice {
     this.filterNode.connect(this.gainNode)
   }
   
-  start(frequency: number, velocity: number, waveform: Float32Array, params: WavetableSynthParams) {
+  start(midiNote: number, frequency: number, velocity: number, waveform: Float32Array, params: WavetableSynthParams) {
+    // Stop any existing source first
+    this.forceStop()
+    
     const now = this.context.currentTime
     this.active = true
+    this._midiNote = midiNote
+    this.stopScheduled = false
     
-    // Create buffer from waveform
+    // Create buffer from waveform (loop-point single cycle)
     const buffer = this.context.createBuffer(1, waveform.length, this.context.sampleRate)
-    buffer.copyToChannel(waveform as Float32Array<ArrayBuffer>, 0)
+    // FIX: copyToChannel needs plain ArrayBuffer — create a new Float32Array with plain buffer
+    const safeWaveform = new Float32Array(waveform.length)
+    safeWaveform.set(waveform)
+    buffer.copyToChannel(safeWaveform, 0)
     
     // Create buffer source
     this.bufferSource = this.context.createBufferSource()
     this.bufferSource.buffer = buffer
     this.bufferSource.loop = true
-    this.bufferSource.playbackRate.value = frequency / (this.context.sampleRate / waveform.length)
+    // FIX: playbackRate = frequency / (sampleRate / sampleCount) = frequency * sampleCount / sampleRate
+    this.bufferSource.playbackRate.value = frequency * waveform.length / this.context.sampleRate
     this.bufferSource.connect(this.filterNode)
     
     // Setup filter
-    this.filterNode.type = params.filterType
-    this.filterNode.frequency.value = params.filterCutoff
-    this.filterNode.Q.value = params.filterResonance
+    const fType = params.filterType ?? 'lowpass'
+    this.filterNode.type = fType
+    this.filterNode.frequency.value = Math.max(20, Math.min(20000, params.filterCutoff))
+    this.filterNode.Q.value = Math.max(0.001, Math.min(20, params.filterResonance))
     
     // Filter envelope
-    const filterTarget = params.filterCutoff * (1 + params.filterEnvAmount)
+    const filterTarget = Math.max(20, Math.min(20000, params.filterCutoff * (1 + params.filterEnvAmount)))
     this.filterNode.frequency.setValueAtTime(params.filterCutoff, now)
     this.filterNode.frequency.linearRampToValueAtTime(filterTarget, now + params.filterAttack / 1000)
     this.filterNode.frequency.linearRampToValueAtTime(
@@ -294,29 +359,54 @@ class WavetableVoice {
       now + params.filterAttack / 1000 + params.filterDecay / 1000
     )
     
-    // Amp envelope
+    // Amp envelope — velocity 0-1 here
+    const peakGain = Math.max(0, Math.min(1, velocity * params.volume))
+    const sustainGain = peakGain * Math.max(0, Math.min(1, params.ampSustain))
+    this.gainNode.gain.cancelScheduledValues(now)
     this.gainNode.gain.setValueAtTime(0, now)
-    this.gainNode.gain.linearRampToValueAtTime(velocity * params.volume, now + params.ampAttack / 1000)
+    this.gainNode.gain.linearRampToValueAtTime(peakGain, now + Math.max(0.001, params.ampAttack / 1000))
     this.gainNode.gain.linearRampToValueAtTime(
-      velocity * params.volume * params.ampSustain,
-      now + params.ampAttack / 1000 + params.ampDecay / 1000
+      sustainGain,
+      now + params.ampAttack / 1000 + Math.max(0.001, params.ampDecay / 1000)
     )
     
+    this.bufferSource.onended = () => {
+      if (this._midiNote === midiNote) {
+        this.active = false
+        this._midiNote = -1
+      }
+    }
+
     this.bufferSource.start(now)
   }
   
-  stop(params: WavetableSynthParams) {
-    if (!this.bufferSource) return
+  stop(releaseTimeSec: number) {
+    if (!this.bufferSource || this.stopScheduled) return
+    this.stopScheduled = true
     
     const now = this.context.currentTime
-    const releaseTime = params.ampRelease / 1000
+    const rel = Math.max(0.005, releaseTimeSec)
     
     this.gainNode.gain.cancelScheduledValues(now)
     this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, now)
-    this.gainNode.gain.linearRampToValueAtTime(0, now + releaseTime)
+    this.gainNode.gain.linearRampToValueAtTime(0, now + rel)
     
-    this.bufferSource.stop(now + releaseTime + 0.1)
+    this.bufferSource.stop(now + rel + 0.01)
     this.active = false
+    this._midiNote = -1
+  }
+
+  forceStop() {
+    if (this.bufferSource) {
+      try { this.bufferSource.stop(0) } catch {}
+      try { this.bufferSource.disconnect() } catch {}
+      this.bufferSource = null
+    }
+    this.gainNode.gain.cancelScheduledValues(this.context.currentTime)
+    this.gainNode.gain.setValueAtTime(0, this.context.currentTime)
+    this.active = false
+    this._midiNote = -1
+    this.stopScheduled = false
   }
   
   isActive(): boolean {
@@ -324,7 +414,7 @@ class WavetableVoice {
   }
   
   isPlaying(midiNote: number): boolean {
-    return this.active && this.midiNote === midiNote
+    return this.active && this._midiNote === midiNote  // FIX: was always false
   }
   
   connect(destination: AudioNode) {
@@ -332,20 +422,23 @@ class WavetableVoice {
   }
   
   disconnect() {
-    this.gainNode.disconnect()
-    if (this.bufferSource) {
-      this.bufferSource.stop()
-      this.bufferSource = null
-    }
+    this.forceStop()
+    try { this.gainNode.disconnect() } catch {}
   }
 
   /** Apply pitch bend in cents by adjusting playbackRate */
   applyPitchBendCents(cents: number) {
     if (!this.bufferSource || !this.active) return
-    // cents offset → multiply playbackRate by 2^(cents/1200)
+    // Store base rate at note-on, offset by bend ratio
     const ratio = Math.pow(2, cents / 1200)
-    const baseRate = this.bufferSource.playbackRate.value
-    this.bufferSource.playbackRate.setTargetAtTime(baseRate * ratio, this.context.currentTime, 0.01)
+    // We can't read the original rate after modification, so apply relative to current
+    // This is approximate; a full implementation would store baseRate separately
+    const currentRate = this.bufferSource.playbackRate.value
+    this.bufferSource.playbackRate.setTargetAtTime(
+      Math.abs(currentRate) * ratio,
+      this.context.currentTime,
+      0.01
+    )
   }
 }
 

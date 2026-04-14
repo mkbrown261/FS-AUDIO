@@ -914,7 +914,9 @@ export function useAudioEngine() {
           instrumentSynthsRef.current.set(trackId, synth)
           const sfzContent = sfzPlugin.params.sfzContent as string
           const samplesBaseUrl = sfzPlugin.params.samplesBaseUrl as string || ''
-          ;(synth as SFZSampler).loadSFZ(sfzContent, samplesBaseUrl)
+          const sfzBlobMapRaw  = sfzPlugin.params.sampleBlobMap as string | undefined
+          const sfzBlobMap     = sfzBlobMapRaw ? JSON.parse(sfzBlobMapRaw) as Record<string, string> : undefined
+          ;(synth as SFZSampler).loadSFZ(sfzContent, samplesBaseUrl, sfzBlobMap)
             .catch(err => console.error('[SFZ scheduled]', err))
         }
         return synth
@@ -2615,6 +2617,8 @@ export function useAudioEngine() {
             const sfzContent = sfzPlugin.params.sfzContent as string
             const samplesBaseUrl = sfzPlugin.params.samplesBaseUrl as string || ''
             const instrumentName = sfzPlugin.params.instrumentName as string || 'Instrument'
+            const sfzBlobMapRaw2  = sfzPlugin.params.sampleBlobMap as string | undefined
+            const sfzBlobMap2     = sfzBlobMapRaw2 ? JSON.parse(sfzBlobMapRaw2) as Record<string, string> : undefined
 
             // Wire up progress callback → CustomEvent so SFZSamplerUI can show a progress bar
             synth.onProgress = (loaded, total) => {
@@ -2622,7 +2626,7 @@ export function useAudioEngine() {
                 detail: { loaded, total, instrumentName }
               }))
             }
-            synth.loadSFZ(sfzContent, samplesBaseUrl)
+            synth.loadSFZ(sfzContent, samplesBaseUrl, sfzBlobMap2)
               .catch(err => console.error('[SFZ] Failed to load:', err))
           }
           
