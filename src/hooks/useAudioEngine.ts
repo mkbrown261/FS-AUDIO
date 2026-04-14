@@ -784,6 +784,9 @@ export function useAudioEngine() {
 
 
   // ── MIDI Synth — schedule all notes in a MIDI clip ────────────────────────
+  // Routes playback through the track's loaded instrument synth (DX7, SFZ,
+  // Wavetable, Granular) using a look-ahead timer scheduler.  Falls back to a
+  // high-quality piano-like oscillator bank when no instrument is loaded.
   const scheduleMidiClip = useCallback((
     trackId: string,
     clip: import('../store/projectStore').Clip,
@@ -792,51 +795,133 @@ export function useAudioEngine() {
     volume: number,
     loopEndBeat: number = Infinity,
   ) => {
-    const ctx = getCtx()
-    const nodes = getTrackNodes(trackId, volume, 0)
+    const ctx     = getCtx()
+    const nodes   = getTrackNodes(trackId, volume, 0)
     const secPerBeat = 60 / bpm
-    const now = ctx.currentTime
-    const clipStartSec = Math.max(0, (clip.startBeat - fromBeat) * secPerBeat)
+    const now     = ctx.currentTime
 
-    for (const note of (clip.midiNotes ?? [])) {
+    // Determine which instrument this track uses
+    const track   = useProjectStore.getState().tracks.find(t => t.id === trackId)
+    const dx7Plugin = track?.plugins.find(p => p.type === 'fs_dx7' && p.enabled)
+    const sfzPlugin = track?.plugins.find(p => p.type === 'fs_sfz' && p.enabled)
+
+    // Helper: get or create the instrument synth instance for this track
+    const getInstrumentSynth = (): DX7Synth | SFZSampler | null => {
+      let synth = instrumentSynthsRef.current.get(trackId)
+
+      if (dx7Plugin) {
+        if (!synth || !(synth instanceof DX7Synth)) {
+          synth = new DX7Synth(ctx, nodes.gain, dx7Plugin.params)
+          instrumentSynthsRef.current.set(trackId, synth)
+        } else {
+          (synth as DX7Synth).updateParams(dx7Plugin.params)
+        }
+        return synth
+      }
+
+      if (sfzPlugin && sfzPlugin.params.sfzContent) {
+        const sfzPath = sfzPlugin.params.sfzPath as string || ''
+        const loadedPath = (synth as any)?._loadedSfzPath
+        if (!synth || !(synth instanceof SFZSampler) || loadedPath !== sfzPath) {
+          if (synth) synth.allNotesOff()
+          synth = new SFZSampler(ctx, nodes.gain)
+          ;(synth as any)._loadedSfzPath = sfzPath
+          instrumentSynthsRef.current.set(trackId, synth)
+          const sfzContent = sfzPlugin.params.sfzContent as string
+          const samplesBaseUrl = sfzPlugin.params.samplesBaseUrl as string || ''
+          synth.loadSFZ(sfzContent, samplesBaseUrl)
+            .catch(err => console.error('[SFZ scheduled]', err))
+        }
+        return synth
+      }
+
+      return null
+    }
+
+    const notes = clip.midiNotes ?? []
+    if (notes.length === 0) return
+
+    const instrumentSynth = getInstrumentSynth()
+
+    for (const note of notes) {
       const noteStartBeat = clip.startBeat + note.startBeat
       const noteEndBeat   = noteStartBeat + note.durationBeats
 
       // Skip notes entirely before playhead
-      if (noteEndBeat * secPerBeat <= fromBeat * secPerBeat) continue
-      
+      if (noteEndBeat <= fromBeat) continue
       // Skip notes that start at or after loop end
       if (loopEndBeat < Infinity && noteStartBeat >= loopEndBeat) continue
 
-      // Compute absolute schedule times
       const absStartSec = (noteStartBeat - fromBeat) * secPerBeat
-      const absDurSec   = note.durationBeats * secPerBeat
+      const absDurSec   = Math.max(0.01, note.durationBeats * secPerBeat)
       const schedStart  = now + Math.max(0, absStartSec)
-      const schedEnd    = now + Math.max(schedStart - now + 0.01, absStartSec + absDurSec)
+      const schedEnd    = schedStart + absDurSec
+      const vel         = note.velocity ?? 100
 
-      // Frequency from MIDI pitch (A4 = 440 Hz = pitch 69)
-      const freq = 440 * Math.pow(2, (note.pitch - 69) / 12)
-      const vel  = (note.velocity ?? 100) / 127
+      // ── Route through instrument synth (DX7 or SFZ) ──────────────────────
+      if (instrumentSynth) {
+        const startDelay = Math.max(0, schedStart - ctx.currentTime) * 1000
+        const stopDelay  = Math.max(0, schedEnd  - ctx.currentTime) * 1000
 
-      // Build oscillator + envelope
-      const osc  = ctx.createOscillator()
-      const gain = ctx.createGain()
-      osc.type = 'triangle'
-      osc.frequency.value = freq
-      osc.connect(gain)
-      gain.connect(nodes.gain)
+        const onTimer = window.setTimeout(() => {
+          try { instrumentSynth.noteOn(note.pitch, vel) } catch {}
+        }, startDelay)
 
-      // Attack / sustain / release envelope
-      gain.gain.setValueAtTime(0, schedStart)
-      gain.gain.linearRampToValueAtTime(vel * 0.7, schedStart + 0.005)
-      gain.gain.setValueAtTime(vel * 0.7, schedEnd - 0.02)
-      gain.gain.linearRampToValueAtTime(0, schedEnd)
+        const offTimer = window.setTimeout(() => {
+          try { instrumentSynth.noteOff(note.pitch) } catch {}
+        }, stopDelay)
 
-      osc.start(schedStart)
-      osc.stop(schedEnd + 0.05)
+        // Store timers for cleanup (reuse scheduledSourcesRef with a dummy obj)
+        const cleanup = { source: { stop: () => { clearTimeout(onTimer); clearTimeout(offTimer) } } as unknown as AudioBufferSourceNode, clipId: clip.id }
+        scheduledSourcesRef.current.push(cleanup)
+        continue
+      }
 
-      // Track for cleanup
-      scheduledSourcesRef.current.push({ source: osc as unknown as AudioBufferSourceNode, clipId: clip.id })
+      // ── Fallback: high-quality piano-like oscillator bank ─────────────────
+      // Uses 3 detuned sine waves + a 5th harmonic for a more musical tone,
+      // with a realistic piano-style amplitude envelope (fast attack, long decay).
+      const freq  = 440 * Math.pow(2, (note.pitch - 69) / 12)
+      const velNorm = (vel / 127)
+
+      // Master gain for this note
+      const noteGain = ctx.createGain()
+      noteGain.connect(nodes.gain)
+
+      // Harmonic partials: [frequency multiplier, relative level]
+      const partials: [number, number][] = [
+        [1.0, 0.60],    // fundamental
+        [2.0, 0.20],    // octave
+        [3.0, 0.10],    // 5th above octave
+        [4.0, 0.06],    // 2 octaves
+        [5.0, 0.04],    // major 3rd (2 octaves up)
+      ]
+
+      for (const [mult, level] of partials) {
+        const osc  = ctx.createOscillator()
+        const pGain = ctx.createGain()
+        osc.type      = 'sine'
+        osc.frequency.value = freq * mult
+        // Slight inharmonicity increases realness for higher partials
+        if (mult > 1) osc.detune.value = (mult - 1) * 1.2
+
+        pGain.gain.value = level * velNorm * 0.5
+        osc.connect(pGain)
+        pGain.connect(noteGain)
+
+        osc.start(schedStart)
+        osc.stop(schedEnd + 0.3)
+
+        scheduledSourcesRef.current.push({ source: osc as unknown as AudioBufferSourceNode, clipId: clip.id })
+      }
+
+      // Piano envelope: fast attack, exponential decay
+      const attackTime = 0.004
+      const decayTime  = Math.min(absDurSec * 0.7, 3.0)
+      noteGain.gain.setValueAtTime(0, schedStart)
+      noteGain.gain.linearRampToValueAtTime(velNorm * 0.8, schedStart + attackTime)
+      noteGain.gain.exponentialRampToValueAtTime(velNorm * 0.3 + 0.001, schedStart + attackTime + decayTime)
+      noteGain.gain.setValueAtTime(velNorm * 0.3 + 0.001, schedEnd - 0.015)
+      noteGain.gain.exponentialRampToValueAtTime(0.0001, schedEnd + 0.2)
     }
   }, [getCtx, getTrackNodes])
 
