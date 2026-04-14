@@ -33,10 +33,17 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useProjectStore, Plugin } from '../../store/projectStore'
 
+/** Safely coerce a param value (string | number | undefined) to a number */
+const pn = (v: string | number | undefined, def: number): number => {
+  const n = Number(v ?? def)
+  return isNaN(n) ? def : n
+}
+
+
 // ── Shared Types ──────────────────────────────────────────────────────────────
 interface PluginEditorProps {
   plugin: Plugin
-  onChange: (params: Record<string, number>) => void
+  onChange: (params: Record<string, number | string>) => void
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -300,14 +307,14 @@ function ProQEditor({ plugin, onChange }: PluginEditorProps) {
   const [activeBand, setActiveBand] = useState(3) // default to MID
 
   const bands = [
-    { key: 'b1', label: 'HPF',  freq: p.b1f ?? 20,    gain: 0,            q: 0.7,       color: '#64748b' },
-    { key: 'b2', label: 'LOW',  freq: p.b2f ?? 80,    gain: p.b2g ?? 0,   q: p.b2q ?? 1, color: '#f59e0b' },
-    { key: 'b3', label: 'LO-M', freq: p.b3f ?? 250,   gain: p.b3g ?? 0,   q: p.b3q ?? 1, color: '#10b981' },
-    { key: 'b4', label: 'MID',  freq: p.b4f ?? 1000,  gain: p.b4g ?? 0,   q: p.b4q ?? 1, color: '#a855f7' },
-    { key: 'b5', label: 'HI-M', freq: p.b5f ?? 3500,  gain: p.b5g ?? 0,   q: p.b5q ?? 1, color: '#3b82f6' },
-    { key: 'b6', label: 'PRES', freq: p.b6f ?? 7000,  gain: p.b6g ?? 0,   q: p.b6q ?? 1, color: '#ec4899' },
-    { key: 'b7', label: 'AIR',  freq: p.b7f ?? 14000, gain: p.b7g ?? 0,   q: p.b7q ?? 1, color: '#22d3ee' },
-    { key: 'b8', label: 'LPF',  freq: p.b8f ?? 20000, gain: 0,            q: 0.7,       color: '#64748b' },
+    { key: 'b1', label: 'HPF',  freq: pn(p.b1f, 20),    gain: 0,            q: 0.7,       color: '#64748b' },
+    { key: 'b2', label: 'LOW',  freq: pn(p.b2f, 80),    gain: pn(p.b2g, 0),   q: pn(p.b2q, 1), color: '#f59e0b' },
+    { key: 'b3', label: 'LO-M', freq: pn(p.b3f, 250),   gain: pn(p.b3g, 0),   q: pn(p.b3q, 1), color: '#10b981' },
+    { key: 'b4', label: 'MID',  freq: pn(p.b4f, 1000),  gain: pn(p.b4g, 0),   q: pn(p.b4q, 1), color: '#a855f7' },
+    { key: 'b5', label: 'HI-M', freq: pn(p.b5f, 3500),  gain: pn(p.b5g, 0),   q: pn(p.b5q, 1), color: '#3b82f6' },
+    { key: 'b6', label: 'PRES', freq: pn(p.b6f, 7000),  gain: pn(p.b6g, 0),   q: pn(p.b6q, 1), color: '#ec4899' },
+    { key: 'b7', label: 'AIR',  freq: pn(p.b7f, 14000), gain: pn(p.b7g, 0),   q: pn(p.b7q, 1), color: '#22d3ee' },
+    { key: 'b8', label: 'LPF',  freq: pn(p.b8f, 20000), gain: 0,            q: 0.7,       color: '#64748b' },
   ]
   const ab = bands[activeBand]
 
@@ -364,18 +371,18 @@ function ProQEditor({ plugin, onChange }: PluginEditorProps) {
               color={ab.color} size={40}
               onChange={v => onChange({ ...p, [`${ab.key}q`]: v })} />
           </>}
-          <FSKnob label="OUT" value={p.output ?? 0} min={-12} max={12} step={0.1} unit=" dB"
+          <FSKnob label="OUT" value={pn(p.output, 0)} min={-12} max={12} step={0.1} unit=" dB"
             color="#64748b" size={36} centerZero
             onChange={v => onChange({ ...p, output: v })} />
         </div>
 
         {/* Processing options */}
         <div style={{ display: 'flex', gap: 5, padding: '0 10px 7px', flexWrap: 'wrap' }}>
-          <StepBtns label="PROC" opts={['ST','MID','SIDE','L','R']} value={p.proc ?? 0}
+          <StepBtns label="PROC" opts={['ST','MID','SIDE','L','R']} value={pn(p.proc, 0)}
             onChange={v => onChange({ ...p, proc: v })} color="#a855f7" />
-          <StepBtns label="DYN" opts={['OFF','ON']} value={p.dynamic ?? 0}
+          <StepBtns label="DYN" opts={['OFF','ON']} value={pn(p.dynamic, 0)}
             onChange={v => onChange({ ...p, dynamic: v })} color="#10b981" />
-          <StepBtns label="PHASE" opts={['MIN','NAT','LIN']} value={p.phase ?? 1}
+          <StepBtns label="PHASE" opts={['MIN','NAT','LIN']} value={pn(p.phase, 1)}
             onChange={v => onChange({ ...p, phase: v })} color="#3b82f6" />
         </div>
       </FSPluginBg>
@@ -401,8 +408,8 @@ function ResonateEditor({ plugin, onChange }: PluginEditorProps) {
         return v + (target - v) * 0.15
       }))
       setReduction(prev => prev.map((v, i) => {
-        const depth = p.depth ?? 5
-        const active = spec[i] > 0.45 + (1 - (p.sensitivity ?? 0.5)) * 0.3
+        const depth = pn(p.depth, 5)
+        const active = spec[i] > 0.45 + (1 - pn(p.sensitivity, 0.5)) * 0.3
         const target = active ? (depth / 24) * 0.6 : 0
         return v + (target - v) * 0.2
       }))
@@ -435,16 +442,16 @@ function ResonateEditor({ plugin, onChange }: PluginEditorProps) {
         </div>
 
         <div style={{ display: 'flex', gap: 4, padding: '5px 10px' }}>
-          <FSKnob label="DEPTH"  value={p.depth ?? 5}           min={0}   max={24}  step={0.5} unit=" dB"  color="#10b981" size={40} glowing={(p.depth ?? 5) > 8} onChange={v => onChange({ ...p, depth: v })} />
-          <FSKnob label="SHARP"  value={p.sharpness ?? 0.5}     min={0}   max={1}   step={0.01}            color="#34d399" size={40} onChange={v => onChange({ ...p, sharpness: v })} />
-          <FSKnob label="SPEED"  value={p.speed ?? 5}           min={0.1} max={30}  step={0.1}             color="#10b981" size={40} onChange={v => onChange({ ...p, speed: v })} />
-          <FSKnob label="SENS"   value={p.sensitivity ?? 0.5}   min={0}   max={1}   step={0.01}            color="#6ee7b7" size={40} onChange={v => onChange({ ...p, sensitivity: v })} />
-          <FSKnob label="MIX"    value={p.mix ?? 1}             min={0}   max={1}   step={0.01}            color="#10b981" size={40} onChange={v => onChange({ ...p, mix: v })} />
+          <FSKnob label="DEPTH"  value={pn(p.depth, 5)}           min={0}   max={24}  step={0.5} unit=" dB"  color="#10b981" size={40} glowing={pn(p.depth, 5) > 8} onChange={v => onChange({ ...p, depth: v })} />
+          <FSKnob label="SHARP"  value={pn(p.sharpness, 0.5)}     min={0}   max={1}   step={0.01}            color="#34d399" size={40} onChange={v => onChange({ ...p, sharpness: v })} />
+          <FSKnob label="SPEED"  value={pn(p.speed, 5)}           min={0.1} max={30}  step={0.1}             color="#10b981" size={40} onChange={v => onChange({ ...p, speed: v })} />
+          <FSKnob label="SENS"   value={pn(p.sensitivity, 0.5)}   min={0}   max={1}   step={0.01}            color="#6ee7b7" size={40} onChange={v => onChange({ ...p, sensitivity: v })} />
+          <FSKnob label="MIX"    value={pn(p.mix, 1)}             min={0}   max={1}   step={0.01}            color="#10b981" size={40} onChange={v => onChange({ ...p, mix: v })} />
         </div>
         <div style={{ display: 'flex', gap: 5, padding: '0 10px 7px', flexWrap: 'wrap' }}>
-          <StepBtns label="FOCUS" opts={['FULL','LO','MID','HI','PRES']} value={p.focus ?? 0} onChange={v => onChange({ ...p, focus: v })} color="#10b981" />
-          <StepBtns label="DELTA" opts={['OFF','ON']} value={p.delta ?? 0} onChange={v => onChange({ ...p, delta: v })} color="#f59e0b" />
-          <StepBtns label="MODE"  opts={['SMOOTH','PRECISE','SURGICAL']} value={p.mode ?? 0} onChange={v => onChange({ ...p, mode: v })} color="#10b981" />
+          <StepBtns label="FOCUS" opts={['FULL','LO','MID','HI','PRES']} value={pn(p.focus, 0)} onChange={v => onChange({ ...p, focus: v })} color="#10b981" />
+          <StepBtns label="DELTA" opts={['OFF','ON']} value={pn(p.delta, 0)} onChange={v => onChange({ ...p, delta: v })} color="#f59e0b" />
+          <StepBtns label="MODE"  opts={['SMOOTH','PRECISE','SURGICAL']} value={pn(p.mode, 0)} onChange={v => onChange({ ...p, mode: v })} color="#10b981" />
         </div>
       </FSPluginBg>
     </div>
@@ -468,7 +475,7 @@ const COSMOS_COLORS = [
 
 function CosmosEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
-  const modeIdx = Math.round(p.mode ?? 0)
+  const modeIdx = Math.round(pn(p.mode, 0))
   const mc = COSMOS_COLORS[modeIdx % COSMOS_COLORS.length]
 
   return (
@@ -509,16 +516,16 @@ function CosmosEditor({ plugin, onChange }: PluginEditorProps) {
         </div>
 
         <div style={{ display: 'flex', gap: 4, padding: '6px 10px' }}>
-          <FSKnob label="WET"    value={p.wet ?? 0.3}           min={0}   max={1}   step={0.01}            color={mc}  size={40} onChange={v => onChange({ ...p, wet: v })} />
-          <FSKnob label="SIZE"   value={p.size ?? 1.5}          min={0.1} max={12}  step={0.1}  unit=" s"  color={mc}  size={40} onChange={v => onChange({ ...p, size: v })} />
-          <FSKnob label="DECAY"  value={p.decay ?? 0.5}         min={0}   max={1}   step={0.01}            color={mc}  size={40} onChange={v => onChange({ ...p, decay: v })} />
-          <FSKnob label="DAMP"   value={p.damp ?? 0.5}          min={0}   max={1}   step={0.01}            color={mc}  size={40} onChange={v => onChange({ ...p, damp: v })} />
-          <FSKnob label="PRE"    value={(p.predelay ?? 0.02)*1000} min={0} max={150} step={1}  unit=" ms" color={mc}  size={36} onChange={v => onChange({ ...p, predelay: v/1000 })} />
-          <FSKnob label="MOD"    value={p.mod ?? 0.3}           min={0}   max={1}   step={0.01}            color={mc}  size={36} onChange={v => onChange({ ...p, mod: v })} />
+          <FSKnob label="WET"    value={pn(p.wet, 0.3)}           min={0}   max={1}   step={0.01}            color={mc}  size={40} onChange={v => onChange({ ...p, wet: v })} />
+          <FSKnob label="SIZE"   value={pn(p.size, 1.5)}          min={0.1} max={12}  step={0.1}  unit=" s"  color={mc}  size={40} onChange={v => onChange({ ...p, size: v })} />
+          <FSKnob label="DECAY"  value={pn(p.decay, 0.5)}         min={0}   max={1}   step={0.01}            color={mc}  size={40} onChange={v => onChange({ ...p, decay: v })} />
+          <FSKnob label="DAMP"   value={pn(p.damp, 0.5)}          min={0}   max={1}   step={0.01}            color={mc}  size={40} onChange={v => onChange({ ...p, damp: v })} />
+          <FSKnob label="PRE"    value={pn(p.predelay, 0.02) * 1000} min={0} max={150} step={1}  unit=" ms" color={mc}  size={36} onChange={v => onChange({ ...p, predelay: v/1000 })} />
+          <FSKnob label="MOD"    value={pn(p.mod, 0.3)}           min={0}   max={1}   step={0.01}            color={mc}  size={36} onChange={v => onChange({ ...p, mod: v })} />
         </div>
         <div style={{ display: 'flex', gap: 5, padding: '0 10px 7px' }}>
-          <StepBtns label="COLOR" opts={['WARM','NEUTRAL','BRIGHT']} value={p.color ?? 1} onChange={v => onChange({ ...p, color: v })} color={mc} />
-          <StepBtns label="PROC"  opts={['STEREO','M/S']}            value={p.proc ?? 0}  onChange={v => onChange({ ...p, proc: v })}  color={mc} />
+          <StepBtns label="COLOR" opts={['WARM','NEUTRAL','BRIGHT']} value={pn(p.color, 1)} onChange={v => onChange({ ...p, color: v })} color={mc} />
+          <StepBtns label="PROC"  opts={['STEREO','M/S']}            value={pn(p.proc, 0)}  onChange={v => onChange({ ...p, proc: v })}  color={mc} />
         </div>
       </FSPluginBg>
     </div>
@@ -534,13 +541,13 @@ const ECHO_COLORS = ['#60a5fa','#f59e0b','#f97316','#818cf8','#f472b6','#22d3ee'
 
 function EchoEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
-  const styleIdx = Math.round(p.style ?? 1)
+  const styleIdx = Math.round(pn(p.style, 1))
   const sc = ECHO_COLORS[styleIdx]
 
   // Animated delay visualization
   const [echoViz, setEchoViz] = useState([0.8, 0.5, 0.3, 0.18, 0.1, 0.06])
   useEffect(() => {
-    const fb = p.feedback ?? 0.4
+    const fb = pn(p.feedback, 0.4)
     const levels = [1]
     for (let i = 1; i < 6; i++) levels.push(levels[i-1] * fb * 0.9)
     setEchoViz(levels)
@@ -573,16 +580,16 @@ function EchoEditor({ plugin, onChange }: PluginEditorProps) {
         </div>
 
         <div style={{ display: 'flex', gap: 4, padding: '6px 10px' }}>
-          <FSKnob label="WET"     value={p.wet ?? 0.3}             min={0}   max={1}    step={0.01}           color={sc}   size={40} onChange={v => onChange({ ...p, wet: v })} />
-          <FSKnob label="TIME"    value={(p.time ?? 0.375)*1000}   min={1}   max={2000} step={1}   unit=" ms" color={sc}   size={40} onChange={v => onChange({ ...p, time: v/1000 })} />
-          <FSKnob label="FDBK"    value={p.feedback ?? 0.4}        min={0}   max={0.98} step={0.01}           color={sc}   size={40} glowing={(p.feedback ?? 0.4) > 0.7} onChange={v => onChange({ ...p, feedback: v })} />
-          <FSKnob label="TONE"    value={p.tone ?? 0.5}            min={0}   max={1}    step={0.01}           color={sc}   size={40} onChange={v => onChange({ ...p, tone: v })} />
-          <FSKnob label="FLUTTER" value={p.flutter ?? 0}           min={0}   max={1}    step={0.01}           color="#fb923c" size={36} onChange={v => onChange({ ...p, flutter: v })} />
-          <FSKnob label="SPREAD"  value={p.spread ?? 0.7}          min={0}   max={1}    step={0.01}           color={sc}   size={36} onChange={v => onChange({ ...p, spread: v })} />
+          <FSKnob label="WET"     value={pn(p.wet, 0.3)}             min={0}   max={1}    step={0.01}           color={sc}   size={40} onChange={v => onChange({ ...p, wet: v })} />
+          <FSKnob label="TIME"    value={pn(p.time, 0.375) * 1000}   min={1}   max={2000} step={1}   unit=" ms" color={sc}   size={40} onChange={v => onChange({ ...p, time: v/1000 })} />
+          <FSKnob label="FDBK"    value={pn(p.feedback, 0.4)}        min={0}   max={0.98} step={0.01}           color={sc}   size={40} glowing={pn(p.feedback, 0.4) > 0.7} onChange={v => onChange({ ...p, feedback: v })} />
+          <FSKnob label="TONE"    value={pn(p.tone, 0.5)}            min={0}   max={1}    step={0.01}           color={sc}   size={40} onChange={v => onChange({ ...p, tone: v })} />
+          <FSKnob label="FLUTTER" value={pn(p.flutter, 0)}           min={0}   max={1}    step={0.01}           color="#fb923c" size={36} onChange={v => onChange({ ...p, flutter: v })} />
+          <FSKnob label="SPREAD"  value={pn(p.spread, 0.7)}          min={0}   max={1}    step={0.01}           color={sc}   size={36} onChange={v => onChange({ ...p, spread: v })} />
         </div>
         <div style={{ display: 'flex', gap: 5, padding: '0 10px 7px', flexWrap: 'wrap' }}>
-          <StepBtns label="SYNC"   opts={['FREE','¼','⅛','½','1/16','3/16']} value={p.sync ?? 0} onChange={v => onChange({ ...p, sync: v })} color={sc} />
-          <StepBtns label="STEREO" opts={['MONO','PING','WIDE']} value={p.stereo ?? 1} onChange={v => onChange({ ...p, stereo: v })} color={sc} />
+          <StepBtns label="SYNC"   opts={['FREE','¼','⅛','½','1/16','3/16']} value={pn(p.sync, 0)} onChange={v => onChange({ ...p, sync: v })} color={sc} />
+          <StepBtns label="STEREO" opts={['MONO','PING','WIDE']} value={pn(p.stereo, 1)} onChange={v => onChange({ ...p, stereo: v })} color={sc} />
         </div>
       </FSPluginBg>
     </div>
@@ -618,7 +625,7 @@ function VoiceEditor({ plugin, onChange }: PluginEditorProps) {
           <div style={{ display: 'flex', position: 'relative', height: 32, marginTop: 4, gap: 2 }}>
             {VOICE_KEYS.map((k, i) => {
               const isSharp = SHARP_KEYS.has(k)
-              const isActive = Math.round(p.key ?? 0) === i
+              const isActive = Math.round(pn(p.key, 0)) === i
               return (
                 <button key={k}
                   style={{
@@ -668,16 +675,16 @@ function VoiceEditor({ plugin, onChange }: PluginEditorProps) {
         </div>
 
         <div style={{ display: 'flex', gap: 4, padding: '5px 10px' }}>
-          <FSKnob label="SPEED"   value={p.speed ?? 25}   min={0}   max={100}  step={1}   unit=" ms"  color="#a855f7"  size={40} onChange={v => onChange({ ...p, speed: v })} />
-          <FSKnob label="AMOUNT"  value={p.amount ?? 100} min={0}   max={100}  step={1}   unit="%"    color="#a855f7"  size={40} onChange={v => onChange({ ...p, amount: v })} />
-          <FSKnob label="FORMANT" value={p.formant ?? 0}  min={-12} max={12}   step={0.1} unit=" st"  color="#e879f9"  size={40} onChange={v => onChange({ ...p, formant: v })} />
-          <FSKnob label="PITCH"   value={p.pitch ?? 0}    min={-24} max={24}   step={0.1} unit=" st"  color="#c084fc"  size={40} onChange={v => onChange({ ...p, pitch: v })} />
-          <FSKnob label="VIBRATO" value={p.vibrato ?? 0}  min={0}   max={1}    step={0.01}            color="#818cf8"  size={36} onChange={v => onChange({ ...p, vibrato: v })} />
+          <FSKnob label="SPEED"   value={pn(p.speed, 25)}   min={0}   max={100}  step={1}   unit=" ms"  color="#a855f7"  size={40} onChange={v => onChange({ ...p, speed: v })} />
+          <FSKnob label="AMOUNT"  value={pn(p.amount, 100)} min={0}   max={100}  step={1}   unit="%"    color="#a855f7"  size={40} onChange={v => onChange({ ...p, amount: v })} />
+          <FSKnob label="FORMANT" value={pn(p.formant, 0)}  min={-12} max={12}   step={0.1} unit=" st"  color="#e879f9"  size={40} onChange={v => onChange({ ...p, formant: v })} />
+          <FSKnob label="PITCH"   value={pn(p.pitch, 0)}    min={-24} max={24}   step={0.1} unit=" st"  color="#c084fc"  size={40} onChange={v => onChange({ ...p, pitch: v })} />
+          <FSKnob label="VIBRATO" value={pn(p.vibrato, 0)}  min={0}   max={1}    step={0.01}            color="#818cf8"  size={36} onChange={v => onChange({ ...p, vibrato: v })} />
         </div>
         <div style={{ display: 'flex', gap: 5, padding: '0 10px 7px', flexWrap: 'wrap' }}>
-          <StepBtns label="SCALE"  opts={VOICE_SCALES}               value={p.scale ?? 0}  onChange={v => onChange({ ...p, scale: v })}   color="#a855f7" />
-          <StepBtns label="STYLE"  opts={['NATURAL','HARD','T-PAIN']} value={p.effect ?? 0} onChange={v => onChange({ ...p, effect: v })} color="#e879f9" />
-          <StepBtns label="GENDER" opts={['♀','○','♂']}              value={p.gender ?? 1} onChange={v => onChange({ ...p, gender: v })}  color="#c084fc" />
+          <StepBtns label="SCALE"  opts={VOICE_SCALES}               value={pn(p.scale, 0)}  onChange={v => onChange({ ...p, scale: v })}   color="#a855f7" />
+          <StepBtns label="STYLE"  opts={['NATURAL','HARD','T-PAIN']} value={pn(p.effect, 0)} onChange={v => onChange({ ...p, effect: v })} color="#e879f9" />
+          <StepBtns label="GENDER" opts={['♀','○','♂']}              value={pn(p.gender, 1)} onChange={v => onChange({ ...p, gender: v })}  color="#c084fc" />
         </div>
       </FSPluginBg>
     </div>
@@ -700,7 +707,7 @@ function MasterEditor({ plugin, onChange }: PluginEditorProps) {
   const [lufs, setLufs] = useState(-18)
   useEffect(() => {
     const id = setInterval(() => setLufs(prev => {
-      const target = (p.lufs ?? -14) + (Math.random() - 0.5) * 3
+      const target = pn(p.lufs, -14) + (Math.random() - 0.5) * 3
       return prev + (target - prev) * 0.1
     }), 120)
     return () => clearInterval(id)
@@ -731,28 +738,28 @@ function MasterEditor({ plugin, onChange }: PluginEditorProps) {
 
         {tab === 0 && (
           <div style={{ display: 'flex', gap: 4, padding: '6px 10px' }}>
-            <FSKnob label="LOW"    value={p.low ?? 0}    min={-12} max={12} step={0.5} unit=" dB" color={tc} size={40} centerZero onChange={v => onChange({ ...p, low: v })} />
-            <FSKnob label="LO-MID" value={p.lom ?? 0}    min={-12} max={12} step={0.5} unit=" dB" color={tc} size={40} centerZero onChange={v => onChange({ ...p, lom: v })} />
-            <FSKnob label="HI-MID" value={p.him ?? 0}    min={-12} max={12} step={0.5} unit=" dB" color={tc} size={40} centerZero onChange={v => onChange({ ...p, him: v })} />
-            <FSKnob label="HIGH"   value={p.high ?? 0}   min={-12} max={12} step={0.5} unit=" dB" color={tc} size={40} centerZero onChange={v => onChange({ ...p, high: v })} />
-            <FSKnob label="EXC"    value={p.excite ?? 0} min={0}   max={10} step={0.1}            color={tc} size={36}           onChange={v => onChange({ ...p, excite: v })} />
+            <FSKnob label="LOW"    value={pn(p.low, 0)}    min={-12} max={12} step={0.5} unit=" dB" color={tc} size={40} centerZero onChange={v => onChange({ ...p, low: v })} />
+            <FSKnob label="LO-MID" value={pn(p.lom, 0)}    min={-12} max={12} step={0.5} unit=" dB" color={tc} size={40} centerZero onChange={v => onChange({ ...p, lom: v })} />
+            <FSKnob label="HI-MID" value={pn(p.him, 0)}    min={-12} max={12} step={0.5} unit=" dB" color={tc} size={40} centerZero onChange={v => onChange({ ...p, him: v })} />
+            <FSKnob label="HIGH"   value={pn(p.high, 0)}   min={-12} max={12} step={0.5} unit=" dB" color={tc} size={40} centerZero onChange={v => onChange({ ...p, high: v })} />
+            <FSKnob label="EXC"    value={pn(p.excite, 0)} min={0}   max={10} step={0.1}            color={tc} size={36}           onChange={v => onChange({ ...p, excite: v })} />
           </div>
         )}
         {tab === 1 && (
           <div style={{ display: 'flex', gap: 4, padding: '6px 10px' }}>
-            <FSKnob label="THRESH"  value={p.cThresh ?? -12}           min={-40} max={0}    step={0.5} unit=" dB"  color={tc} size={40} onChange={v => onChange({ ...p, cThresh: v })} />
-            <FSKnob label="RATIO"   value={p.cRatio ?? 2}              min={1}   max={10}   step={0.5} unit=":1"   color={tc} size={40} onChange={v => onChange({ ...p, cRatio: v })} />
-            <FSKnob label="ATTACK"  value={(p.cAttack ?? 0.01)*1000}   min={0.1} max={200}  step={0.1} unit=" ms"  color={tc} size={40} onChange={v => onChange({ ...p, cAttack: v/1000 })} />
-            <FSKnob label="RELEASE" value={(p.cRelease ?? 0.15)*1000}  min={10}  max={2000} step={10}  unit=" ms"  color={tc} size={40} onChange={v => onChange({ ...p, cRelease: v/1000 })} />
-            <FSKnob label="MAKEUP"  value={p.cMakeup ?? 0}             min={0}   max={12}   step={0.5} unit=" dB"  color={tc} size={36} onChange={v => onChange({ ...p, cMakeup: v })} />
+            <FSKnob label="THRESH"  value={pn(p.cThresh, -12)}           min={-40} max={0}    step={0.5} unit=" dB"  color={tc} size={40} onChange={v => onChange({ ...p, cThresh: v })} />
+            <FSKnob label="RATIO"   value={pn(p.cRatio, 2)}              min={1}   max={10}   step={0.5} unit=":1"   color={tc} size={40} onChange={v => onChange({ ...p, cRatio: v })} />
+            <FSKnob label="ATTACK"  value={pn(p.cAttack, 0.01) * 1000}   min={0.1} max={200}  step={0.1} unit=" ms"  color={tc} size={40} onChange={v => onChange({ ...p, cAttack: v/1000 })} />
+            <FSKnob label="RELEASE" value={pn(p.cRelease, 0.15) * 1000}  min={10}  max={2000} step={10}  unit=" ms"  color={tc} size={40} onChange={v => onChange({ ...p, cRelease: v/1000 })} />
+            <FSKnob label="MAKEUP"  value={pn(p.cMakeup, 0)}             min={0}   max={12}   step={0.5} unit=" dB"  color={tc} size={36} onChange={v => onChange({ ...p, cMakeup: v })} />
           </div>
         )}
         {tab === 2 && (
           <div style={{ display: 'flex', gap: 4, padding: '6px 10px' }}>
-            <FSKnob label="WIDTH"   value={p.width ?? 1}   min={0}   max={2.5}  step={0.01}          color={tc} size={40} onChange={v => onChange({ ...p, width: v })} />
-            <FSKnob label="BALANCE" value={p.balance ?? 0} min={-1}  max={1}    step={0.01}          color={tc} size={40} centerZero onChange={v => onChange({ ...p, balance: v })} />
-            <FSKnob label="BASS MN" value={p.bassM ?? 120} min={0}   max={300}  step={10}  unit=" Hz" color={tc} size={40} onChange={v => onChange({ ...p, bassM: v })} />
-            <FSKnob label="SIDE HF" value={p.sideHF ?? 0}  min={-12} max={12}   step={0.5} unit=" dB" color={tc} size={40} centerZero onChange={v => onChange({ ...p, sideHF: v })} />
+            <FSKnob label="WIDTH"   value={pn(p.width, 1)}   min={0}   max={2.5}  step={0.01}          color={tc} size={40} onChange={v => onChange({ ...p, width: v })} />
+            <FSKnob label="BALANCE" value={pn(p.balance, 0)} min={-1}  max={1}    step={0.01}          color={tc} size={40} centerZero onChange={v => onChange({ ...p, balance: v })} />
+            <FSKnob label="BASS MN" value={pn(p.bassM, 120)} min={0}   max={300}  step={10}  unit=" Hz" color={tc} size={40} onChange={v => onChange({ ...p, bassM: v })} />
+            <FSKnob label="SIDE HF" value={pn(p.sideHF, 0)}  min={-12} max={12}   step={0.5} unit=" dB" color={tc} size={40} centerZero onChange={v => onChange({ ...p, sideHF: v })} />
           </div>
         )}
         {tab === 3 && (
@@ -773,16 +780,16 @@ function MasterEditor({ plugin, onChange }: PluginEditorProps) {
               </span>
             </div>
             <div style={{ display: 'flex', gap: 4, padding: '5px 10px' }}>
-              <FSKnob label="TARGET"  value={p.lufs ?? -14}          min={-23} max={-6}   step={0.5} unit=" LUFS" color={tc} size={40} onChange={v => onChange({ ...p, lufs: v })} />
-              <FSKnob label="CEILING" value={p.ceiling ?? -1}        min={-6}  max={0}    step={0.1} unit=" dBTP" color={tc} size={40} glowing onChange={v => onChange({ ...p, ceiling: v })} />
-              <FSKnob label="RELEASE" value={(p.lRelease ?? 0.05)*1000} min={1} max={500} step={1}   unit=" ms"   color={tc} size={40} onChange={v => onChange({ ...p, lRelease: v/1000 })} />
-              <FSKnob label="MARGIN"  value={p.margin ?? 0.3}        min={0}   max={3}    step={0.1} unit=" dB"   color={tc} size={36} onChange={v => onChange({ ...p, margin: v })} />
+              <FSKnob label="TARGET"  value={pn(p.lufs, -14)}          min={-23} max={-6}   step={0.5} unit=" LUFS" color={tc} size={40} onChange={v => onChange({ ...p, lufs: v })} />
+              <FSKnob label="CEILING" value={pn(p.ceiling, -1)}        min={-6}  max={0}    step={0.1} unit=" dBTP" color={tc} size={40} glowing onChange={v => onChange({ ...p, ceiling: v })} />
+              <FSKnob label="RELEASE" value={pn(p.lRelease, 0.05) * 1000} min={1} max={500} step={1}   unit=" ms"   color={tc} size={40} onChange={v => onChange({ ...p, lRelease: v/1000 })} />
+              <FSKnob label="MARGIN"  value={pn(p.margin, 0.3)}        min={0}   max={3}    step={0.1} unit=" dB"   color={tc} size={36} onChange={v => onChange({ ...p, margin: v })} />
             </div>
           </div>
         )}
         <div style={{ display: 'flex', gap: 5, padding: '0 10px 7px', flexWrap: 'wrap' }}>
-          <StepBtns label="PLATFORM" opts={['SPOTIFY','APPLE','YT','MASTER']} value={p.platform ?? 3} onChange={v => onChange({ ...p, platform: v })} color={tc} />
-          <StepBtns label="DITHER"   opts={['OFF','TPDF','NS']}                value={p.dither ?? 0}   onChange={v => onChange({ ...p, dither: v })}   color={tc} />
+          <StepBtns label="PLATFORM" opts={['SPOTIFY','APPLE','YT','MASTER']} value={pn(p.platform, 3)} onChange={v => onChange({ ...p, platform: v })} color={tc} />
+          <StepBtns label="DITHER"   opts={['OFF','TPDF','NS']}                value={pn(p.dither, 0)}   onChange={v => onChange({ ...p, dither: v })}   color={tc} />
         </div>
       </FSPluginBg>
     </div>
@@ -805,7 +812,7 @@ function SpacerEditor({ plugin, onChange }: PluginEditorProps) {
         return Math.max(0.05, Math.min(0.95, v + (Math.sin(t * 1.2 + i * 0.7) * 0.08)))
       }))
       setCarvedSpec(prev => {
-        return inputSpec.map(v => v * (p.depth ?? 0.5))
+        return inputSpec.map(v => v * pn(p.depth, 0.5))
       })
     }, 90)
     return () => clearInterval(id)
@@ -848,15 +855,15 @@ function SpacerEditor({ plugin, onChange }: PluginEditorProps) {
         </div>
 
         <div style={{ display: 'flex', gap: 4, padding: '4px 10px' }}>
-          <FSKnob label="DEPTH"  value={p.depth ?? 0.5}   min={0}   max={1}     step={0.01}           color="#38bdf8" size={40} glowing={(p.depth ?? 0.5) > 0.6} onChange={v => onChange({ ...p, depth: v })} />
-          <FSKnob label="SPEED"  value={p.speed ?? 10}    min={0.5} max={50}    step={0.5}            color="#38bdf8" size={40} onChange={v => onChange({ ...p, speed: v })} />
-          <FSKnob label="RANGE"  value={p.rangeHz ?? 500} min={20}  max={20000} step={10}  unit=" Hz" color="#7dd3fc" size={40} onChange={v => onChange({ ...p, rangeHz: v })} />
-          <FSKnob label="SMOOTH" value={p.smooth ?? 0.5}  min={0}   max={1}     step={0.01}           color="#38bdf8" size={40} onChange={v => onChange({ ...p, smooth: v })} />
+          <FSKnob label="DEPTH"  value={pn(p.depth, 0.5)}   min={0}   max={1}     step={0.01}           color="#38bdf8" size={40} glowing={pn(p.depth, 0.5) > 0.6} onChange={v => onChange({ ...p, depth: v })} />
+          <FSKnob label="SPEED"  value={pn(p.speed, 10)}    min={0.5} max={50}    step={0.5}            color="#38bdf8" size={40} onChange={v => onChange({ ...p, speed: v })} />
+          <FSKnob label="RANGE"  value={pn(p.rangeHz, 500)} min={20}  max={20000} step={10}  unit=" Hz" color="#7dd3fc" size={40} onChange={v => onChange({ ...p, rangeHz: v })} />
+          <FSKnob label="SMOOTH" value={pn(p.smooth, 0.5)}  min={0}   max={1}     step={0.01}           color="#38bdf8" size={40} onChange={v => onChange({ ...p, smooth: v })} />
         </div>
         <div style={{ display: 'flex', gap: 5, padding: '0 10px 7px', flexWrap: 'wrap' }}>
-          <StepBtns label="BANDS" opts={['8','16','32','64']}        value={p.bands ?? 1}  onChange={v => onChange({ ...p, bands: v })}  color="#38bdf8" />
-          <StepBtns label="SC"    opts={['INTERNAL','SIDECHAIN']}    value={p.scSrc ?? 0}  onChange={v => onChange({ ...p, scSrc: v })}  color="#38bdf8" />
-          <StepBtns label="LINK"  opts={['STEREO','M/S','L/R']}      value={p.link ?? 0}   onChange={v => onChange({ ...p, link: v })}   color="#38bdf8" />
+          <StepBtns label="BANDS" opts={['8','16','32','64']}        value={pn(p.bands, 1)}  onChange={v => onChange({ ...p, bands: v })}  color="#38bdf8" />
+          <StepBtns label="SC"    opts={['INTERNAL','SIDECHAIN']}    value={pn(p.scSrc, 0)}  onChange={v => onChange({ ...p, scSrc: v })}  color="#38bdf8" />
+          <StepBtns label="LINK"  opts={['STEREO','M/S','L/R']}      value={pn(p.link, 0)}   onChange={v => onChange({ ...p, link: v })}   color="#38bdf8" />
         </div>
       </FSPluginBg>
     </div>
@@ -871,7 +878,7 @@ const APEX_ALGOS = ['TRANSPARENT','AGGRESSIVE','SURGICAL','ALLROUND','SAFE','OVE
 
 function ApexEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
-  const algoIdx = Math.round(p.algo ?? 2)
+  const algoIdx = Math.round(pn(p.algo, 2))
   const algoColors = ['#60a5fa','#ef4444','#a855f7','#f59e0b','#10b981','#f97316']
   const ac = algoColors[algoIdx]
 
@@ -881,7 +888,7 @@ function ApexEditor({ plugin, onChange }: PluginEditorProps) {
   useEffect(() => {
     const id = setInterval(() => {
       const grTarget = Math.random() * (p.threshold ?? -1 < -6 ? 8 : 2)
-      const tpTarget = (p.ceiling ?? -0.1) - Math.random() * 0.3
+      const tpTarget = pn(p.ceiling, -0.1) - Math.random() * 0.3
       setGr(prev => prev + (grTarget - prev) * 0.2)
       setTp(prev => prev + (tpTarget - prev) * 0.15)
     }, 80)
@@ -932,16 +939,16 @@ function ApexEditor({ plugin, onChange }: PluginEditorProps) {
         </div>
 
         <div style={{ display: 'flex', gap: 4, padding: '5px 10px' }}>
-          <FSKnob label="INPUT"   value={p.input ?? 0}       min={-12} max={12}  step={0.1} unit=" dB"   color={ac}     size={40} centerZero onChange={v => onChange({ ...p, input: v })} />
-          <FSKnob label="THRESH"  value={p.threshold ?? -1}  min={-24} max={0}   step={0.1} unit=" dB"   color={ac}     size={40} glowing onChange={v => onChange({ ...p, threshold: v })} />
-          <FSKnob label="CEILING" value={p.ceiling ?? -0.1}  min={-6}  max={0}   step={0.1} unit=" dBTP" color={ac}     size={40} onChange={v => onChange({ ...p, ceiling: v })} />
-          <FSKnob label="RELEASE" value={(p.release ?? 0.05)*1000} min={1} max={1000} step={1} unit=" ms" color={ac}   size={40} onChange={v => onChange({ ...p, release: v/1000 })} />
-          <FSKnob label="LINK"    value={p.stereoLink ?? 1}  min={0}   max={1}   step={0.01}              color="#64748b" size={36} onChange={v => onChange({ ...p, stereoLink: v })} />
+          <FSKnob label="INPUT"   value={pn(p.input, 0)}       min={-12} max={12}  step={0.1} unit=" dB"   color={ac}     size={40} centerZero onChange={v => onChange({ ...p, input: v })} />
+          <FSKnob label="THRESH"  value={pn(p.threshold, -1)}  min={-24} max={0}   step={0.1} unit=" dB"   color={ac}     size={40} glowing onChange={v => onChange({ ...p, threshold: v })} />
+          <FSKnob label="CEILING" value={pn(p.ceiling, -0.1)}  min={-6}  max={0}   step={0.1} unit=" dBTP" color={ac}     size={40} onChange={v => onChange({ ...p, ceiling: v })} />
+          <FSKnob label="RELEASE" value={pn(p.release, 0.05) * 1000} min={1} max={1000} step={1} unit=" ms" color={ac}   size={40} onChange={v => onChange({ ...p, release: v/1000 })} />
+          <FSKnob label="LINK"    value={pn(p.stereoLink, 1)}  min={0}   max={1}   step={0.01}              color="#64748b" size={36} onChange={v => onChange({ ...p, stereoLink: v })} />
         </div>
         <div style={{ display: 'flex', gap: 5, padding: '0 10px 7px', flexWrap: 'wrap' }}>
-          <StepBtns label="TRUE PEAK" opts={['OFF','ON']}       value={p.truePeak ?? 1}  onChange={v => onChange({ ...p, truePeak: v })}  color="#10b981" />
-          <StepBtns label="DITHER"    opts={['OFF','TPDF','NS']} value={p.dither ?? 0}   onChange={v => onChange({ ...p, dither: v })}    color="#64748b" />
-          <StepBtns label="ISP"       opts={['OFF','ON']}        value={p.isp ?? 1}      onChange={v => onChange({ ...p, isp: v })}        color="#f59e0b" />
+          <StepBtns label="TRUE PEAK" opts={['OFF','ON']}       value={pn(p.truePeak, 1)}  onChange={v => onChange({ ...p, truePeak: v })}  color="#10b981" />
+          <StepBtns label="DITHER"    opts={['OFF','TPDF','NS']} value={pn(p.dither, 0)}   onChange={v => onChange({ ...p, dither: v })}    color="#64748b" />
+          <StepBtns label="ISP"       opts={['OFF','ON']}        value={pn(p.isp, 1)}      onChange={v => onChange({ ...p, isp: v })}        color="#f59e0b" />
         </div>
       </FSPluginBg>
     </div>
@@ -957,15 +964,15 @@ const MUTATE_COLORS = ['#22d3ee','#e879f9','#94a3b8','#4ade80','#f59e0b','#818cf
 
 function MutateEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
-  const modeIdx = Math.round(p.mode ?? 0)
+  const modeIdx = Math.round(pn(p.mode, 0))
   const mc = MUTATE_COLORS[modeIdx]
 
   // Pitch shift visualizer
   const [waveViz, setWaveViz] = useState(Array(40).fill(0).map((_, i) => Math.sin(i * 0.5) * 0.5))
   useEffect(() => {
     const id = setInterval(() => {
-      const pitch = p.pitch ?? 0
-      const formant = p.formant ?? 0
+      const pitch = pn(p.pitch, 0)
+      const formant = pn(p.formant, 0)
       setWaveViz(Array(40).fill(0).map((_, i) => {
         const t = Date.now() / 400
         return Math.sin(i * 0.5 * (1 + pitch / 24) + t) * 0.5 * (1 + formant * 0.1)
@@ -1004,15 +1011,15 @@ function MutateEditor({ plugin, onChange }: PluginEditorProps) {
           <StepBtns label="MODE" opts={MUTATE_MODES} value={modeIdx} onChange={v => onChange({ ...p, mode: v })} color={mc} />
         </div>
         <div style={{ display: 'flex', gap: 4, padding: '4px 10px' }}>
-          <FSKnob label="PITCH"   value={p.pitch ?? 0}   min={-24} max={24}  step={0.5} unit=" st" color={mc} size={40} glowing={p.pitch !== 0} centerZero onChange={v => onChange({ ...p, pitch: v })} />
-          <FSKnob label="FORMANT" value={p.formant ?? 0} min={-12} max={12}  step={0.5} unit=" st" color={mc} size={40} centerZero onChange={v => onChange({ ...p, formant: v })} />
-          <FSKnob label="MIX"     value={p.mix ?? 1}     min={0}   max={1}   step={0.01}           color={mc} size={40} onChange={v => onChange({ ...p, mix: v })} />
-          <FSKnob label="DETUNE"  value={p.detune ?? 0}  min={-50} max={50}  step={1}   unit=" c"  color={mc} size={40} centerZero onChange={v => onChange({ ...p, detune: v })} />
-          <FSKnob label="OUT"     value={p.output ?? 0}  min={-12} max={12}  step={0.1} unit=" dB" color={mc} size={36} centerZero onChange={v => onChange({ ...p, output: v })} />
+          <FSKnob label="PITCH"   value={pn(p.pitch, 0)}   min={-24} max={24}  step={0.5} unit=" st" color={mc} size={40} glowing={p.pitch !== 0} centerZero onChange={v => onChange({ ...p, pitch: v })} />
+          <FSKnob label="FORMANT" value={pn(p.formant, 0)} min={-12} max={12}  step={0.5} unit=" st" color={mc} size={40} centerZero onChange={v => onChange({ ...p, formant: v })} />
+          <FSKnob label="MIX"     value={pn(p.mix, 1)}     min={0}   max={1}   step={0.01}           color={mc} size={40} onChange={v => onChange({ ...p, mix: v })} />
+          <FSKnob label="DETUNE"  value={pn(p.detune, 0)}  min={-50} max={50}  step={1}   unit=" c"  color={mc} size={40} centerZero onChange={v => onChange({ ...p, detune: v })} />
+          <FSKnob label="OUT"     value={pn(p.output, 0)}  min={-12} max={12}  step={0.1} unit=" dB" color={mc} size={36} centerZero onChange={v => onChange({ ...p, output: v })} />
         </div>
         <div style={{ display: 'flex', gap: 5, padding: '0 10px 7px' }}>
-          <StepBtns label="ALGO"  opts={['NATURAL','QUALITY','EXTREME']} value={p.algo ?? 0}  onChange={v => onChange({ ...p, algo: v })}  color={mc} />
-          <StepBtns label="VOICE" opts={['SOLO','DUO','CHOIR']}          value={p.voice ?? 0} onChange={v => onChange({ ...p, voice: v })} color={mc} />
+          <StepBtns label="ALGO"  opts={['NATURAL','QUALITY','EXTREME']} value={pn(p.algo, 0)}  onChange={v => onChange({ ...p, algo: v })}  color={mc} />
+          <StepBtns label="VOICE" opts={['SOLO','DUO','CHOIR']}          value={pn(p.voice, 0)} onChange={v => onChange({ ...p, voice: v })} color={mc} />
         </div>
       </FSPluginBg>
     </div>
@@ -1031,16 +1038,16 @@ function GlitchEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
   const [playing, setPlaying] = useState(false)
   const [step, setStep] = useState(-1)
-  const fxIdx = Math.round(p.fx ?? 0)
+  const fxIdx = Math.round(pn(p.fx, 0))
   const gc = GLITCH_FX_COLORS[fxIdx % GLITCH_FX_COLORS.length]
 
   // Velocity/intensity grid (0-3 levels)
-  const getGrid = () => Array.from({ length: STEPS }, (_, i) => p[`s${i}`] ?? 0)
+  const getGrid = () => Array.from({ length: STEPS }, (_, i) => Number(p[`s${i}`] ?? 0))
   const grid = getGrid()
 
   useEffect(() => {
     if (!playing) { setStep(-1); return }
-    const bpm = p.bpm ?? 120
+    const bpm = pn(p.bpm, 120)
     const intervalMs = (60 / bpm * 1000) / 4 // 16th notes
     const id = setInterval(() => setStep(s => (s + 1) % STEPS), intervalMs)
     return () => clearInterval(id)
@@ -1108,14 +1115,14 @@ function GlitchEditor({ plugin, onChange }: PluginEditorProps) {
         </div>
 
         <div style={{ display: 'flex', gap: 4, padding: '4px 10px' }}>
-          <FSKnob label="AMOUNT" value={p.amount ?? 0.8}  min={0}  max={1}   step={0.01}           color={gc} size={38} onChange={v => onChange({ ...p, amount: v })} />
-          <FSKnob label="BPM"    value={p.bpm ?? 120}     min={40} max={300} step={1}   unit=" bpm" color={gc} size={38} onChange={v => onChange({ ...p, bpm: v })} />
-          <FSKnob label="SMOOTH" value={p.smooth ?? 0.2}  min={0}  max={1}   step={0.01}           color={gc} size={38} onChange={v => onChange({ ...p, smooth: v })} />
-          <FSKnob label="MIX"    value={p.mix ?? 1}       min={0}  max={1}   step={0.01}           color={gc} size={38} onChange={v => onChange({ ...p, mix: v })} />
+          <FSKnob label="AMOUNT" value={pn(p.amount, 0.8)}  min={0}  max={1}   step={0.01}           color={gc} size={38} onChange={v => onChange({ ...p, amount: v })} />
+          <FSKnob label="BPM"    value={pn(p.bpm, 120)}     min={40} max={300} step={1}   unit=" bpm" color={gc} size={38} onChange={v => onChange({ ...p, bpm: v })} />
+          <FSKnob label="SMOOTH" value={pn(p.smooth, 0.2)}  min={0}  max={1}   step={0.01}           color={gc} size={38} onChange={v => onChange({ ...p, smooth: v })} />
+          <FSKnob label="MIX"    value={pn(p.mix, 1)}       min={0}  max={1}   step={0.01}           color={gc} size={38} onChange={v => onChange({ ...p, mix: v })} />
         </div>
         <div style={{ display: 'flex', gap: 5, padding: '0 10px 7px' }}>
-          <StepBtns label="DIV" opts={['1/8','1/16','1/32','T']} value={p.div ?? 1} onChange={v => onChange({ ...p, div: v })} color={gc} />
-          <StepBtns label="RANDOM" opts={['OFF','ON']} value={p.rand ?? 0} onChange={v => onChange({ ...p, rand: v })} color="#f59e0b" />
+          <StepBtns label="DIV" opts={['1/8','1/16','1/32','T']} value={pn(p.div, 1)} onChange={v => onChange({ ...p, div: v })} color={gc} />
+          <StepBtns label="RANDOM" opts={['OFF','ON']} value={pn(p.rand, 0)} onChange={v => onChange({ ...p, rand: v })} color="#f59e0b" />
         </div>
       </FSPluginBg>
     </div>
@@ -1130,13 +1137,13 @@ const WT_SHAPES = ['SINE','SAW','SQUARE','TRI','NOISE','WAVETBL','FORMANT']
 
 function SpectrumEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
-  const waveIdx = Math.round(p.wave ?? 0)
+  const waveIdx = Math.round(pn(p.wave, 0))
 
   const [wtViz, setWtViz] = useState<number[]>([])
   useEffect(() => {
     const id = setInterval(() => {
       const t = Date.now() / 600
-      const morph = p.morph ?? 0
+      const morph = pn(p.morph, 0)
       const wave = waveIdx
       setWtViz(Array(60).fill(0).map((_, i) => {
         const x = (i / 60) * Math.PI * 2
@@ -1184,16 +1191,16 @@ function SpectrumEditor({ plugin, onChange }: PluginEditorProps) {
         </div>
 
         <div style={{ display: 'flex', gap: 4, padding: '5px 10px' }}>
-          <FSKnob label="PITCH"  value={p.pitch ?? 0}     min={-24} max={24}   step={0.5} unit=" st" color="#3b82f6" size={40} centerZero onChange={v => onChange({ ...p, pitch: v })} />
-          <FSKnob label="DETUNE" value={p.detune ?? 0}    min={-50} max={50}   step={1}   unit=" c"  color="#60a5fa" size={40} centerZero onChange={v => onChange({ ...p, detune: v })} />
-          <FSKnob label="MORPH"  value={p.morph ?? 0}     min={0}   max={1}    step={0.01}           color="#818cf8" size={40} onChange={v => onChange({ ...p, morph: v })} />
-          <FSKnob label="FILTER" value={p.filter ?? 8000} min={20}  max={20000} step={10} unit=" Hz" color="#6366f1" size={40} onChange={v => onChange({ ...p, filter: v })} />
-          <FSKnob label="RES"    value={p.res ?? 0.7}     min={0.1} max={10}   step={0.1}            color="#818cf8" size={36} onChange={v => onChange({ ...p, res: v })} />
-          <FSKnob label="MIX"    value={p.mix ?? 0.5}     min={0}   max={1}    step={0.01}           color="#3b82f6" size={36} onChange={v => onChange({ ...p, mix: v })} />
+          <FSKnob label="PITCH"  value={pn(p.pitch, 0)}     min={-24} max={24}   step={0.5} unit=" st" color="#3b82f6" size={40} centerZero onChange={v => onChange({ ...p, pitch: v })} />
+          <FSKnob label="DETUNE" value={pn(p.detune, 0)}    min={-50} max={50}   step={1}   unit=" c"  color="#60a5fa" size={40} centerZero onChange={v => onChange({ ...p, detune: v })} />
+          <FSKnob label="MORPH"  value={pn(p.morph, 0)}     min={0}   max={1}    step={0.01}           color="#818cf8" size={40} onChange={v => onChange({ ...p, morph: v })} />
+          <FSKnob label="FILTER" value={pn(p.filter, 8000)} min={20}  max={20000} step={10} unit=" Hz" color="#6366f1" size={40} onChange={v => onChange({ ...p, filter: v })} />
+          <FSKnob label="RES"    value={pn(p.res, 0.7)}     min={0.1} max={10}   step={0.1}            color="#818cf8" size={36} onChange={v => onChange({ ...p, res: v })} />
+          <FSKnob label="MIX"    value={pn(p.mix, 0.5)}     min={0}   max={1}    step={0.01}           color="#3b82f6" size={36} onChange={v => onChange({ ...p, mix: v })} />
         </div>
         <div style={{ display: 'flex', gap: 5, padding: '0 10px 7px', flexWrap: 'wrap' }}>
           <StepBtns label="WAVE" opts={WT_SHAPES}             value={waveIdx}                  onChange={v => onChange({ ...p, wave: v })} color="#3b82f6" />
-          <StepBtns label="OCT"  opts={['-2','-1','0','+1','+2']} value={Math.round(p.oct ?? 2)} onChange={v => onChange({ ...p, oct: v })} color="#818cf8" />
+          <StepBtns label="OCT"  opts={['-2','-1','0','+1','+2']} value={Math.round(pn(p.oct, 2))} onChange={v => onChange({ ...p, oct: v })} color="#818cf8" />
         </div>
       </FSPluginBg>
     </div>
@@ -1208,10 +1215,10 @@ function CrushEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
   const [activeBand, setActiveBand] = useState(0)
   const bands = [
-    { key: 'lo', label: 'LOW',    color: '#f59e0b', range: `20–${p.xf1 ?? 250}Hz` },
-    { key: 'lm', label: 'LO-MID', color: '#10b981', range: `${p.xf1 ?? 250}–${p.xf2 ?? 2500}Hz` },
-    { key: 'hm', label: 'HI-MID', color: '#a855f7', range: `${p.xf2 ?? 2500}–${p.xf3 ?? 8000}Hz` },
-    { key: 'hi', label: 'HIGH',   color: '#ef4444', range: `${p.xf3 ?? 8000}–20kHz` },
+    { key: 'lo', label: 'LOW',    color: '#f59e0b', range: `20–${pn(p.xf1, 250)}Hz` },
+    { key: 'lm', label: 'LO-MID', color: '#10b981', range: `${pn(p.xf1, 250)}–${pn(p.xf2, 2500)}Hz` },
+    { key: 'hm', label: 'HI-MID', color: '#a855f7', range: `${pn(p.xf2, 2500)}–${pn(p.xf3, 8000)}Hz` },
+    { key: 'hi', label: 'HIGH',   color: '#ef4444', range: `${pn(p.xf3, 8000)}–20kHz` },
   ]
   const ab = bands[activeBand]
 
@@ -1259,18 +1266,18 @@ function CrushEditor({ plugin, onChange }: PluginEditorProps) {
         </div>
 
         <div style={{ display: 'flex', gap: 4, padding: '5px 10px' }}>
-          <FSKnob label="THRESH"  value={p[`${ab.key}Thresh`] ?? -20}                min={-60} max={0}    step={0.5} unit=" dB"  color={ab.color} size={40} onChange={v => onChange({ ...p, [`${ab.key}Thresh`]: v })} />
-          <FSKnob label="RATIO"   value={p[`${ab.key}Ratio`] ?? 4}                   min={1}   max={20}   step={0.5} unit=":1"   color={ab.color} size={40} onChange={v => onChange({ ...p, [`${ab.key}Ratio`]: v })} />
-          <FSKnob label="ATTACK"  value={(p[`${ab.key}Atk`] ?? 0.01) * 1000}         min={0.1} max={200}  step={0.1} unit=" ms"  color={ab.color} size={40} onChange={v => onChange({ ...p, [`${ab.key}Atk`]: v / 1000 })} />
-          <FSKnob label="RELEASE" value={(p[`${ab.key}Rel`] ?? 0.15) * 1000}         min={10}  max={2000} step={10}  unit=" ms"  color={ab.color} size={40} onChange={v => onChange({ ...p, [`${ab.key}Rel`]: v / 1000 })} />
-          <FSKnob label="GAIN"    value={p[`${ab.key}Gain`] ?? 0}                    min={-12} max={12}   step={0.5} unit=" dB"  color={ab.color} size={36} centerZero onChange={v => onChange({ ...p, [`${ab.key}Gain`]: v })} />
+          <FSKnob label="THRESH"  value={Number(p[`${ab.key}Thresh`] ?? -20)}                min={-60} max={0}    step={0.5} unit=" dB"  color={ab.color} size={40} onChange={v => onChange({ ...p, [`${ab.key}Thresh`]: v })} />
+          <FSKnob label="RATIO"   value={Number(p[`${ab.key}Ratio`] ?? 4)}                   min={1}   max={20}   step={0.5} unit=":1"   color={ab.color} size={40} onChange={v => onChange({ ...p, [`${ab.key}Ratio`]: v })} />
+          <FSKnob label="ATTACK"  value={Number(p[`${ab.key}Atk`] ?? 0.01) * 1000}         min={0.1} max={200}  step={0.1} unit=" ms"  color={ab.color} size={40} onChange={v => onChange({ ...p, [`${ab.key}Atk`]: v / 1000 })} />
+          <FSKnob label="RELEASE" value={Number(p[`${ab.key}Rel`] ?? 0.15) * 1000}         min={10}  max={2000} step={10}  unit=" ms"  color={ab.color} size={40} onChange={v => onChange({ ...p, [`${ab.key}Rel`]: v / 1000 })} />
+          <FSKnob label="GAIN"    value={Number(p[`${ab.key}Gain`] ?? 0)}                    min={-12} max={12}   step={0.5} unit=" dB"  color={ab.color} size={36} centerZero onChange={v => onChange({ ...p, [`${ab.key}Gain`]: v })} />
         </div>
         <div style={{ display: 'flex', gap: 4, padding: '0 10px 7px', flexWrap: 'wrap', alignItems: 'center' }}>
-          <FSKnob label="XF1" value={p.xf1 ?? 250}  min={20}   max={500}   step={5}   unit=" Hz" color="#f59e0b" size={32} onChange={v => onChange({ ...p, xf1: v })} />
-          <FSKnob label="XF2" value={p.xf2 ?? 2500} min={500}  max={5000}  step={50}  unit=" Hz" color="#10b981" size={32} onChange={v => onChange({ ...p, xf2: v })} />
-          <FSKnob label="XF3" value={p.xf3 ?? 8000} min={2000} max={16000} step={100} unit=" Hz" color="#a855f7" size={32} onChange={v => onChange({ ...p, xf3: v })} />
+          <FSKnob label="XF1" value={pn(p.xf1, 250)}  min={20}   max={500}   step={5}   unit=" Hz" color="#f59e0b" size={32} onChange={v => onChange({ ...p, xf1: v })} />
+          <FSKnob label="XF2" value={pn(p.xf2, 2500)} min={500}  max={5000}  step={50}  unit=" Hz" color="#10b981" size={32} onChange={v => onChange({ ...p, xf2: v })} />
+          <FSKnob label="XF3" value={pn(p.xf3, 8000)} min={2000} max={16000} step={100} unit=" Hz" color="#a855f7" size={32} onChange={v => onChange({ ...p, xf3: v })} />
           <div style={{ marginLeft: 4 }}>
-            <StepBtns label="SOLO" opts={['OFF','LO','LM','HM','HI']} value={p.solo ?? 0} onChange={v => onChange({ ...p, solo: v })} color={ab.color} />
+            <StepBtns label="SOLO" opts={['OFF','LO','LM','HM','HI']} value={pn(p.solo, 0)} onChange={v => onChange({ ...p, solo: v })} color={ab.color} />
           </div>
         </div>
       </FSPluginBg>
@@ -1286,12 +1293,12 @@ const REEL_HEADS = ['1-HEAD','2-HEAD','3-HEAD','LOOP','MULTI']
 
 function ReelEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
-  const headIdx = Math.round(p.heads ?? 1)
+  const headIdx = Math.round(pn(p.heads, 1))
 
   // Reel animation
   const [reelAngle, setReelAngle] = useState(0)
   useEffect(() => {
-    if (p.freeze ?? 0) return
+    if (pn(p.freeze, 0)) return
     const id = setInterval(() => setReelAngle(a => a + 3), 50)
     return () => clearInterval(id)
   }, [p.freeze])
@@ -1327,17 +1334,17 @@ function ReelEditor({ plugin, onChange }: PluginEditorProps) {
         </div>
 
         <div style={{ display: 'flex', gap: 4, padding: '5px 10px' }}>
-          <FSKnob label="WET"     value={p.wet ?? 0.35}          min={0}    max={1}    step={0.01}           color="#f59e0b" size={40} onChange={v => onChange({ ...p, wet: v })} />
-          <FSKnob label="TIME"    value={(p.time ?? 0.5)*1000}   min={10}   max={2000} step={1}   unit=" ms" color="#f59e0b" size={40} onChange={v => onChange({ ...p, time: v/1000 })} />
-          <FSKnob label="FDBK"    value={p.feedback ?? 0.4}      min={0}    max={0.98} step={0.01}           color="#f59e0b" size={40} glowing={(p.feedback ?? 0.4) > 0.7} onChange={v => onChange({ ...p, feedback: v })} />
-          <FSKnob label="SAT"     value={p.saturation ?? 0.3}    min={0}    max={1}    step={0.01}           color="#fb923c" size={40} onChange={v => onChange({ ...p, saturation: v })} />
-          <FSKnob label="WOW"     value={p.flutter ?? 0.05}      min={0}    max={0.3}  step={0.005}          color="#fbbf24" size={36} onChange={v => onChange({ ...p, flutter: v })} />
-          <FSKnob label="TONE"    value={p.tone ?? 0.6}          min={0}    max={1}    step={0.01}           color="#f59e0b" size={36} onChange={v => onChange({ ...p, tone: v })} />
+          <FSKnob label="WET"     value={pn(p.wet, 0.35)}          min={0}    max={1}    step={0.01}           color="#f59e0b" size={40} onChange={v => onChange({ ...p, wet: v })} />
+          <FSKnob label="TIME"    value={pn(p.time, 0.5) * 1000}   min={10}   max={2000} step={1}   unit=" ms" color="#f59e0b" size={40} onChange={v => onChange({ ...p, time: v/1000 })} />
+          <FSKnob label="FDBK"    value={pn(p.feedback, 0.4)}      min={0}    max={0.98} step={0.01}           color="#f59e0b" size={40} glowing={pn(p.feedback, 0.4) > 0.7} onChange={v => onChange({ ...p, feedback: v })} />
+          <FSKnob label="SAT"     value={pn(p.saturation, 0.3)}    min={0}    max={1}    step={0.01}           color="#fb923c" size={40} onChange={v => onChange({ ...p, saturation: v })} />
+          <FSKnob label="WOW"     value={pn(p.flutter, 0.05)}      min={0}    max={0.3}  step={0.005}          color="#fbbf24" size={36} onChange={v => onChange({ ...p, flutter: v })} />
+          <FSKnob label="TONE"    value={pn(p.tone, 0.6)}          min={0}    max={1}    step={0.01}           color="#f59e0b" size={36} onChange={v => onChange({ ...p, tone: v })} />
         </div>
         <div style={{ display: 'flex', gap: 5, padding: '0 10px 7px', flexWrap: 'wrap' }}>
-          <StepBtns label="SYNC"   opts={['FREE','¼','⅛','½']}     value={p.sync ?? 0}   onChange={v => onChange({ ...p, sync: v })}   color="#f59e0b" />
-          <StepBtns label="FREEZE" opts={['OFF','ON']}               value={p.freeze ?? 0} onChange={v => onChange({ ...p, freeze: v })} color="#ef4444" />
-          <StepBtns label="IPS"    opts={['7.5','15','30']}          value={Math.round(p.speed ?? 1)} onChange={v => onChange({ ...p, speed: v })} color="#f59e0b" />
+          <StepBtns label="SYNC"   opts={['FREE','¼','⅛','½']}     value={pn(p.sync, 0)}   onChange={v => onChange({ ...p, sync: v })}   color="#f59e0b" />
+          <StepBtns label="FREEZE" opts={['OFF','ON']}               value={pn(p.freeze, 0)} onChange={v => onChange({ ...p, freeze: v })} color="#ef4444" />
+          <StepBtns label="IPS"    opts={['7.5','15','30']}          value={Math.round(pn(p.speed, 1))} onChange={v => onChange({ ...p, speed: v })} color="#f59e0b" />
         </div>
       </FSPluginBg>
     </div>
@@ -1354,8 +1361,8 @@ function AuraEditor({ plugin, onChange }: PluginEditorProps) {
 
   useEffect(() => {
     const id = setInterval(() => {
-      const air = p.air ?? 0
-      const presence = p.presence ?? 0
+      const air = pn(p.air, 0)
+      const presence = pn(p.presence, 0)
       const intensity = (Math.abs(air) + Math.abs(presence)) / 24
       setAuraRings(prev => prev.map((r, i) => {
         const t = Date.now() / 1000
@@ -1397,17 +1404,17 @@ function AuraEditor({ plugin, onChange }: PluginEditorProps) {
         </div>
 
         <div style={{ display: 'flex', gap: 4, padding: '6px 10px' }}>
-          <FSKnob label="AIR"      value={p.air ?? 0}      min={-12} max={12}  step={0.5} unit=" dB" color="#e879f9" size={40} centerZero glowing={(p.air ?? 0) > 3} onChange={v => onChange({ ...p, air: v })} />
-          <FSKnob label="PRESENCE" value={p.presence ?? 0} min={-12} max={12}  step={0.5} unit=" dB" color="#f0abfc" size={40} centerZero onChange={v => onChange({ ...p, presence: v })} />
-          <FSKnob label="BODY"     value={p.body ?? 0}     min={-12} max={12}  step={0.5} unit=" dB" color="#c084fc" size={40} centerZero onChange={v => onChange({ ...p, body: v })} />
-          <FSKnob label="DE-ESS"   value={p.deess ?? 0}    min={0}   max={12}  step={0.5} unit=" dB" color="#a78bfa" size={40} onChange={v => onChange({ ...p, deess: v })} />
-          <FSKnob label="BREATHE"  value={p.breathe ?? 0}  min={0}   max={1}   step={0.01}           color="#e879f9" size={36} onChange={v => onChange({ ...p, breathe: v })} />
-          <FSKnob label="MIX"      value={p.mix ?? 1}      min={0}   max={1}   step={0.01}           color="#e879f9" size={36} onChange={v => onChange({ ...p, mix: v })} />
+          <FSKnob label="AIR"      value={pn(p.air, 0)}      min={-12} max={12}  step={0.5} unit=" dB" color="#e879f9" size={40} centerZero glowing={pn(p.air, 0) > 3} onChange={v => onChange({ ...p, air: v })} />
+          <FSKnob label="PRESENCE" value={pn(p.presence, 0)} min={-12} max={12}  step={0.5} unit=" dB" color="#f0abfc" size={40} centerZero onChange={v => onChange({ ...p, presence: v })} />
+          <FSKnob label="BODY"     value={pn(p.body, 0)}     min={-12} max={12}  step={0.5} unit=" dB" color="#c084fc" size={40} centerZero onChange={v => onChange({ ...p, body: v })} />
+          <FSKnob label="DE-ESS"   value={pn(p.deess, 0)}    min={0}   max={12}  step={0.5} unit=" dB" color="#a78bfa" size={40} onChange={v => onChange({ ...p, deess: v })} />
+          <FSKnob label="BREATHE"  value={pn(p.breathe, 0)}  min={0}   max={1}   step={0.01}           color="#e879f9" size={36} onChange={v => onChange({ ...p, breathe: v })} />
+          <FSKnob label="MIX"      value={pn(p.mix, 1)}      min={0}   max={1}   step={0.01}           color="#e879f9" size={36} onChange={v => onChange({ ...p, mix: v })} />
         </div>
         <div style={{ display: 'flex', gap: 5, padding: '0 10px 7px', flexWrap: 'wrap' }}>
-          <StepBtns label="GENDER" opts={['FEMALE','NEUT','MALE']}  value={p.gender ?? 1}  onChange={v => onChange({ ...p, gender: v })}  color="#e879f9" />
-          <StepBtns label="DRIVE"  opts={['CLEAN','WARM','HOT']}    value={p.drive ?? 0}   onChange={v => onChange({ ...p, drive: v })}   color="#c084fc" />
-          <StepBtns label="REVERB" opts={['OFF','ROOM','PLATE']}    value={p.revMode ?? 0} onChange={v => onChange({ ...p, revMode: v })} color="#a78bfa" />
+          <StepBtns label="GENDER" opts={['FEMALE','NEUT','MALE']}  value={pn(p.gender, 1)}  onChange={v => onChange({ ...p, gender: v })}  color="#e879f9" />
+          <StepBtns label="DRIVE"  opts={['CLEAN','WARM','HOT']}    value={pn(p.drive, 0)}   onChange={v => onChange({ ...p, drive: v })}   color="#c084fc" />
+          <StepBtns label="REVERB" opts={['OFF','ROOM','PLATE']}    value={pn(p.revMode, 0)} onChange={v => onChange({ ...p, revMode: v })} color="#a78bfa" />
         </div>
       </FSPluginBg>
     </div>
@@ -1429,17 +1436,17 @@ const DIM_DESC  = [
 
 function DimensionEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
-  const modeIdx = Math.round(p.mode ?? 0)
+  const modeIdx = Math.round(pn(p.mode, 0))
   const dc = '#22d3ee'
 
   // Phase visualization
   const [phase, setPhase] = useState(0)
   useEffect(() => {
-    const id = setInterval(() => setPhase(a => (a + (p.rate ?? 0.5) * 2) % 360), 50)
+    const id = setInterval(() => setPhase(a => (a + pn(p.rate, 0.5) * 2) % 360), 50)
     return () => clearInterval(id)
   }, [p.rate])
 
-  const stereoW = p.width ?? 0.8
+  const stereoW = pn(p.width, 0.8)
 
   return (
     <div className="fs-dimension-wrap">
@@ -1490,15 +1497,15 @@ function DimensionEditor({ plugin, onChange }: PluginEditorProps) {
         </div>
 
         <div style={{ display: 'flex', gap: 4, padding: '4px 10px' }}>
-          <FSKnob label="WIDTH"  value={p.width ?? 0.8}  min={0}    max={2}   step={0.01}           color={dc}     size={40} onChange={v => onChange({ ...p, width: v })} />
-          <FSKnob label="RATE"   value={p.rate ?? 0.5}   min={0.05} max={8}   step={0.05} unit=" Hz" color={dc}     size={40} onChange={v => onChange({ ...p, rate: v })} />
-          <FSKnob label="DEPTH"  value={p.depth ?? 0.3}  min={0}    max={1}   step={0.01}           color="#67e8f9" size={40} onChange={v => onChange({ ...p, depth: v })} />
-          <FSKnob label="TONE"   value={p.tone ?? 0.5}   min={0}    max={1}   step={0.01}           color={dc}     size={40} onChange={v => onChange({ ...p, tone: v })} />
-          <FSKnob label="MIX"    value={p.mix ?? 0.5}    min={0}    max={1}   step={0.01}           color={dc}     size={36} onChange={v => onChange({ ...p, mix: v })} />
+          <FSKnob label="WIDTH"  value={pn(p.width, 0.8)}  min={0}    max={2}   step={0.01}           color={dc}     size={40} onChange={v => onChange({ ...p, width: v })} />
+          <FSKnob label="RATE"   value={pn(p.rate, 0.5)}   min={0.05} max={8}   step={0.05} unit=" Hz" color={dc}     size={40} onChange={v => onChange({ ...p, rate: v })} />
+          <FSKnob label="DEPTH"  value={pn(p.depth, 0.3)}  min={0}    max={1}   step={0.01}           color="#67e8f9" size={40} onChange={v => onChange({ ...p, depth: v })} />
+          <FSKnob label="TONE"   value={pn(p.tone, 0.5)}   min={0}    max={1}   step={0.01}           color={dc}     size={40} onChange={v => onChange({ ...p, tone: v })} />
+          <FSKnob label="MIX"    value={pn(p.mix, 0.5)}    min={0}    max={1}   step={0.01}           color={dc}     size={36} onChange={v => onChange({ ...p, mix: v })} />
         </div>
         <div style={{ display: 'flex', gap: 5, padding: '0 10px 7px' }}>
-          <StepBtns label="SPREAD" opts={['MONO','STEREO','WIDE','ULTRA']} value={p.spread ?? 1} onChange={v => onChange({ ...p, spread: v })} color={dc} />
-          <StepBtns label="HPF"    opts={['OFF','80Hz','160Hz']}            value={p.hpf ?? 0}    onChange={v => onChange({ ...p, hpf: v })}    color="#67e8f9" />
+          <StepBtns label="SPREAD" opts={['MONO','STEREO','WIDE','ULTRA']} value={pn(p.spread, 1)} onChange={v => onChange({ ...p, spread: v })} color={dc} />
+          <StepBtns label="HPF"    opts={['OFF','80Hz','160Hz']}            value={pn(p.hpf, 0)}    onChange={v => onChange({ ...p, hpf: v })}    color="#67e8f9" />
         </div>
       </FSPluginBg>
     </div>
@@ -1599,7 +1606,7 @@ export const FLOWSTATE_PRO_DEFAULTS: Record<string, {
 }
 
 // ── Render switch ─────────────────────────────────────────────────────────────
-export function renderFlowstatePlugin(plugin: Plugin, onChange: (p: Record<string, number>) => void) {
+export function renderFlowstatePlugin(plugin: Plugin, onChange: (p: Record<string, number | string>) => void) {
   switch (plugin.type) {
     case 'fs_proq':           return <ProQEditor       plugin={plugin} onChange={onChange} />
     case 'fs_resonance':      return <ResonateEditor   plugin={plugin} onChange={onChange} />

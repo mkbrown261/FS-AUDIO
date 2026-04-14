@@ -129,6 +129,16 @@ export interface AutomationLane {
   points: AutomationPoint[]
 }
 
+// ── Arrangement Markers ────────────────────────────────────────────────────
+// Logic Pro-style named markers on the timeline ruler.
+// Users click the marker bar above the tracks to add/move/delete/rename them.
+export interface Marker {
+  id: string
+  beat: number        // position in project-beats
+  label: string       // display name (e.g. "Verse", "Chorus A", "Bridge")
+  color: string       // hex color — defaults to accent purple
+}
+
 // Tool modes — matching Logic Pro's toolbox
 export type EditTool = 'pointer' | 'scissors' | 'glue' | 'fade' | 'zoom' | 'mute' | 'marquee' | 'pencil'
 
@@ -175,6 +185,9 @@ export interface ProjectState {
   // Tracks
   tracks: Track[]
   automationLanes: AutomationLane[]
+
+  // Arrangement Markers
+  markers: Marker[]
 
   // AI
   clawbotEnabled: boolean
@@ -353,6 +366,12 @@ interface Actions {
   redo: () => void
   setSampleRate: (v: ProjectState['sampleRate']) => void
   setBitDepth: (v: ProjectState['bitDepth']) => void
+
+  // Arrangement Markers
+  addMarker: (beat: number, label?: string, color?: string) => void
+  updateMarker: (id: string, patch: Partial<Omit<Marker, 'id'>>) => void
+  removeMarker: (id: string) => void
+  clearMarkers: () => void
 }
 
 export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
@@ -392,6 +411,7 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
 
   tracks: defaultTracks(),
   automationLanes: [],
+  markers: [],
 
   clawbotEnabled: true,
   aiLevel: 50,
@@ -963,6 +983,7 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
       metronomeEnabled: st.metronomeEnabled,
       metronomeVolume: st.metronomeVolume,
       zoom: st.zoom,
+      markers: st.markers,
       automationLanes: st.automationLanes,
       tracks: st.tracks.map(t => ({
         ...t,
@@ -991,6 +1012,7 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
       metronomeVolume:  (data.metronomeVolume  as number) ?? 0.5,
       zoom:             (data.zoom            as number)  ?? 1,
       pixelsPerBeat:    ((data.zoom as number) ?? 1) * 40,
+      markers:          (data.markers          as Marker[])          ?? [],
       automationLanes:  (data.automationLanes as AutomationLane[]) ?? [],
       tracks:           (data.tracks          as Track[]) ?? defaultTracks(),
       isDirty:          false,
@@ -1134,4 +1156,31 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
       console.error('[FS-AUDIO] Load error:', err)
     }
   },
+
+  // ── Arrangement Markers ─────────────────────────────────────────────────
+  addMarker: (beat, label, color) => set(st => ({
+    markers: [
+      ...st.markers,
+      {
+        id: `marker-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        beat,
+        label: label ?? `Marker ${st.markers.length + 1}`,
+        color: color ?? '#a855f7',
+      },
+    ].sort((a, b) => a.beat - b.beat),
+    isDirty: true,
+  })),
+
+  updateMarker: (id, patch) => set(st => ({
+    markers: st.markers.map(m => m.id === id ? { ...m, ...patch } : m)
+      .sort((a, b) => a.beat - b.beat),
+    isDirty: true,
+  })),
+
+  removeMarker: (id) => set(st => ({
+    markers: st.markers.filter(m => m.id !== id),
+    isDirty: true,
+  })),
+
+  clearMarkers: () => set({ markers: [], isDirty: true }),
 }))

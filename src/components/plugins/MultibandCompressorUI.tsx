@@ -5,6 +5,13 @@
 
 import React, { useState } from 'react'
 
+/** Safely coerce a param value (string | number | undefined) to a number */
+const pn = (v: string | number | undefined, def: number): number => {
+  const n = Number(v ?? def)
+  return isNaN(n) ? def : n
+}
+
+
 interface MultibandCompressorUIProps {
   plugin: {
     id: string
@@ -88,8 +95,8 @@ export function MultibandCompressorUI({ plugin, onParamChange }: MultibandCompre
       }}>
         {['low', 'mid', 'high'].map(band => {
           const reduction = Math.abs(getReduction(band))
-          const bandNames = { low: 'Low', mid: 'Mid', high: 'High' }
-          const colors = { low: '#ef4444', mid: '#f59e0b', high: '#06b6d4' }
+          const bandNames: Record<string, string> = { low: 'Low', mid: 'Mid', high: 'High' }
+          const colors: Record<string, string> = { low: '#ef4444', mid: '#f59e0b', high: '#06b6d4' }
           
           return (
             <div

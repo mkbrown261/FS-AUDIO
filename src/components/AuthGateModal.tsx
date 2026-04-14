@@ -8,6 +8,7 @@ const CLAWFLOW_INTRO = 'First month $20'
 // ── Types ──────────────────────────────────────────────────────────────────────
 export type RequiredAccess =
   | 'any_account'   // just needs a free FlowState sign-in
+  | 'pro'           // needs a Pro subscription
   | 'clawflow'      // needs ClawFlow (separate AI subscription)
 
 export interface AuthGateConfig {
@@ -22,7 +23,20 @@ interface AuthState {
   signedIn: boolean
   tier: string
   hasClawflow: boolean
+  hasPro: boolean
   email: string
+}
+
+// Minimal typing for Electron preload API used in this file
+declare global {
+  interface Window {
+    electronAPI?: {
+      getUser?: () => Promise<unknown>
+      openExternal?: (url: string) => void
+      startAuth?: (state: string) => void
+      [key: string]: unknown
+    }
+  }
 }
 
 // ── Auth state helpers ─────────────────────────────────────────────────────────

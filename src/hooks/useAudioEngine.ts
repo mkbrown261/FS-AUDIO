@@ -2,6 +2,8 @@ import { useRef, useCallback, useEffect } from 'react'
 import { useProjectStore, Clip } from '../store/projectStore'
 import { DX7Synth } from '../audio/synths/DX7Synth'
 import { SFZSampler } from '../audio/synths/SFZSampler'
+import { WavetableSynth, WavetableSynthParams, WAVETABLES } from '../audio/synths/WavetableSynth'
+import { GranularSynth, GranularSynthParams } from '../audio/synths/GranularSynth'
 
 interface TrackNodes {
   gain: GainNode
@@ -802,11 +804,12 @@ export function useAudioEngine() {
 
     // Determine which instrument this track uses
     const track   = useProjectStore.getState().tracks.find(t => t.id === trackId)
-    const dx7Plugin = track?.plugins.find(p => p.type === 'fs_dx7' && p.enabled)
-    const sfzPlugin = track?.plugins.find(p => p.type === 'fs_sfz' && p.enabled)
+    const dx7Plugin        = track?.plugins.find(p => p.type === 'fs_dx7'        && p.enabled)
+    const sfzPlugin        = track?.plugins.find(p => p.type === 'fs_sfz'        && p.enabled)
+    const wavetablePlugin  = track?.plugins.find(p => p.type === 'fs_wavetable'  && p.enabled)
 
     // Helper: get or create the instrument synth instance for this track
-    const getInstrumentSynth = (): DX7Synth | SFZSampler | null => {
+    const getInstrumentSynth = (): DX7Synth | SFZSampler | WavetableSynth | null => {
       let synth = instrumentSynthsRef.current.get(trackId)
 
       if (dx7Plugin) {
@@ -823,14 +826,23 @@ export function useAudioEngine() {
         const sfzPath = sfzPlugin.params.sfzPath as string || ''
         const loadedPath = (synth as any)?._loadedSfzPath
         if (!synth || !(synth instanceof SFZSampler) || loadedPath !== sfzPath) {
-          if (synth) synth.allNotesOff()
+          if (synth && 'allNotesOff' in synth) (synth as SFZSampler).allNotesOff()
           synth = new SFZSampler(ctx, nodes.gain)
           ;(synth as any)._loadedSfzPath = sfzPath
           instrumentSynthsRef.current.set(trackId, synth)
           const sfzContent = sfzPlugin.params.sfzContent as string
           const samplesBaseUrl = sfzPlugin.params.samplesBaseUrl as string || ''
-          synth.loadSFZ(sfzContent, samplesBaseUrl)
+          ;(synth as SFZSampler).loadSFZ(sfzContent, samplesBaseUrl)
             .catch(err => console.error('[SFZ scheduled]', err))
+        }
+        return synth
+      }
+
+      if (wavetablePlugin) {
+        if (!synth || !(synth instanceof WavetableSynth)) {
+          synth = new WavetableSynth(ctx)
+          ;(synth as WavetableSynth).connect(nodes.gain)
+          instrumentSynthsRef.current.set(trackId, synth)
         }
         return synth
       }
@@ -864,11 +876,23 @@ export function useAudioEngine() {
         const stopDelay  = Math.max(0, schedEnd  - ctx.currentTime) * 1000
 
         const onTimer = window.setTimeout(() => {
-          try { instrumentSynth.noteOn(note.pitch, vel) } catch {}
+          try {
+            if (instrumentSynth instanceof WavetableSynth) {
+              instrumentSynth.noteOn(note.pitch, vel / 127, (wavetablePlugin?.params ?? {}) as unknown as WavetableSynthParams)
+            } else {
+              instrumentSynth.noteOn(note.pitch, vel)
+            }
+          } catch {}
         }, startDelay)
 
         const offTimer = window.setTimeout(() => {
-          try { instrumentSynth.noteOff(note.pitch) } catch {}
+          try {
+            if (instrumentSynth instanceof WavetableSynth) {
+              instrumentSynth.noteOff(note.pitch, (wavetablePlugin?.params ?? {}) as unknown as WavetableSynthParams)
+            } else {
+              instrumentSynth.noteOff(note.pitch)
+            }
+          } catch {}
         }, stopDelay)
 
         // Store timers for cleanup (reuse scheduledSourcesRef with a dummy obj)
@@ -2061,7 +2085,7 @@ export function useAudioEngine() {
   }, [])
 
   // ── Instrument Synth Instances (per track) ────────────────────────────────
-  const instrumentSynthsRef = useRef<Map<string, DX7Synth | SFZSampler>>(new Map())
+  const instrumentSynthsRef = useRef<Map<string, DX7Synth | SFZSampler | WavetableSynth>>(new Map())
 
   // ── Play a preview note (piano roll key click) ────────────────────────────
   const heldNotesRef = useRef<Map<number, { osc: OscillatorNode; gain: GainNode }>>(new Map())
@@ -2176,8 +2200,27 @@ export function useAudioEngine() {
           return
         }
       }
+
+      // ── WavetableSynth ──────────────────────────────────────────────────
+      const wavetablePlugin = selectedTrack.plugins.find(p => p.type === 'fs_wavetable' && p.enabled)
+      if (wavetablePlugin) {
+        let trackNodes = trackNodesRef.current.get(selectedTrack.id)
+        if (!trackNodes) trackNodes = getTrackNodes(selectedTrack.id, selectedTrack.volume, selectedTrack.pan)
+        if (!trackNodes) { console.error('[noteOn] No track nodes for WavetableSynth'); return }
+
+        let synth = instrumentSynthsRef.current.get(selectedTrack.id)
+        if (!synth || !(synth instanceof WavetableSynth)) {
+          synth = new WavetableSynth(ctx)
+          ;(synth as WavetableSynth).connect(trackNodes.gain)
+          instrumentSynthsRef.current.set(selectedTrack.id, synth)
+        }
+        const wp = wavetablePlugin.params as unknown as WavetableSynthParams
+        ;(synth as WavetableSynth).noteOn(pitch, velocity / 127, wp)
+        heldNotesRef.current.set(pitch, { osc: null as any, gain: null as any })
+        return
+      }
     }
-    
+
     // Fallback to simple oscillator (for testing or tracks without instruments)
     const freq = 440 * Math.pow(2, (pitch - 69) / 12)
     const osc = ctx.createOscillator()
@@ -2207,12 +2250,17 @@ export function useAudioEngine() {
     if (selectedTrack) {
       const dx7Plugin = selectedTrack.plugins.find(p => p.type === 'fs_dx7' && p.enabled)
       const sfzPlugin = selectedTrack.plugins.find(p => p.type === 'fs_sfz' && p.enabled)
+      const wavetablePlugin = selectedTrack.plugins.find(p => p.type === 'fs_wavetable' && p.enabled)
       
-      if (dx7Plugin || sfzPlugin) {
+      if (dx7Plugin || sfzPlugin || wavetablePlugin) {
         const synth = instrumentSynthsRef.current.get(selectedTrack.id)
         if (synth) {
-          synth.noteOff(pitch)
-
+          if (synth instanceof WavetableSynth) {
+            const wp = (wavetablePlugin?.params ?? {}) as unknown as WavetableSynthParams
+            synth.noteOff(pitch, wp)
+          } else {
+            synth.noteOff(pitch)
+          }
           heldNotesRef.current.delete(pitch)
           return
         }

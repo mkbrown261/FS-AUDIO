@@ -1,5 +1,21 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { EQBand, FilterType } from '../../audio/plugins/ParametricEQ'
+// Local EQ band definition (richer than the audio engine's EQBand)
+type FilterType = BiquadFilterType | 'bell' | 'lowshelf' | 'highshelf' | 'notch' | 'lowpass' | 'highpass' | 'allpass'
+interface EQBand {
+  id: string
+  frequency: number
+  gain: number
+  q: number
+  type: FilterType
+  enabled: boolean
+}
+
+/** Safely coerce a param value (string | number | undefined) to a number */
+const pn = (v: string | number | undefined, def: number): number => {
+  const n = Number(v ?? def)
+  return isNaN(n) ? def : n
+}
+
 
 interface ParametricEQUIProps {
   params: Record<string, number | string>
@@ -11,7 +27,7 @@ const parseBands = (params: Record<string, number | string>): EQBand[] => {
   const bands: EQBand[] = []
   for (let i = 0; i < 8; i++) {
     bands.push({
-      id: i,
+      id: String(i),
       enabled: Boolean(params[`band${i}_enabled`]),
       type: (params[`band${i}_type`] as FilterType) || 'bell',
       frequency: Number(params[`band${i}_frequency`]) || 1000,

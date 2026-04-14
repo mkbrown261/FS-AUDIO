@@ -249,6 +249,24 @@ export default function App() {
           st.addTrack('bus')
           break
 
+        // ── Markers ───────────────────────────────────────────────────────────
+        case 'add-marker': {
+          const beatNow = st.currentTime * (st.bpm / 60)
+          const MC = ['#a855f7','#ec4899','#3b82f6','#10b981','#f59e0b','#ef4444','#06b6d4','#84cc16']
+          st.addMarker(Math.round(beatNow * 4) / 4, undefined, MC[st.markers.length % MC.length])
+          showToast('Marker added', 'ok')
+          break
+        }
+
+        case 'clear-markers':
+          if (st.markers.length > 0) {
+            if (window.confirm(`Delete all ${st.markers.length} markers?`)) {
+              st.clearMarkers()
+              showToast('All markers cleared', 'info')
+            }
+          }
+          break
+
         // ── Auth state changes ────────────────────────────────────────────────
         case 'signed-in':
           showToast('Signed in to FlowState', 'ok')
@@ -936,6 +954,19 @@ export default function App() {
               store.setClipFadeIn(id, 0)
               store.setClipFadeOut(id, 0)
             }
+          }
+          break
+
+        // ── Add Marker at Playhead (`) ────────────────────────────────────
+        case 'Backquote':
+          if (!inPianoRoll && !meta) {
+            e.preventDefault()
+            const st = useProjectStore.getState()
+            const beatNow = st.currentTime * (st.bpm / 60)
+            const MARKER_COLORS = ['#a855f7','#ec4899','#3b82f6','#10b981','#f59e0b','#ef4444','#06b6d4','#84cc16']
+            const color = MARKER_COLORS[st.markers.length % MARKER_COLORS.length]
+            store.addMarker(Math.round(beatNow * 4) / 4, undefined, color)
+            showToast('Marker added', 'ok')
           }
           break
 

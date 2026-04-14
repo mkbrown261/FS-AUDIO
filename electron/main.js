@@ -310,6 +310,9 @@ function buildMenu() {
         { label: 'Solo Track',   accelerator: 'S', click: () => mainWindow?.webContents.send('menu:action', 'solo-track') },
         { label: 'Arm for Recording', accelerator: 'R', click: () => mainWindow?.webContents.send('menu:action', 'arm-track') },
         { label: 'Freeze Track', click: () => mainWindow?.webContents.send('menu:action', 'freeze-track') },
+        { type: 'separator' },
+        { label: 'Add Marker at Playhead', accelerator: '`', click: () => mainWindow?.webContents.send('menu:action', 'add-marker') },
+        { label: 'Clear All Markers',                         click: () => mainWindow?.webContents.send('menu:action', 'clear-markers') },
       ],
     },
     {

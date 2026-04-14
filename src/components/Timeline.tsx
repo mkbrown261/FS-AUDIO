@@ -704,6 +704,147 @@ function TimelineDropZone({ onDropCreateTrack }: { onDropCreateTrack?: (file: Fi
   )
 }
 
+// ── Arrangement Marker Bar ────────────────────────────────────────────────────
+// Logic Pro-style colored marker flags on a thin bar just below the ruler.
+// • Click empty space → add marker at that beat
+// • Drag a flag       → move marker
+// • Double-click flag → rename
+// • Right-click flag  → context menu (rename / delete)
+function MarkerBar({
+  pixelsPerBeat,
+  scrollLeft,
+  totalWidth,
+}: {
+  pixelsPerBeat: number
+  scrollLeft: number
+  totalWidth: number
+}) {
+  const { markers, addMarker, updateMarker, removeMarker } = useProjectStore()
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; markerId: string } | null>(null)
+
+  // Colour palette for auto-assigning new markers
+  const MARKER_COLORS = [
+    '#a855f7', '#ec4899', '#3b82f6', '#10b981',
+    '#f59e0b', '#ef4444', '#06b6d4', '#84cc16',
+  ]
+
+  function handleBarClick(e: React.MouseEvent<HTMLDivElement>) {
+    // Ignore if clicking on a marker flag
+    if ((e.target as HTMLElement).closest('.marker-flag')) return
+    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
+    const beat = Math.max(0, (e.clientX - rect.left + scrollLeft) / pixelsPerBeat)
+    const snapped = Math.round(beat * 4) / 4  // snap to 1/16th beat
+    const color = MARKER_COLORS[markers.length % MARKER_COLORS.length]
+    addMarker(snapped, undefined, color)
+  }
+
+  function startDrag(e: React.MouseEvent, markerId: string) {
+    e.stopPropagation()
+    const startX = e.clientX
+    const orig = markers.find(m => m.id === markerId)?.beat ?? 0
+    const mv = (me: MouseEvent) => {
+      const dx = me.clientX - startX
+      const newBeat = Math.max(0, orig + dx / pixelsPerBeat)
+      const snapped = Math.round(newBeat * 4) / 4
+      updateMarker(markerId, { beat: snapped })
+    }
+    const up = () => {
+      window.removeEventListener('mousemove', mv)
+      window.removeEventListener('mouseup', up)
+    }
+    window.addEventListener('mousemove', mv)
+    window.addEventListener('mouseup', up)
+  }
+
+  function handleDblClick(e: React.MouseEvent, markerId: string) {
+    e.stopPropagation()
+    const m = markers.find(m => m.id === markerId)
+    const newLabel = prompt('Marker name:', m?.label ?? '')
+    if (newLabel !== null && newLabel.trim()) {
+      updateMarker(markerId, { label: newLabel.trim() })
+    }
+  }
+
+  function handleRightClick(e: React.MouseEvent, markerId: string) {
+    e.preventDefault()
+    e.stopPropagation()
+    setCtxMenu({ x: e.clientX, y: e.clientY, markerId })
+  }
+
+  // Close context menu on outside click
+  useEffect(() => {
+    if (!ctxMenu) return
+    const close = () => setCtxMenu(null)
+    window.addEventListener('mousedown', close)
+    return () => window.removeEventListener('mousedown', close)
+  }, [ctxMenu])
+
+  return (
+    <div
+      className="marker-bar"
+      style={{ width: totalWidth, minWidth: '100%', position: 'sticky', top: 28, zIndex: 9 }}
+      onClick={handleBarClick}
+      title="Click to add marker · Drag to move · Double-click to rename · Right-click for options"
+    >
+      {markers.map(marker => {
+        const x = marker.beat * pixelsPerBeat - scrollLeft
+        // Only render markers in viewport (+ small buffer)
+        if (x < -60 || x > scrollLeft + 4000) return null
+        return (
+          <div
+            key={marker.id}
+            className="marker-flag"
+            style={{ left: marker.beat * pixelsPerBeat, '--marker-color': marker.color } as React.CSSProperties}
+            onMouseDown={e => { if (e.button === 0) startDrag(e, marker.id) }}
+            onDoubleClick={e => handleDblClick(e, marker.id)}
+            onContextMenu={e => handleRightClick(e, marker.id)}
+            title={`${marker.label}  (beat ${marker.beat.toFixed(2)})\nDrag to move · Double-click to rename · Right-click for options`}
+          >
+            {/* Triangle flag head */}
+            <div className="marker-head" />
+            {/* Vertical stem */}
+            <div className="marker-stem" />
+            {/* Label */}
+            <span className="marker-label">{marker.label}</span>
+          </div>
+        )
+      })}
+
+      {/* Inline context menu */}
+      {ctxMenu && (
+        <div
+          className="ctx-menu"
+          style={{ position: 'fixed', left: ctxMenu.x, top: ctxMenu.y, zIndex: 9999 }}
+          onMouseDown={e => e.stopPropagation()}
+        >
+          <button className="ctx-item" onClick={() => {
+            const m = markers.find(m => m.id === ctxMenu.markerId)
+            const newLabel = prompt('Marker name:', m?.label ?? '')
+            if (newLabel !== null && newLabel.trim()) updateMarker(ctxMenu.markerId, { label: newLabel.trim() })
+            setCtxMenu(null)
+          }}>Rename…</button>
+          <button className="ctx-item" onClick={() => {
+            const m = markers.find(m => m.id === ctxMenu.markerId)
+            const v = prompt('Move to beat:', String(m?.beat.toFixed(2) ?? 0))
+            if (v !== null) { const n = parseFloat(v); if (!isNaN(n) && n >= 0) updateMarker(ctxMenu.markerId, { beat: n }) }
+            setCtxMenu(null)
+          }}>Move to beat…</button>
+          <button className="ctx-item" onClick={() => {
+            const colorStr = prompt('Color (hex):', markers.find(m => m.id === ctxMenu.markerId)?.color ?? '#a855f7')
+            if (colorStr && /^#[0-9a-fA-F]{3,6}$/.test(colorStr)) updateMarker(ctxMenu.markerId, { color: colorStr })
+            setCtxMenu(null)
+          }}>Set color…</button>
+          <div style={{ height: 1, background: 'rgba(255,255,255,.1)', margin: '2px 0' }} />
+          <button className="ctx-item ctx-danger" onClick={() => {
+            removeMarker(ctxMenu.markerId)
+            setCtxMenu(null)
+          }}>Delete</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main Timeline ─────────────────────────────────────────────────────────────
 export function Timeline({
   playheadX, onScrub, onImportAudio, onDropCreateTrack, recordingMicLevel = 0,
@@ -722,7 +863,7 @@ export function Timeline({
   const {
     tracks, pixelsPerBeat, scrollLeft, setScrollLeft, bpm, loopStart, loopEnd, isLooping,
     timeSignature, isRecording, currentTime, zoom, setZoom, snapValue, setSnapValue, activeTool,
-    automationLanes,
+    automationLanes, markers,
   } = store
   const scrollRef = useRef<HTMLDivElement>(null)
   const TOTAL_BARS = 96
@@ -1126,6 +1267,13 @@ export function Timeline({
           )
         })()}
       </div>
+
+      {/* ── Marker Bar ───────────────────────────────────────────────────── */}
+      <MarkerBar
+        pixelsPerBeat={pixelsPerBeat}
+        scrollLeft={scrollLeft}
+        totalWidth={totalWidth}
+      />
 
       {/* Lanes + grid */}
       <div 

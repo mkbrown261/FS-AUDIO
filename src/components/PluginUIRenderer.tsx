@@ -7,11 +7,17 @@ interface PluginUIRendererProps {
   onUpdateParams: (params: Record<string, number | string>) => void
 }
 
+/** Convert a mixed params map to numbers-only (string values become NaN → 0) */
+const numericParams = (p: Record<string, number | string>): Record<string, number> =>
+  Object.fromEntries(Object.entries(p).map(([k, v]) => [k, Number(v)]))
+
 // Lazy load instrument UIs to avoid loading issues
 const AnalogSynthUI = React.lazy(() => import('./instruments/AnalogSynthUI').then(m => ({ default: m.AnalogSynthUI })))
 const DrumSamplerUI = React.lazy(() => import('./instruments/DrumSamplerUI').then(m => ({ default: m.DrumSamplerUI })))
 const DX7SynthUI = React.lazy(() => import('./plugins/DX7SynthUI').then(m => ({ default: m.DX7SynthUI })))
 const SFZSamplerUI = React.lazy(() => import('./plugins/SFZSamplerUI').then(m => ({ default: m.SFZSamplerUI })))
+const WavetableSynthUI = React.lazy(() => import('./instruments/WavetableSynthUI').then(m => ({ default: m.WavetableSynthUI })))
+const GranularSynthUI = React.lazy(() => import('./instruments/GranularSynthUI').then(m => ({ default: m.GranularSynthUI })))
 
 // Professional Knob Component
 function ProfessionalKnob({ 
@@ -608,7 +614,7 @@ export function PluginUIRenderer({ plugin, trackId, onUpdateParams }: PluginUIRe
   if (plugin.type === 'fs_sampler') {
     return (
       <React.Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#fff' }}>Loading Sampler...</div>}>
-        <DrumSamplerUI params={plugin.params} onUpdate={onUpdateParams} />
+        <DrumSamplerUI params={numericParams(plugin.params)} onUpdate={onUpdateParams} />
       </React.Suspense>
     )
   }
@@ -616,7 +622,7 @@ export function PluginUIRenderer({ plugin, trackId, onUpdateParams }: PluginUIRe
   if (plugin.type === 'fs_dx7') {
     return (
       <React.Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#fff' }}>Loading DX7...</div>}>
-        <DX7SynthUI params={plugin.params} onParamChange={(key, value) => onUpdateParams({ [key]: value })} />
+        <DX7SynthUI params={numericParams(plugin.params)} onParamChange={(key, value) => onUpdateParams({ [key]: value })} />
       </React.Suspense>
     )
   }
@@ -629,6 +635,22 @@ export function PluginUIRenderer({ plugin, trackId, onUpdateParams }: PluginUIRe
           plugin={plugin} 
           onParamChange={(pluginId, key, value) => onUpdateParams({ [key]: value })}
         />
+      </React.Suspense>
+    )
+  }
+
+  if (plugin.type === 'fs_wavetable') {
+    return (
+      <React.Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#fff' }}>Loading Wavetable...</div>}>
+        <WavetableSynthUI params={plugin.params} onUpdate={onUpdateParams} />
+      </React.Suspense>
+    )
+  }
+
+  if (plugin.type === 'fs_granular') {
+    return (
+      <React.Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#fff' }}>Loading Granular...</div>}>
+        <GranularSynthUI params={plugin.params} onUpdate={onUpdateParams} />
       </React.Suspense>
     )
   }

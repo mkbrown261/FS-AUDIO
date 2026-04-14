@@ -376,6 +376,94 @@ html, body, #root {
 }
 .loop-locator-inactive .loop-handle-label { color: rgba(6,182,212,.4); }
 
+/* ── Arrangement Marker Bar ──────────────────────────────────────────────────── */
+.marker-bar {
+  height: 18px;
+  background: rgba(18,18,36,.97);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  overflow: visible;
+  cursor: cell;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.marker-flag {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  cursor: grab;
+  z-index: 20;
+  /* keep flags from clipping the bar */
+  overflow: visible;
+}
+.marker-flag:active { cursor: grabbing; }
+
+.marker-head {
+  position: absolute;
+  top: 0;
+  left: -6px;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 0 solid transparent;
+  border-top: 10px solid var(--marker-color, #a855f7);
+  pointer-events: none;
+}
+
+.marker-stem {
+  position: absolute;
+  left: -1px;
+  top: 0;
+  width: 1px;
+  height: 18px;
+  background: var(--marker-color, #a855f7);
+  opacity: .8;
+  pointer-events: none;
+}
+
+.marker-label {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--marker-color, #a855f7);
+  white-space: nowrap;
+  pointer-events: none;
+  letter-spacing: .02em;
+  text-shadow: 0 1px 3px rgba(0,0,0,.9);
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Context menu (reusable mini menu) ───────────────────────────────────────── */
+.ctx-menu {
+  background: rgba(26,26,46,.98);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.6);
+  padding: 4px;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ctx-item {
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 4px;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+.ctx-item:hover { background: rgba(255,255,255,.07); }
+.ctx-danger { color: #ef4444 !important; }
+
 .track-lane {
   border-bottom: 1px solid var(--border);
   position: relative;

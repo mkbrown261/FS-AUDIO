@@ -141,9 +141,9 @@ function PluginSlot({ plugin, trackId, index, onSetEQ, onSetCompressor }: Plugin
     const next = { ...plugin.params, [key]: val }
     updatePlugin(trackId, plugin.id, next)
     if (plugin.type === 'eq' && plugin.enabled) {
-      onSetEQ(next.low ?? 0, next.mid ?? 0, next.high ?? 0)
+      onSetEQ(Number(next.low ?? 0), Number(next.mid ?? 0), Number(next.high ?? 0))
     } else if (plugin.type === 'compressor' && plugin.enabled) {
-      onSetCompressor(next.threshold ?? -24, next.ratio ?? 4, next.attack ?? 0.003, next.release ?? 0.25)
+      onSetCompressor(Number(next.threshold ?? -24), Number(next.ratio ?? 4), Number(next.attack ?? 0.003), Number(next.release ?? 0.25))
     }
   }
 
@@ -151,8 +151,8 @@ function PluginSlot({ plugin, trackId, index, onSetEQ, onSetCompressor }: Plugin
     togglePlugin(trackId, plugin!.id)
     // When re-enabling, reapply params
     if (!plugin!.enabled) {
-      if (plugin!.type === 'eq') onSetEQ(plugin!.params.low ?? 0, plugin!.params.mid ?? 0, plugin!.params.high ?? 0)
-      if (plugin!.type === 'compressor') onSetCompressor(plugin!.params.threshold ?? -24, plugin!.params.ratio ?? 4, plugin!.params.attack ?? 0.003, plugin!.params.release ?? 0.25)
+      if (plugin!.type === 'eq') onSetEQ(Number(plugin!.params.low ?? 0), Number(plugin!.params.mid ?? 0), Number(plugin!.params.high ?? 0))
+      if (plugin!.type === 'compressor') onSetCompressor(Number(plugin!.params.threshold ?? -24), Number(plugin!.params.ratio ?? 4), Number(plugin!.params.attack ?? 0.003), Number(plugin!.params.release ?? 0.25))
     } else {
       // Bypassing — reset to neutral
       if (plugin!.type === 'eq') onSetEQ(0, 0, 0)
@@ -198,27 +198,27 @@ function PluginSlot({ plugin, trackId, index, onSetEQ, onSetCompressor }: Plugin
             <>
               <div className="plugin-param-row">
                 <span className="inspector-label">Threshold</span>
-                <input type="range" min={-60} max={0} step={1} value={plugin.params.threshold ?? -24} className="inspector-slider"
+                <input type="range" min={-60} max={0} step={1} value={Number(plugin.params.threshold ?? -24)} className="inspector-slider"
                   onChange={e => handleParamChange('threshold', parseFloat(e.target.value))} />
                 <span className="inspector-val">{plugin.params.threshold ?? -24} dB</span>
               </div>
               <div className="plugin-param-row">
                 <span className="inspector-label">Ratio</span>
-                <input type="range" min={1} max={20} step={0.5} value={plugin.params.ratio ?? 4} className="inspector-slider"
+                <input type="range" min={1} max={20} step={0.5} value={Number(plugin.params.ratio ?? 4)} className="inspector-slider"
                   onChange={e => handleParamChange('ratio', parseFloat(e.target.value))} />
                 <span className="inspector-val">{plugin.params.ratio ?? 4}:1</span>
               </div>
               <div className="plugin-param-row">
                 <span className="inspector-label">Attack</span>
-                <input type="range" min={0.001} max={0.1} step={0.001} value={plugin.params.attack ?? 0.003} className="inspector-slider"
+                <input type="range" min={0.001} max={0.1} step={0.001} value={Number(plugin.params.attack ?? 0.003)} className="inspector-slider"
                   onChange={e => handleParamChange('attack', parseFloat(e.target.value))} />
-                <span className="inspector-val">{((plugin.params.attack ?? 0.003) * 1000).toFixed(1)} ms</span>
+                <span className="inspector-val">{(Number(plugin.params.attack ?? 0.003) * 1000).toFixed(1)} ms</span>
               </div>
               <div className="plugin-param-row">
                 <span className="inspector-label">Release</span>
-                <input type="range" min={0.01} max={2} step={0.01} value={plugin.params.release ?? 0.25} className="inspector-slider"
+                <input type="range" min={0.01} max={2} step={0.01} value={Number(plugin.params.release ?? 0.25)} className="inspector-slider"
                   onChange={e => handleParamChange('release', parseFloat(e.target.value))} />
-                <span className="inspector-val">{((plugin.params.release ?? 0.25) * 1000).toFixed(0)} ms</span>
+                <span className="inspector-val">{(Number(plugin.params.release ?? 0.25) * 1000).toFixed(0)} ms</span>
               </div>
             </>
           )}
