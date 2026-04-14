@@ -24,6 +24,8 @@ export interface Plugin {
     | 'fs_analog' | 'fs_sampler' | 'fs_dx7' | 'fs_sfz'
     // Aliased legacy types used by built-in plugin components
     | 'vocal_tuner' | 'parametric_eq8' | 'multiband_comp' | 'deesser' | 'fs_granular'
+    // MIDI processors
+    | 'arpeggiator'
   enabled: boolean
   params: Record<string, number | string>  // Allow string for waveform types, etc.
   vstPath?: string
@@ -98,6 +100,7 @@ export interface Track {
   locked: boolean
   inputGain: number  // 0-2
   outputGain: number // 0-2
+  inputMonitor: boolean  // live mic through FX chain while armed
   // Instrument for MIDI tracks
   instrument?: {
     type: 'dx7' | 'sfz' | 'simple'
@@ -272,6 +275,7 @@ function makeTrack(name: string, type: Track['type'], idx: number): Track {
     locked: false,
     inputGain: 1,
     outputGain: 1,
+    inputMonitor: false,
   }
 }
 
@@ -316,6 +320,7 @@ interface Actions {
   // Track Freeze — freeze/unfreeze; frozenAudioUrl is set by the engine after offline render
   freezeTrack: (trackId: string, frozenAudioUrl?: string) => void
   unfreezeTrack: (trackId: string) => void
+  toggleInputMonitor: (trackId: string) => void
 
   // Take folders
   addTakeToClip: (clipId: string, take: Take) => void
@@ -375,6 +380,12 @@ interface Actions {
   pasteClip: (atBeat: number) => void
 
   newProject: () => void
+  newProjectFromTemplate: (
+    tracks: { name: string; type: 'audio' | 'midi' | 'bus'; color: string; plugins?: { type: string; name: string; params: Record<string, number | string> }[] }[],
+    bpm: number,
+    timeSignature: [number, number],
+    name?: string
+  ) => void
   saveProject: () => void | Promise<void>
   saveProjectAs: () => void | Promise<void>
   loadProject: () => void | Promise<void>
@@ -705,6 +716,13 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
     isDirty: true,
   })),
 
+  toggleInputMonitor: (trackId) => set(st => ({
+    tracks: st.tracks.map(t => t.id === trackId
+      ? { ...t, inputMonitor: !t.inputMonitor }
+      : t),
+    isDirty: true,
+  })),
+
   // ── Take folder actions ───────────────────────────────────────────────────
   addTakeToClip: (clipId, take) => set(st => ({
     tracks: st.tracks.map(t => ({
@@ -946,6 +964,42 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
     tracks: defaultTracks(), selectedTrackId: null, selectedClipIds: [],
     undoStack: [], redoStack: [],
   }),
+
+  newProjectFromTemplate: (templateTracks, bpm, timeSignature, name = 'Untitled Project') => {
+    // Build tracks from template defs, appending a Master track at the end
+    const tracks: Track[] = templateTracks.map((def, idx) => {
+      const base = makeTrack(def.name, def.type, idx)
+      return {
+        ...base,
+        color: def.color || base.color,
+        plugins: (def.plugins ?? []).map((p, pi) => ({
+          id: `plugin-${Date.now()}-${idx}-${pi}`,
+          name: p.name,
+          type: p.type as Plugin['type'],
+          enabled: true,
+          params: p.params,
+        })),
+      }
+    })
+    // Always add a master track
+    tracks.push(makeTrack('Master', 'master', templateTracks.length))
+
+    set({
+      name,
+      filePath: null,
+      isDirty: false,
+      isPlaying: false,
+      isRecording: false,
+      currentTime: 0,
+      bpm,
+      timeSignature,
+      tracks,
+      selectedTrackId: null,
+      selectedClipIds: [],
+      undoStack: [],
+      redoStack: [],
+    })
+  },
 
   saveSnapshot: () => set(st => ({
     undoStack: [...st.undoStack.slice(-49), [...st.tracks]],

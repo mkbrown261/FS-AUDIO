@@ -3700,3 +3700,294 @@ html, body, #root {
 /* Ensure plugin-rack is positioned relative for dropdown */
 .plugin-rack { position: relative; }
 
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   New Project Modal  (npm- prefix)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.npm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 900;
+}
+
+.npm-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 680px;
+  max-width: 95vw;
+  max-height: 85vh;
+  background: #1a1a2e;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  z-index: 901;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.7);
+}
+
+.npm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+
+.npm-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e2e8f0;
+  letter-spacing: 0.3px;
+}
+
+.npm-close {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.4);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+.npm-close:hover { color: #e2e8f0; background: rgba(255,255,255,0.06); }
+
+.npm-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Left: template list */
+.npm-list {
+  width: 200px;
+  flex-shrink: 0;
+  border-right: 1px solid rgba(255,255,255,0.07);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.npm-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: none;
+  background: none;
+  color: rgba(255,255,255,0.7);
+  border-radius: 7px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s, color 0.12s;
+  width: 100%;
+}
+.npm-item:hover { background: rgba(255,255,255,0.06); color: #e2e8f0; }
+.npm-item.active { background: rgba(120,80,255,0.2); color: #c4b5fd; }
+
+.npm-item-icon { font-size: 18px; flex-shrink: 0; }
+
+.npm-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.npm-item-label {
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.npm-item-desc {
+  font-size: 9px;
+  color: rgba(255,255,255,0.35);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Right: detail panel */
+.npm-detail {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.npm-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.npm-detail-icon { font-size: 28px; }
+
+.npm-detail-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+.npm-detail-meta {
+  font-size: 10px;
+  color: rgba(255,255,255,0.4);
+  margin-top: 2px;
+}
+
+.npm-detail-desc {
+  font-size: 11px;
+  color: rgba(255,255,255,0.55);
+  line-height: 1.5;
+}
+
+.npm-tracks-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.35);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.npm-tracks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.npm-track-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 5px;
+  font-size: 10px;
+}
+
+.npm-track-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.npm-track-name {
+  font-weight: 600;
+  color: #cbd5e1;
+  min-width: 80px;
+}
+
+.npm-track-type {
+  color: rgba(255,255,255,0.3);
+  font-size: 9px;
+  text-transform: uppercase;
+  min-width: 36px;
+}
+
+.npm-track-plugins {
+  color: rgba(167,139,250,0.6);
+  font-size: 9px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.npm-name-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: auto;
+}
+
+.npm-name-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.npm-name-input {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  color: #e2e8f0;
+  font-size: 12px;
+  padding: 7px 10px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.npm-name-input:focus { border-color: rgba(120,80,255,0.5); }
+
+/* Footer */
+.npm-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid rgba(255,255,255,0.07);
+}
+
+.npm-cancel {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.6);
+  font-size: 11px;
+  padding: 6px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.npm-cancel:hover { background: rgba(255,255,255,0.1); color: #e2e8f0; }
+
+.npm-create {
+  background: linear-gradient(135deg, #7c3aed, #4f46e5);
+  border: none;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: opacity 0.12s;
+}
+.npm-create:hover { opacity: 0.9; }
+
+/* ── Input Monitor button ──────────────────────────────────────────────────── */
+.monitor-btn {
+  color: rgba(255,255,255,0.35);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 0.12s;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  padding: 1px 3px;
+  border-radius: 3px;
+}
+.monitor-btn:hover {
+  color: #34d399;
+}
+.monitor-btn.monitoring {
+  color: #34d399;
+  text-shadow: 0 0 6px #34d39988;
+  animation: monitor-pulse 1.2s ease-in-out infinite;
+}
+@keyframes monitor-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.55; }
+}

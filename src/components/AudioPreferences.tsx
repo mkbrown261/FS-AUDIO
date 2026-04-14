@@ -29,6 +29,14 @@ interface AudioDevice {
   kind: 'audioinput' | 'audiooutput'
 }
 
+interface MidiInputPortInfo {
+  id: string
+  name: string
+  manufacturer: string
+  state: string
+  enabled: boolean
+}
+
 interface AudioPreferencesProps {
   isOpen: boolean
   onClose: () => void
@@ -36,6 +44,11 @@ interface AudioPreferencesProps {
   onRestartAudioContext: (opts: RestartOpts) => Promise<void>
   /** Optional: returns the live engine AudioContext for accurate latency reading */
   getAudioContext?: () => AudioContext | null
+  /** MIDI Input ports from useMidiInput hook */
+  midiInputPorts?: MidiInputPortInfo[]
+  onToggleMidiInput?: (portId: string) => void
+  onEnableAllMidi?: () => void
+  onDisableAllMidi?: () => void
 }
 
 export interface RestartOpts {
@@ -55,7 +68,7 @@ function useDebounce<T>(value: T, ms: number): T {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export function AudioPreferences({ isOpen, onClose, onRestartAudioContext, getAudioContext }: AudioPreferencesProps) {
+export function AudioPreferences({ isOpen, onClose, onRestartAudioContext, getAudioContext, midiInputPorts = [], onToggleMidiInput, onEnableAllMidi, onDisableAllMidi }: AudioPreferencesProps) {
   const store = useProjectStore()
   const {
     sampleRate, setSampleRate,
@@ -438,6 +451,43 @@ export function AudioPreferences({ isOpen, onClose, onRestartAudioContext, getAu
               </div>
             </div>
           </div>
+
+          {/* ── MIDI Input Devices ─────────────────────────────────────── */}
+          {midiInputPorts.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <div className="ap-section-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                MIDI Input
+                <button className="ap-btn" style={{ padding: '1px 8px', fontSize: 10 }} onClick={onEnableAllMidi}>All On</button>
+                <button className="ap-btn" style={{ padding: '1px 8px', fontSize: 10 }} onClick={onDisableAllMidi}>All Off</button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+                {midiInputPorts.map(port => (
+                  <label
+                    key={port.id}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 12, color: port.state === 'connected' ? '#e5e7eb' : '#6b7280' }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={port.enabled}
+                      onChange={() => onToggleMidiInput?.(port.id)}
+                      style={{ accentColor: '#a78bfa' }}
+                    />
+                    <span style={{ flex: 1 }}>{port.name || 'Unknown Device'}</span>
+                    {port.manufacturer && <span style={{ fontSize: 10, color: '#6b7280' }}>{port.manufacturer}</span>}
+                    <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 3, background: port.state === 'connected' ? '#14532d' : '#1f2937', color: port.state === 'connected' ? '#86efac' : '#9ca3af' }}>
+                      {port.state}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+          {midiInputPorts.length === 0 && (
+            <div style={{ marginTop: 16 }}>
+              <div className="ap-section-title">MIDI Input</div>
+              <p style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>No MIDI input devices detected. Connect a MIDI keyboard or interface and reopen this panel.</p>
+            </div>
+          )}
 
           {/* ── Restarting overlay (inside body) ───────────────────────── */}
           {isRestarting && (

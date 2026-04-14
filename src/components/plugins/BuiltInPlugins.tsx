@@ -594,6 +594,20 @@ export const PLUGIN_DEFAULTS: Record<string, { params: Record<string, number | s
     },
   },
 
+  arpeggiator: {
+    name: 'Arpeggiator',
+    type: 'arpeggiator',
+    params: {
+      rate:     2,      // steps per beat: 0.25=whole, 0.5=half, 1=quarter, 2=8th, 4=16th
+      pattern:  'up',   // up | down | updown | random | played
+      octaves:  1,      // 1-4
+      gate:     0.7,    // 0.05-1.0
+      velocity: 0,      // 0=passthrough, 1-127=fixed
+      swing:    0,      // 0-0.5
+      enabled:  1,
+    },
+  },
+
   // ── PHASE 2: PROFESSIONAL STUDIO PLUGINS ────────────────────────────────────
 
   vocal_tuner: {
@@ -1336,6 +1350,86 @@ function CrystalEditor({ plugin, onChange }: PluginEditorProps) {
   )
 }
 
+// ── Arpeggiator editor ────────────────────────────────────────────────────────
+const ARP_RATE_OPTIONS  = [
+  { label: '1/1',  value: 0.25 },
+  { label: '1/2',  value: 0.5  },
+  { label: '1/4',  value: 1    },
+  { label: '1/8',  value: 2    },
+  { label: '1/16', value: 4    },
+]
+const ARP_PATTERN_OPTIONS: { label: string; value: string }[] = [
+  { label: '▲ Up',       value: 'up'     },
+  { label: '▼ Down',     value: 'down'   },
+  { label: '⇅ U/D',      value: 'updown' },
+  { label: '⁇ Rnd',      value: 'random' },
+  { label: '♪ Played',   value: 'played' },
+]
+
+function ArpEditor({ plugin, onChange }: PluginEditorProps) {
+  const p = plugin.params
+  const rate    = pn(p.rate,     2)
+  const octaves = pn(p.octaves,  1)
+  const gate    = pn(p.gate,     0.7)
+  const swing   = pn(p.swing,    0)
+  const pattern = (p.pattern ?? 'up') as string
+  const velocity= pn(p.velocity, 0)
+
+  return (
+    <div className="plugin-editor-body">
+      {/* Rate row */}
+      <div className="plugin-step-row">
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">RATE</span>
+          {ARP_RATE_OPTIONS.map(o => (
+            <button key={o.value}
+              className={`plugin-step-btn${rate === o.value ? ' active' : ''}`}
+              onClick={() => onChange({ ...p, rate: o.value })}
+            >{o.label}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Pattern row */}
+      <div className="plugin-step-row">
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">PATTERN</span>
+          {ARP_PATTERN_OPTIONS.map(o => (
+            <button key={o.value}
+              className={`plugin-step-btn${pattern === o.value ? ' active' : ''}`}
+              onClick={() => onChange({ ...p, pattern: o.value })}
+            >{o.label}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Knobs */}
+      <div className="plugin-knob-row">
+        <Knob label="OCTAVES"  value={octaves}  min={1}    max={4}   step={1}    onChange={v => onChange({ ...p, octaves: v })} />
+        <Knob label="GATE"     value={gate}     min={0.05} max={1}   step={0.01} onChange={v => onChange({ ...p, gate: v })} />
+        <Knob label="SWING"    value={swing}    min={0}    max={0.49} step={0.01} onChange={v => onChange({ ...p, swing: v })} />
+        <Knob label="VEL"      value={velocity} min={0}    max={127} step={1}
+          unit={velocity === 0 ? '' : ''}
+          onChange={v => onChange({ ...p, velocity: v })}
+        />
+      </div>
+
+      {/* Bypass toggle */}
+      <div className="plugin-step-row" style={{ marginTop: 2 }}>
+        <div className="plugin-step-group">
+          <span className="plugin-step-label">BYPASS</span>
+          <button className={`plugin-step-btn${pn(p.enabled, 1) === 0 ? ' active' : ''}`}
+            onClick={() => onChange({ ...p, enabled: pn(p.enabled, 1) === 0 ? 1 : 0 })}
+          >{pn(p.enabled, 1) === 0 ? 'ON' : 'OFF'}</button>
+        </div>
+        <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', marginLeft: 8 }}>
+          {velocity === 0 ? 'vel: pass-thru' : `vel: ${velocity}`}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 // ── Plugin Slot ───────────────────────────────────────────────────────────────
 interface PluginSlotProps {
   trackId: string
@@ -1376,6 +1470,8 @@ function PluginSlot({ trackId, plugin, slotIndex }: PluginSlotProps) {
       case 'pitch_correct':return <FluxEditor plugin={plugin} onChange={handleChange} />
       case 'parallel_comp':return <ForgeEditor plugin={plugin} onChange={handleChange} />
       case 'granular':     return <CrystalEditor plugin={plugin} onChange={handleChange} />
+      // MIDI Processors
+      case 'arpeggiator':  return <ArpEditor plugin={plugin} onChange={handleChange} />
       // AI Plugin Suite
       case 'fs_oracle':
       case 'fs_clone':
@@ -1417,6 +1513,8 @@ function PluginSlot({ trackId, plugin, slotIndex }: PluginSlotProps) {
     fs_spacer: '#38bdf8', fs_peak_limiter: '#ef4444', fs_alter: '#22d3ee',
     fs_glitch: '#f97316', fs_fm: '#f59e0b', fs_wavetable: '#3b82f6', fs_granular: '#10b981', fs_multiband_comp: '#fb923c',
     fs_tape_delay: '#f59e0b', fs_vocal_enhance: '#c084fc', fs_dimension: '#22d3ee',
+    // MIDI processors
+    arpeggiator: '#a78bfa',
   }
   const color = typeColors[plugin.type] ?? '#6b7280'
 
@@ -1646,6 +1744,14 @@ const INSTRUMENT_CATEGORIES: { label: string; color: string; icon: string; plugi
     plugins: [
       { key: 'fs_sfz',     name: 'FS-SFZ Sampler', type: 'fs_sfz',     desc: 'Professional SFZ sample player (load .sfz files)' },
       { key: 'fs_sampler', name: 'FS-Sampler', type: 'fs_sampler', desc: '16-pad drum machine & sampler' },
+    ],
+  },
+  {
+    label: 'MIDI Processors',
+    color: '#a78bfa',
+    icon: '♩',
+    plugins: [
+      { key: 'arpeggiator', name: 'Arpeggiator', type: 'arpeggiator', desc: 'Real-time MIDI arpeggiator — up/down/random/updown, 1-4 octaves, swing' },
     ],
   },
 ]

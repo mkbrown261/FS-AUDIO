@@ -17,6 +17,8 @@ const BIT_OPTIONS = [
 
 interface StatusBarProps {
   getMasterLevel?: () => [number, number]
+  midiInputPorts?: number          // number of active MIDI input ports
+  midiLastNote?: { pitch: number; velocity: number } | null
 }
 
 // ── Realtime LUFS approximation from RMS window ──────────────────────────────
@@ -100,7 +102,7 @@ function LufsMeter({ getMasterLevel }: { getMasterLevel: () => [number, number] 
   )
 }
 
-export function StatusBar({ getMasterLevel }: StatusBarProps) {
+export function StatusBar({ getMasterLevel, midiInputPorts = 0, midiLastNote }: StatusBarProps) {
   const { bpm, sampleRate, bitDepth, bufferSize, isPlaying, isRecording, name, isDirty, setSampleRate, setBitDepth } = useProjectStore()
   const [cpu, setCpu] = useState(0)
   const rafRef = useRef<number | null>(null)
@@ -157,6 +159,27 @@ export function StatusBar({ getMasterLevel }: StatusBarProps) {
         <>
           <span style={{ color: '#10b981', fontWeight: 700, letterSpacing: '.04em' }}>PLAYING</span>
           <div className="status-divider" />
+        </>
+      )}
+
+      {/* MIDI Input indicator */}
+      {midiInputPorts > 0 && (
+        <>
+          <div className="status-divider" />
+          <span
+            className="status-label"
+            title={`${midiInputPorts} MIDI input device${midiInputPorts > 1 ? 's' : ''} connected`}
+            style={{ color: midiLastNote ? '#a78bfa' : '#6b7280', display: 'flex', alignItems: 'center', gap: 3 }}
+          >
+            <span style={{ fontSize: 10 }}>🎹</span>
+            <span>MIDI {midiInputPorts}</span>
+            {midiLastNote && (
+              <span style={{ color: '#a78bfa', fontVariantNumeric: 'tabular-nums' }}>
+                {' '}C{Math.floor(midiLastNote.pitch / 12) - 1}
+                {['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'][midiLastNote.pitch % 12]}
+              </span>
+            )}
+          </span>
         </>
       )}
 

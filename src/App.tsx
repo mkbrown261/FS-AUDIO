@@ -18,7 +18,9 @@ import { ExportModal } from './components/ExportModal'
 import { useExport } from './hooks/useExport'
 import { AudioPreferences, RestartOpts } from './components/AudioPreferences'
 import { useMidiOutput } from './hooks/useMidiOutput'
+import { useMidiInput } from './hooks/useMidiInput'
 import { parseMidiFile, downloadMidiFile } from './utils/midiFile'
+import { NewProjectModal } from './components/NewProjectModal'
 
 const FLOWSTATE_HUB = 'https://flowst8.cc'
 
@@ -64,6 +66,7 @@ export default function App() {
   const [showMusicalTyping, setShowMusicalTyping] = useState(false)
   const [showExport, setShowExport] = useState(false)
   const [showAudioPrefs, setShowAudioPrefs] = useState(false)
+  const [showNewProject, setShowNewProject] = useState(false)
   const [freezingTrackId, setFreezingTrackId] = useState<string | null>(null)
   const [freezeProgress, setFreezeProgress] = useState(0)
   const [toasts, setToasts] = useState<Toast[]>([])
@@ -88,8 +91,7 @@ export default function App() {
         // ── File ────────────────────────────────────────────────────────────
         case 'new-project':
           if (!st.isDirty || confirm('Discard unsaved changes and create a new project?')) {
-            st.newProject()
-            showToast('New project created', 'ok')
+            setShowNewProject(true)
           }
           break
 
@@ -299,6 +301,13 @@ export default function App() {
   // ── MIDI Output hook ─────────────────────────────────────────────────────
   const midiOut = useMidiOutput()
 
+  // ── MIDI Input hook — routes hardware keyboard/pad notes into engine ──────
+  const midiIn = useMidiInput({
+    noteOn:    (pitch, velocity) => engine.noteOn(pitch, velocity),
+    noteOff:   (pitch)           => engine.noteOff(pitch),
+    allNotesOff: ()              => engine.allNotesOff(),
+  })
+
   // Combined play-note: Web Audio preview + MIDI output if a port is selected
   const handlePlayNote = useCallback((pitch: number) => {
     engine.playPreviewNote(pitch)
@@ -385,6 +394,20 @@ export default function App() {
       useProjectStore.getState().updateTrack(trackId, { armed: willArm })
     }
   }, [transport])
+
+  // ── Input Monitor toggle ──────────────────────────────────────────────────
+  const handleToggleInputMonitor = useCallback(async (trackId: string) => {
+    const st = useProjectStore.getState()
+    const track = st.tracks.find(t => t.id === trackId)
+    if (!track) return
+    const willMonitor = !track.inputMonitor
+    st.toggleInputMonitor(trackId)
+    if (willMonitor) {
+      await engine.startInputMonitor(trackId)
+    } else {
+      engine.stopInputMonitor()
+    }
+  }, [engine])
 
   const handleSetTrackEQ = useCallback((id: string, l: number, m: number, h: number) => {
     engine.setTrackEQ(id, l, m, h)
@@ -1171,10 +1194,10 @@ export default function App() {
         // ── New project / Normalize gain ─────────────────────────────────
         case 'KeyN':
           if (meta && e.shiftKey) {
-            // Cmd+Shift+N = New Project
+            // Cmd+Shift+N = New Project (opens template picker)
             e.preventDefault()
             if (!store.isDirty || confirm('Discard unsaved changes and create a new project?')) {
-              store.newProject()
+              setShowNewProject(true)
             }
           } else if (meta && !inPianoRoll) {
             // Cmd+N = normalize gain on selected clips
@@ -1249,6 +1272,7 @@ export default function App() {
             onVolumeChange={handleVolumeChange}
             onPanChange={handlePanChange}
             onArmClick={handleArmClick}
+            onToggleInputMonitor={handleToggleInputMonitor}
             onFreezeTrack={handleFreezeTrack}
             freezingTrackId={freezingTrackId}
             freezeProgress={freezeProgress}
@@ -1289,7 +1313,11 @@ export default function App() {
         )}
       </div>
 
-      <StatusBar getMasterLevel={engine.getMasterLevel} />
+      <StatusBar
+        getMasterLevel={engine.getMasterLevel}
+        midiInputPorts={midiIn.ports.filter(p => p.enabled && p.state === 'connected').length}
+        midiLastNote={midiIn.lastMessage?.type === 'noteOn' ? { pitch: midiIn.lastMessage.pitch, velocity: midiIn.lastMessage.velocity } : null}
+      />
 
       <MusicalTyping
         isOpen={showMusicalTyping}
@@ -1315,10 +1343,20 @@ export default function App() {
         onClose={() => setShowAudioPrefs(false)}
         onRestartAudioContext={handleRestartAudioContext}
         getAudioContext={() => { try { return engine.getCtx() } catch { return null } }}
+        midiInputPorts={midiIn.ports}
+        onToggleMidiInput={midiIn.togglePort}
+        onEnableAllMidi={midiIn.enableAll}
+        onDisableAllMidi={midiIn.disableAll}
       />
 
       {/* ── Clawflow floating chat bubble — fixed overlay, never blocks DAW UI ── */}
       <ClawflowBubble />
+
+      {/* ── New Project template picker ── */}
+      <NewProjectModal
+        isOpen={showNewProject}
+        onClose={() => setShowNewProject(false)}
+      />
 
       {/* ── Toast notifications ── */}
       <ToastStack toasts={toasts} onRemove={id => setToasts(prev => prev.filter(t => t.id !== id))} />

@@ -72,7 +72,7 @@ interface DragState {
 
 function TrackHeader({
   track, idx, dragState, onDragStart, onDragOver, onDragEnd,
-  onVolumeChange, onPanChange, onArmClick, onFreezeTrack,
+  onVolumeChange, onPanChange, onArmClick, onToggleInputMonitor, onFreezeTrack,
   isFreezing, freezeProgress,
 }: {
   track: Track
@@ -84,6 +84,7 @@ function TrackHeader({
   onVolumeChange: (id: string, v: number) => void
   onPanChange: (id: string, v: number) => void
   onArmClick: (trackId: string) => void
+  onToggleInputMonitor?: (trackId: string) => void
   onFreezeTrack?: (trackId: string) => void
   isFreezing?: boolean
   freezeProgress?: number
@@ -200,6 +201,17 @@ function TrackHeader({
             <svg width="7" height="7" viewBox="0 0 7 7"><circle cx="3.5" cy="3.5" r="3" fill="currentColor"/></svg>
           </button>
         )}
+        {/* Input monitor button — only visible on armed audio tracks */}
+        {!isMaster && track.type === 'audio' && track.armed && (
+          <button
+            className={`track-btn monitor-btn ${track.inputMonitor ? 'monitoring' : ''}`}
+            onClick={e => { e.stopPropagation(); onToggleInputMonitor?.(track.id) }}
+            title={track.inputMonitor ? 'Input monitoring ON — click to turn off' : 'Enable input monitoring'}
+            style={{ fontSize: 8, fontWeight: 700, letterSpacing: 0.3 }}
+          >
+            {track.inputMonitor ? '●I' : '○I'}
+          </button>
+        )}
 
         {/* Automation lane add button */}
         {!isMaster && (
@@ -263,10 +275,11 @@ function TrackHeader({
   )
 }
 
-export function TrackList({ onVolumeChange, onPanChange, onArmClick, onFreezeTrack, freezingTrackId, freezeProgress, width }: {
+export function TrackList({ onVolumeChange, onPanChange, onArmClick, onToggleInputMonitor, onFreezeTrack, freezingTrackId, freezeProgress, width }: {
   onVolumeChange: (id: string, v: number) => void
   onPanChange: (id: string, v: number) => void
   onArmClick: (trackId: string) => void
+  onToggleInputMonitor?: (trackId: string) => void
   onFreezeTrack?: (trackId: string) => void
   freezingTrackId?: string | null
   freezeProgress?: number
@@ -316,6 +329,7 @@ export function TrackList({ onVolumeChange, onPanChange, onArmClick, onFreezeTra
             onVolumeChange={onVolumeChange}
             onPanChange={onPanChange}
             onArmClick={onArmClick}
+            onToggleInputMonitor={onToggleInputMonitor}
             onFreezeTrack={onFreezeTrack}
             isFreezing={freezingTrackId === track.id}
             freezeProgress={freezingTrackId === track.id ? freezeProgress : 0}

@@ -5,6 +5,7 @@ import { SFZSampler } from '../audio/synths/SFZSampler'
 import { WavetableSynth, WavetableSynthParams, WAVETABLES } from '../audio/synths/WavetableSynth'
 import { GranularSynth, GranularSynthParams } from '../audio/synths/GranularSynth'
 import { FMSynth, FMSynthParams, FM_ALGORITHMS } from '../audio/synths/FMSynth'
+import { Arpeggiator, ARP_DEFAULTS } from '../audio/Arpeggiator'
 
 /** Coerce a plugin param value (string | number) to number */
 const pn = (v: string | number | undefined, fallback = 0): number =>
@@ -157,6 +158,12 @@ export function useAudioEngine() {
   const recordedChunksRef = useRef<BlobPart[]>([])
   const micAnalyserRef = useRef<AnalyserNode | null>(null)
   const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
+
+  // Input Monitor state — mic through track FX chain (while armed + monitor on)
+  const monitorStreamRef  = useRef<MediaStream | null>(null)
+  const monitorSourceRef  = useRef<MediaStreamAudioSourceNode | null>(null)
+  const monitorGainRef    = useRef<GainNode | null>(null)
+  const monitorTrackIdRef = useRef<string | null>(null)
   
   // MIDI Panic ref (forward declaration for stopAll to use)
   const stopAllHeldNotesRef = useRef<(() => void) | undefined>()
@@ -1911,6 +1918,84 @@ export function useAudioEngine() {
     }
   }, [])
 
+  // ── Input Monitor — live mic through armed track FX chain ────────────────
+  const startInputMonitor = useCallback(async (trackId: string): Promise<void> => {
+    // If already monitoring the same track, do nothing
+    if (monitorTrackIdRef.current === trackId && monitorSourceRef.current) return
+
+    // Stop any previous monitor
+    if (monitorSourceRef.current) {
+      try { monitorSourceRef.current.disconnect() } catch {}
+      monitorSourceRef.current = null
+    }
+    if (monitorGainRef.current) {
+      try { monitorGainRef.current.disconnect() } catch {}
+      monitorGainRef.current = null
+    }
+    if (monitorStreamRef.current) {
+      monitorStreamRef.current.getTracks().forEach(t => t.stop())
+      monitorStreamRef.current = null
+    }
+    monitorTrackIdRef.current = null
+
+    try {
+      const ctx = getCtx()
+      if (ctx.state === 'suspended') await ctx.resume()
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl:  false,
+          latency: 0.005,
+        } as MediaTrackConstraints,
+        video: false,
+      })
+
+      monitorStreamRef.current = stream
+      const source = ctx.createMediaStreamSource(stream)
+      monitorSourceRef.current = source
+
+      // Get (or create) the track's gain node — this is the entry to its FX chain
+      const { tracks } = useProjectStore.getState()
+      const track = tracks.find(t => t.id === trackId)
+      if (!track) { stream.getTracks().forEach(t => t.stop()); return }
+
+      const nodes = getTrackNodes(trackId, track.volume, track.pan)
+
+      // Dedicated monitor gain so we can mute without touching track fader
+      const monGain = ctx.createGain()
+      monGain.gain.value = 1
+      monitorGainRef.current = monGain
+
+      // Connect: micSource → monitorGain → track gain (enters FX chain → master)
+      source.connect(monGain)
+      monGain.connect(nodes.gain)
+      monitorTrackIdRef.current = trackId
+
+      console.log('[InputMonitor] 🎙️ monitoring track:', track.name)
+    } catch (err) {
+      console.error('[InputMonitor] Failed:', err)
+    }
+  }, [getCtx, getTrackNodes])
+
+  const stopInputMonitor = useCallback(() => {
+    if (monitorSourceRef.current) {
+      try { monitorSourceRef.current.disconnect() } catch {}
+      monitorSourceRef.current = null
+    }
+    if (monitorGainRef.current) {
+      try { monitorGainRef.current.disconnect() } catch {}
+      monitorGainRef.current = null
+    }
+    if (monitorStreamRef.current) {
+      monitorStreamRef.current.getTracks().forEach(t => t.stop())
+      monitorStreamRef.current = null
+    }
+    monitorTrackIdRef.current = null
+    console.log('[InputMonitor] 🔇 stopped')
+  }, [])
+
   // ── Microphone Recording ─────────────────────────────────────────────────
   const startRecording = useCallback(async (): Promise<void> => {
     try {
@@ -2201,19 +2286,39 @@ export function useAudioEngine() {
   // ── Instrument Synth Instances (per track) ────────────────────────────────
   const instrumentSynthsRef = useRef<Map<string, DX7Synth | SFZSampler | WavetableSynth | FMSynth | GranularSynth>>(new Map())
 
+  // ── Arpeggiator instances (one per track, created lazily) ─────────────────
+  const arpeggiatorRef = useRef<Map<string, Arpeggiator>>(new Map())
+
   // ── Play a preview note (piano roll key click) ────────────────────────────
   const heldNotesRef = useRef<Map<number, { osc: OscillatorNode; gain: GainNode }>>(new Map())
 
-  const noteOn = useCallback((pitch: number, velocity = 100) => {
+  // ── Helpers used by Arpeggiator to fire notes directly (bypass arp check) ─
+  const _getOrCreateArp = useCallback((trackId: string, params: Record<string, number | string>): Arpeggiator => {
+    let arp = arpeggiatorRef.current.get(trackId)
+    if (!arp) {
+      const ctx = getCtx()
+      const { bpm } = useProjectStore.getState()
+      arp = new Arpeggiator(
+        ctx,
+        (p, v) => _directNoteOn(p, v),
+        (p)    => _directNoteOff(p),
+        { ...ARP_DEFAULTS, ...Object.fromEntries(
+            Object.entries(params).map(([k, v]) => [k, typeof v === 'string' ? parseFloat(v) || 0 : v])
+          )
+        },
+        bpm,
+      )
+      arpeggiatorRef.current.set(trackId, arp)
+    }
+    return arp
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [getCtx])
+
+  // Direct note-on (no arp check — used by Arpeggiator internally)
+  const _directNoteOn = useCallback((pitch: number, velocity = 100) => {
     if (heldNotesRef.current.has(pitch)) return
     const ctx = getCtx()
-    // console.log('[noteOn] pitch:', pitch, 'ctx.state:', ctx.state)
-    if (ctx.state === 'suspended') {
-      // resuming
-      ctx.resume()
-    }
-    
-    // Check for selected track with instrument plugins
+    if (ctx.state === 'suspended') ctx.resume()
     const { selectedTrackId, tracks } = useProjectStore.getState()
     const selectedTrack = selectedTrackId ? tracks.find(t => t.id === selectedTrackId) : null
     
@@ -2390,32 +2495,25 @@ export function useAudioEngine() {
     heldNotesRef.current.set(pitch, { osc, gain })
   }, [getCtx])
 
-  const noteOff = useCallback((pitch: number) => {
+  // Direct note-off (no arp check)
+  const _directNoteOff = useCallback((pitch: number) => {
     const held = heldNotesRef.current.get(pitch)
     if (!held) return
-    
-    // Check for instrument synths
     const { selectedTrackId, tracks } = useProjectStore.getState()
     const selectedTrack = selectedTrackId ? tracks.find(t => t.id === selectedTrackId) : null
-    
     if (selectedTrack) {
-      const dx7Plugin = selectedTrack.plugins.find(p => p.type === 'fs_dx7' && p.enabled)
-      const sfzPlugin = selectedTrack.plugins.find(p => p.type === 'fs_sfz' && p.enabled)
-      const wavetablePlugin = selectedTrack.plugins.find(p => p.type === 'fs_wavetable' && p.enabled)
-      const fmPlugin = selectedTrack.plugins.find(p => p.type === 'fs_fm' && p.enabled)
-      const granularPlugin = selectedTrack.plugins.find(p => p.type === 'fs_granular' && p.enabled)
-      
+      const dx7Plugin      = selectedTrack.plugins.find(p => p.type === 'fs_dx7'       && p.enabled)
+      const sfzPlugin      = selectedTrack.plugins.find(p => p.type === 'fs_sfz'       && p.enabled)
+      const wavetablePlugin= selectedTrack.plugins.find(p => p.type === 'fs_wavetable' && p.enabled)
+      const fmPlugin       = selectedTrack.plugins.find(p => p.type === 'fs_fm'        && p.enabled)
+      const granularPlugin = selectedTrack.plugins.find(p => p.type === 'fs_granular'  && p.enabled)
       if (dx7Plugin || sfzPlugin || wavetablePlugin || fmPlugin || granularPlugin) {
         const synth = instrumentSynthsRef.current.get(selectedTrack.id)
         if (synth) {
           if (synth instanceof WavetableSynth) {
-            const wp = (wavetablePlugin?.params ?? {}) as unknown as WavetableSynthParams
-            synth.noteOff(pitch, wp)
+            synth.noteOff(pitch, (wavetablePlugin?.params ?? {}) as unknown as WavetableSynthParams)
           } else if (synth instanceof FMSynth) {
-            const fp = (fmPlugin?.params ?? {}) as unknown as FMSynthParams
-            synth.noteOff(pitch, fp)
-          } else if (synth instanceof GranularSynth) {
-            synth.noteOff(pitch)
+            synth.noteOff(pitch, (fmPlugin?.params ?? {}) as unknown as FMSynthParams)
           } else {
             synth.noteOff(pitch)
           }
@@ -2424,8 +2522,6 @@ export function useAudioEngine() {
         }
       }
     }
-    
-    // Fallback to simple oscillator
     const ctx = getCtx()
     const { osc, gain } = held
     if (osc && gain) {
@@ -2437,9 +2533,47 @@ export function useAudioEngine() {
     heldNotesRef.current.delete(pitch)
   }, [getCtx])
 
+  // ── Public noteOn — routes through Arpeggiator if enabled on selected track
+  const noteOn = useCallback((pitch: number, velocity = 100) => {
+    const { selectedTrackId, tracks } = useProjectStore.getState()
+    const selectedTrack = selectedTrackId ? tracks.find(t => t.id === selectedTrackId) : null
+    const arpPlugin = selectedTrack?.plugins.find(p => p.type === 'arpeggiator' && p.enabled && pn(p.params.enabled, 1) !== 0)
+
+    if (arpPlugin && selectedTrack) {
+      const arp = _getOrCreateArp(selectedTrack.id, arpPlugin.params)
+      // Sync BPM and params on every noteOn so live changes take effect
+      const { bpm } = useProjectStore.getState()
+      arp.setBpm(bpm)
+      arp.setParams(Object.fromEntries(
+        Object.entries(arpPlugin.params).map(([k, v]) => [k, typeof v === 'string' ? parseFloat(v) || 0 : v])
+      ))
+      arp.pressNote(pitch, velocity)
+      return
+    }
+
+    _directNoteOn(pitch, velocity)
+  }, [_directNoteOn, _getOrCreateArp])
+
+  // ── Public noteOff — routes through Arpeggiator if enabled on selected track
+  const noteOff = useCallback((pitch: number) => {
+    const { selectedTrackId, tracks } = useProjectStore.getState()
+    const selectedTrack = selectedTrackId ? tracks.find(t => t.id === selectedTrackId) : null
+    const arpPlugin = selectedTrack?.plugins.find(p => p.type === 'arpeggiator' && p.enabled && pn(p.params.enabled, 1) !== 0)
+
+    if (arpPlugin && selectedTrack) {
+      const arp = arpeggiatorRef.current.get(selectedTrack.id)
+      if (arp) { arp.releaseNote(pitch); return }
+    }
+
+    _directNoteOff(pitch)
+  }, [_directNoteOff])
+
   const allNotesOff = useCallback(() => {
-    for (const pitch of heldNotesRef.current.keys()) noteOff(pitch)
-  }, [noteOff])
+    // Kill all arpeggiators first
+    for (const arp of arpeggiatorRef.current.values()) arp.allNotesOff()
+    // Then clear any remaining held notes
+    for (const pitch of heldNotesRef.current.keys()) _directNoteOff(pitch)
+  }, [_directNoteOff])
 
   const playPreviewNote = useCallback((pitch: number, durationSec = 0.4) => {
     noteOn(pitch, 100)
@@ -2716,6 +2850,8 @@ export function useAudioEngine() {
     startRecording,
     stopRecording,
     isRecordingActive,
+    startInputMonitor,
+    stopInputMonitor,
     getMicLevel,
     getTrackLevel,
     getMasterLevel,
