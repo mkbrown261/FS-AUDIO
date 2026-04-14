@@ -113,6 +113,93 @@ function encodeWav(
   return new Blob([buffer], { type: mimeType })
 }
 
+// ── Tempo-map helpers (mirrors the ones in useAudioEngine/useTransport) ───────
+
+/** Cumulative seconds at the start of each tempo segment */
+function buildTempoTable(globalBpm: number, tempoMap: { beat: number; bpm: number }[]) {
+  const sorted = [...tempoMap].sort((a, b) => a.beat - b.beat)
+  // table[i] = { beat, bpm, startSec } — cumulative seconds reaching that beat
+  const table: { beat: number; bpm: number; startSec: number }[] = [
+    { beat: 0, bpm: globalBpm, startSec: 0 }
+  ]
+  for (const pt of sorted) {
+    const prev = table[table.length - 1]
+    const dt = (pt.beat - prev.beat) * (60 / prev.bpm)
+    table.push({ beat: pt.beat, bpm: pt.bpm, startSec: prev.startSec + dt })
+  }
+  return table
+}
+
+/** Convert a beat position to absolute seconds using the tempo map */
+function beatToSec(beat: number, globalBpm: number, tempoMap: { beat: number; bpm: number }[]) {
+  if (!tempoMap.length) return beat * (60 / globalBpm)
+  const table = buildTempoTable(globalBpm, tempoMap)
+  let prev = table[0]
+  for (let i = 1; i < table.length; i++) {
+    if (beat < table[i].beat) {
+      return prev.startSec + (beat - prev.beat) * (60 / prev.bpm)
+    }
+    prev = table[i]
+  }
+  return prev.startSec + (beat - prev.beat) * (60 / prev.bpm)
+}
+
+/** Schedule all MIDI notes from a clip into an OfflineAudioContext using piano oscillators */
+function scheduleMidiClipOffline(
+  offCtx: OfflineAudioContext,
+  clip: { startBeat: number; durationBeats: number; midiNotes?: { pitch: number; velocity: number; startBeat: number; durationBeats: number }[] },
+  trackDest: AudioNode,
+  startSec: number,
+  globalBpm: number,
+  tempoMap: { beat: number; bpm: number }[]
+) {
+  const notes = clip.midiNotes ?? []
+  for (const note of notes) {
+    const noteAbsBeat  = clip.startBeat + note.startBeat
+    const noteEndBeat  = noteAbsBeat + note.durationBeats
+    const noteStartSec = beatToSec(noteAbsBeat, globalBpm, tempoMap)
+    const noteEndSec   = beatToSec(noteEndBeat,  globalBpm, tempoMap)
+    const when         = Math.max(0, noteStartSec - startSec)
+    const dur          = Math.max(0.01, noteEndSec - noteStartSec)
+    if (noteStartSec < startSec && noteEndSec <= startSec) continue // fully before range
+
+    const freq    = 440 * Math.pow(2, (note.pitch - 69) / 12)
+    const velNorm = note.velocity / 127
+
+    const noteGain = offCtx.createGain()
+    noteGain.connect(trackDest)
+
+    const partials: [number, number][] = [
+      [1.0, 0.60],
+      [2.0, 0.20],
+      [3.0, 0.10],
+      [4.0, 0.06],
+      [5.0, 0.04],
+    ]
+
+    for (const [mult, level] of partials) {
+      const osc   = offCtx.createOscillator()
+      const pGain = offCtx.createGain()
+      osc.type = 'sine'
+      osc.frequency.value = freq * mult
+      if (mult > 1) osc.detune.value = (mult - 1) * 1.2
+      pGain.gain.value = level * velNorm * 0.5
+      osc.connect(pGain)
+      pGain.connect(noteGain)
+      osc.start(when)
+      osc.stop(when + dur + 0.3)
+    }
+
+    const attackTime = 0.004
+    const decayTime  = Math.min(dur * 0.7, 3.0)
+    noteGain.gain.setValueAtTime(0, when)
+    noteGain.gain.linearRampToValueAtTime(velNorm * 0.8, when + attackTime)
+    noteGain.gain.exponentialRampToValueAtTime(velNorm * 0.3 + 0.001, when + attackTime + decayTime)
+    noteGain.gain.setValueAtTime(velNorm * 0.3 + 0.001, when + dur - 0.015)
+    noteGain.gain.exponentialRampToValueAtTime(0.0001, when + dur + 0.2)
+  }
+}
+
 // ── Hook ──────────────────────────────────────────────────────────────────────
 export function useExport(audioBuffersRef: React.MutableRefObject<Map<string, AudioBuffer>>) {
   const [progress, setProgress] = useState<ExportProgress>({ phase: 'idle', progress: 0 })
@@ -131,18 +218,19 @@ export function useExport(audioBuffersRef: React.MutableRefObject<Map<string, Au
 
     try {
       const st = useProjectStore.getState()
-      const { tracks, bpm, loopStart, loopEnd, sampleRate: projectSR, bitDepth: projectBD } = st
+      const { tracks, bpm, loopStart, loopEnd, sampleRate: projectSR, bitDepth: projectBD, tempoMap } = st
 
       const sr   = opts.sampleRate ?? projectSR
       const bits = opts.bitDepth   ?? projectBD
+      const tmap = tempoMap ?? []
 
-      // Determine render range in seconds
+      // Determine render range in seconds (tempo-map-aware)
       let startSec = 0
       let endSec   = 0
 
       if (opts.range === 'loop') {
-        startSec = loopStart * (60 / bpm)
-        endSec   = loopEnd   * (60 / bpm)
+        startSec = beatToSec(loopStart, bpm, tmap)
+        endSec   = beatToSec(loopEnd,   bpm, tmap)
       } else {
         // Find last clip end
         let maxBeat = 0
@@ -157,7 +245,7 @@ export function useExport(audioBuffersRef: React.MutableRefObject<Map<string, Au
           return
         }
         startSec = 0
-        endSec   = maxBeat * (60 / bpm)
+        endSec   = beatToSec(maxBeat, bpm, tmap)
       }
 
       const durationSec = endSec - startSec
@@ -166,7 +254,7 @@ export function useExport(audioBuffersRef: React.MutableRefObject<Map<string, Au
         return
       }
 
-      const startBeat = startSec * (bpm / 60)
+      const startBeat  = startSec > 0 ? /* approx */ startSec * (bpm / 60) : 0
       const numSamples = Math.ceil(durationSec * sr)
 
       // OfflineAudioContext renders at real-time speed without blocking
@@ -234,21 +322,29 @@ export function useExport(audioBuffersRef: React.MutableRefObject<Map<string, Au
         comp.connect(panner)
         panner.connect(masterGain)
 
-        // Schedule clips
+        // Schedule clips (audio + MIDI)
         for (const clip of track.clips) {
-          if (!clip.audioUrl || clip.muted) continue
-          const clipEndBeat = clip.startBeat + clip.durationBeats
-          if (clipEndBeat <= startBeat) continue
-          if (clip.startBeat >= startBeat + durationSec * (bpm / 60)) continue
+          if (clip.muted) continue
+          const clipEndBeat  = clip.startBeat + clip.durationBeats
+          const clipStartSec = beatToSec(clip.startBeat, bpm, tmap)
+          const clipEndSec   = beatToSec(clipEndBeat,    bpm, tmap)
+          if (clipEndSec <= startSec) continue
+          if (clipStartSec >= endSec) continue
 
+          // ── MIDI clip → piano oscillators ─────────────────────────────────
+          if (clip.type === 'midi' && clip.midiNotes && clip.midiNotes.length > 0) {
+            scheduleMidiClipOffline(offCtx, clip, trackGain, startSec, bpm, tmap)
+            continue
+          }
+
+          // ── Audio clip ────────────────────────────────────────────────────
+          if (!clip.audioUrl) continue
           const buf = audioBuffersRef.current.get(clip.audioUrl)
           if (!buf) continue
 
-          const beatDur    = 60 / bpm
-          const clipStartS = clip.startBeat * beatDur
-          const clipDurS   = clip.durationBeats * beatDur
-          const offset     = Math.max(0, startSec - clipStartS)
-          const playDur    = clipDurS - offset
+          const clipDurS = clipEndSec - clipStartSec
+          const offset   = Math.max(0, startSec - clipStartSec)
+          const playDur  = clipDurS - offset
           if (playDur <= 0) continue
 
           const source = offCtx.createBufferSource()
@@ -260,11 +356,11 @@ export function useExport(audioBuffersRef: React.MutableRefObject<Map<string, Au
           source.connect(clipGain)
           clipGain.connect(trackGain)
 
-          const when = Math.max(0, clipStartS - startSec)
-
-          // Fade ramps
-          const fadeInSec  = (clip.fadeIn  ?? 0) * beatDur
-          const fadeOutSec = (clip.fadeOut ?? 0) * beatDur
+          const when       = Math.max(0, clipStartSec - startSec)
+          // Fade beat durations → seconds using local tempo
+          const localSpb   = (beatToSec(clip.startBeat + 1, bpm, tmap) - clipStartSec)
+          const fadeInSec  = (clip.fadeIn  ?? 0) * localSpb
+          const fadeOutSec = (clip.fadeOut ?? 0) * localSpb
           if (fadeInSec > 0) {
             clipGain.gain.setValueAtTime(0.0001, when)
             clipGain.gain.exponentialRampToValueAtTime(clip.gain, when + fadeInSec)
@@ -366,37 +462,37 @@ export function useExport(audioBuffersRef: React.MutableRefObject<Map<string, Au
   const bounceStemsInternal = useCallback(async (opts: ExportOptions) => {
     abortRef.current = false
     const st = useProjectStore.getState()
-    const { tracks, bpm, loopStart, loopEnd } = st
+    const { tracks, bpm, loopStart, loopEnd, tempoMap } = st
     const sr   = opts.sampleRate ?? st.sampleRate
     const bits = opts.bitDepth   ?? st.bitDepth
+    const tmap = tempoMap ?? []
 
-    // Determine which tracks to export
+    // Determine which tracks to export (audio or MIDI)
     const exportTracks = tracks.filter(t =>
       t.type !== 'master' &&
-      t.clips.some(c => c.audioUrl) &&
+      t.clips.some(c => c.audioUrl || (c.type === 'midi' && c.midiNotes && c.midiNotes.length > 0)) &&
       (!opts.stemTrackIds || opts.stemTrackIds.includes(t.id))
     )
 
     if (exportTracks.length === 0) {
-      setProgress({ phase: 'error', progress: 0, error: 'No audio tracks to export as stems.' })
+      setProgress({ phase: 'error', progress: 0, error: 'No tracks with clips to export as stems.' })
       return
     }
 
     setProgress({ phase: 'rendering', progress: 0 })
 
-    // Determine render range
+    // Determine render range (tempo-map-aware)
     let startSec = 0, endSec = 0
     if (opts.range === 'loop') {
-      startSec = loopStart * (60 / bpm)
-      endSec   = loopEnd   * (60 / bpm)
+      startSec = beatToSec(loopStart, bpm, tmap)
+      endSec   = beatToSec(loopEnd,   bpm, tmap)
     } else {
       let maxBeat = 0
       for (const t of tracks) for (const c of t.clips) { const e = c.startBeat + c.durationBeats; if (e > maxBeat) maxBeat = e }
       if (maxBeat <= 0) { setProgress({ phase: 'error', progress: 0, error: 'No clips to export.' }); return }
-      endSec = maxBeat * (60 / bpm)
+      endSec = beatToSec(maxBeat, bpm, tmap)
     }
     const durationSec = endSec - startSec
-    const startBeat   = startSec * (bpm / 60)
     const numSamples  = Math.ceil(durationSec * sr)
 
     for (let ti = 0; ti < exportTracks.length; ti++) {
@@ -428,18 +524,25 @@ export function useExport(audioBuffersRef: React.MutableRefObject<Map<string, Au
       panner.connect(offCtx.destination)
 
       for (const clip of track.clips) {
-        if (!clip.audioUrl || clip.muted) continue
-        const clipEndBeat = clip.startBeat + clip.durationBeats
-        if (clipEndBeat <= startBeat) continue
+        if (clip.muted) continue
+        const clipStartSec = beatToSec(clip.startBeat,                           bpm, tmap)
+        const clipEndSec   = beatToSec(clip.startBeat + clip.durationBeats,       bpm, tmap)
+        if (clipEndSec <= startSec || clipStartSec >= endSec) continue
 
+        // ── MIDI clip → piano oscillators ────────────────────────────────
+        if (clip.type === 'midi' && clip.midiNotes && clip.midiNotes.length > 0) {
+          scheduleMidiClipOffline(offCtx, clip, trackGain, startSec, bpm, tmap)
+          continue
+        }
+
+        // ── Audio clip ───────────────────────────────────────────────────
+        if (!clip.audioUrl) continue
         const buf = audioBuffersRef.current.get(clip.audioUrl)
         if (!buf) continue
 
-        const beatDur = 60 / bpm
-        const clipStartS = clip.startBeat * beatDur
-        const clipDurS   = clip.durationBeats * beatDur
-        const offset     = Math.max(0, startSec - clipStartS)
-        const playDur    = clipDurS - offset
+        const clipDurS = clipEndSec - clipStartSec
+        const offset   = Math.max(0, startSec - clipStartSec)
+        const playDur  = clipDurS - offset
         if (playDur <= 0) continue
 
         const source = offCtx.createBufferSource()
@@ -452,9 +555,10 @@ export function useExport(audioBuffersRef: React.MutableRefObject<Map<string, Au
         source.connect(clipGain)
         clipGain.connect(trackGain)
 
-        const when = Math.max(0, clipStartS - startSec)
-        const fadeInSec  = (clip.fadeIn  ?? 0) * beatDur
-        const fadeOutSec = (clip.fadeOut ?? 0) * beatDur
+        const when       = Math.max(0, clipStartSec - startSec)
+        const localSpb   = beatToSec(clip.startBeat + 1, bpm, tmap) - clipStartSec
+        const fadeInSec  = (clip.fadeIn  ?? 0) * localSpb
+        const fadeOutSec = (clip.fadeOut ?? 0) * localSpb
         if (fadeInSec > 0) {
           clipGain.gain.setValueAtTime(0.0001, when)
           clipGain.gain.exponentialRampToValueAtTime(clip.gain, when + fadeInSec)

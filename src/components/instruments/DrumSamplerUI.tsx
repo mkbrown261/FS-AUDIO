@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react'
 
 interface DrumSamplerUIProps {
   params: Record<string, number | string>
@@ -132,7 +132,25 @@ const Knob: React.FC<{
 
 export const DrumSamplerUI: React.FC<DrumSamplerUIProps> = ({ params, onUpdate }) => {
   const [selectedPad, setSelectedPad] = useState(0)
-  
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Load a sample from the local file system into the selected pad
+  const handleLoadSample = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const objectUrl = URL.createObjectURL(file)
+    // Derive a friendly name from the filename (strip extension)
+    const name = file.name.replace(/\.[^.]+$/, '')
+    onUpdate({
+      ...params,
+      [`pad${selectedPad}_sampleUrl`]: objectUrl,
+      [`pad${selectedPad}_name`]:      name,
+      [`pad${selectedPad}_loaded`]:    1,
+    })
+    // Reset input so the same file can be re-selected
+    e.target.value = ''
+  }
+
   // Parse pad parameters (stored as flat params with pad0_volume, pad0_pitch, etc.)
   const getPadParam = (padId: number, param: string): number => {
     const key = `pad${padId}_${param}`
@@ -348,13 +366,18 @@ export const DrumSamplerUI: React.FC<DrumSamplerUIProps> = ({ params, onUpdate }
                 cursor: 'pointer',
                 transition: 'all 0.2s'
               }}
-              onClick={() => {
-                // TODO: Open file picker
-                alert('Sample loading will be implemented with file picker')
-              }}
+              onClick={() => fileInputRef.current?.click()}
             >
               📂 LOAD SAMPLE
             </button>
+            {/* Hidden file input – accepts common audio formats */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="audio/*,.wav,.mp3,.ogg,.flac,.aiff"
+              style={{ display: 'none' }}
+              onChange={handleLoadSample}
+            />
           </div>
           
           {/* Pad Parameters */}

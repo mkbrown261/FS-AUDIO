@@ -311,6 +311,19 @@ export default function App() {
     pitchBend:  (value, channel)  => engine.pitchBend(value, channel),
   })
 
+  // Sync MIDI output callbacks into the engine whenever the selected port changes
+  useEffect(() => {
+    if (midiOut.selectedPortId) {
+      engine.setMidiOutputCallbacks({
+        noteOn:  (ch, pitch, vel) => midiOut.noteOn(ch, pitch, vel),
+        noteOff: (ch, pitch)      => midiOut.noteOff(ch, pitch),
+        sendCC:  (ch, cc, val)    => midiOut.sendCC(ch, cc, val),
+      })
+    } else {
+      engine.setMidiOutputCallbacks(null)
+    }
+  }, [midiOut.selectedPortId])  // eslint-disable-line
+
   // Combined play-note: Web Audio preview + MIDI output if a port is selected
   const handlePlayNote = useCallback((pitch: number) => {
     engine.playPreviewNote(pitch)

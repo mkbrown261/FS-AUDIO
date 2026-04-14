@@ -6,6 +6,7 @@ import { WavetableSynth, WavetableSynthParams, WAVETABLES } from '../audio/synth
 import { GranularSynth, GranularSynthParams } from '../audio/synths/GranularSynth'
 import { FMSynth, FMSynthParams, FM_ALGORITHMS } from '../audio/synths/FMSynth'
 import { AnalogSynth } from '../audio/instruments/AnalogSynth'
+import { Sampler, SamplerParams } from '../audio/instruments/Sampler'
 import { Arpeggiator, ARP_DEFAULTS } from '../audio/Arpeggiator'
 
 /** Coerce a plugin param value (string | number) to number */
@@ -149,6 +150,13 @@ export function useAudioEngine() {
   const scheduledSourcesRef = useRef<ScheduledSource[]>([])
   const metronomeIntervalRef = useRef<number | null>(null)
   const audioBuffersRef = useRef<Map<string, AudioBuffer>>(new Map())
+
+  // Optional MIDI output callbacks (set by App.tsx when a MIDI output port is selected)
+  const midiOutRef = useRef<{
+    noteOn:  (channel: number, pitch: number, velocity: number) => void
+    noteOff: (channel: number, pitch: number) => void
+    sendCC:  (channel: number, cc: number, value: number) => void
+  } | null>(null)
   // Cache for pitch-shifted buffers: key = `${clipId}:${semitones}`
   const pitchBufferCache = useRef<Map<string, AudioBuffer>>(new Map())
 
@@ -871,9 +879,10 @@ export function useAudioEngine() {
     const fmPlugin         = track?.plugins.find(p => p.type === 'fs_fm'         && p.enabled)
     const granularPlugin   = track?.plugins.find(p => p.type === 'fs_granular'   && p.enabled)
     const analogPlugin     = track?.plugins.find(p => p.type === 'fs_analog'     && p.enabled)
+    const samplerPlugin    = track?.plugins.find(p => p.type === 'fs_sampler'    && p.enabled)
 
     // Helper: get or create the instrument synth instance for this track
-    const getInstrumentSynth = (): DX7Synth | SFZSampler | WavetableSynth | FMSynth | GranularSynth | AnalogSynth | null => {
+    const getInstrumentSynth = (): DX7Synth | SFZSampler | WavetableSynth | FMSynth | GranularSynth | AnalogSynth | Sampler | null => {
       let synth = instrumentSynthsRef.current.get(trackId)
 
       if (dx7Plugin) {
@@ -940,6 +949,51 @@ export function useAudioEngine() {
         return synth
       }
 
+      if (samplerPlugin) {
+        if (!synth || !(synth instanceof Sampler)) {
+          synth = new Sampler(ctx)
+          ;(synth as Sampler).getOutput().connect(nodes.gain)
+          instrumentSynthsRef.current.set(trackId, synth)
+        }
+        // Apply flat-param pad settings (volume, pan, pitch, ADSR, name, sampleUrl)
+        const sp = synth as Sampler
+        for (let i = 0; i < 16; i++) {
+          const url = samplerPlugin.params[`pad${i}_sampleUrl`] as string | undefined
+          const name = samplerPlugin.params[`pad${i}_name`] as string | undefined
+          const volume = samplerPlugin.params[`pad${i}_volume`] as number | undefined
+          const pan    = samplerPlugin.params[`pad${i}_pan`]   as number | undefined
+          const pitch  = samplerPlugin.params[`pad${i}_pitch`] as number | undefined
+          const attack = samplerPlugin.params[`pad${i}_attack`] as number | undefined
+          const decay  = samplerPlugin.params[`pad${i}_decay`]  as number | undefined
+          const sustain= samplerPlugin.params[`pad${i}_sustain`]as number | undefined
+          const release= samplerPlugin.params[`pad${i}_release`]as number | undefined
+
+          const updates: Record<string, unknown> = {}
+          if (name    != null) updates.name    = name
+          if (volume  != null) updates.volume  = volume
+          if (pan     != null) updates.pan     = pan
+          if (pitch   != null) updates.pitch   = pitch
+          if (attack  != null) updates.attack  = attack
+          if (decay   != null) updates.decay   = decay
+          if (sustain != null) updates.sustain = sustain
+          if (release != null) updates.release = release
+
+          const existingPad = sp.getPad(i)
+          // Load sample if URL changed or sample is missing
+          if (url && url !== existingPad?.sampleUrl) {
+            updates.sampleUrl = url
+            fetch(url)
+              .then(r => r.arrayBuffer())
+              .then(ab => ctx.decodeAudioData(ab))
+              .then(buf => { sp.updatePad(i, { sample: buf, sampleUrl: url }) })
+              .catch(err => console.error('[Sampler] pad', i, 'load error:', err))
+          }
+
+          if (Object.keys(updates).length > 0) sp.updatePad(i, updates as any)
+        }
+        return synth
+      }
+
       return null
     }
 
@@ -978,10 +1032,14 @@ export function useAudioEngine() {
               instrumentSynth.noteOn(note.pitch, vel)
             } else if (instrumentSynth instanceof AnalogSynth) {
               instrumentSynth.noteOn(note.pitch, vel)
+            } else if (instrumentSynth instanceof Sampler) {
+              instrumentSynth.playNote(note.pitch, vel)
             } else {
               instrumentSynth.noteOn(note.pitch, vel)
             }
           } catch {}
+          // Also fire to MIDI output if registered
+          midiOutRef.current?.noteOn(0, note.pitch, Math.min(127, vel))
         }, startDelay)
 
         const offTimer = window.setTimeout(() => {
@@ -994,10 +1052,14 @@ export function useAudioEngine() {
               instrumentSynth.noteOff(note.pitch)
             } else if (instrumentSynth instanceof AnalogSynth) {
               instrumentSynth.noteOff(note.pitch)
+            } else if (instrumentSynth instanceof Sampler) {
+              instrumentSynth.stopNote(note.pitch)
             } else {
               instrumentSynth.noteOff(note.pitch)
             }
           } catch {}
+          // Also fire to MIDI output if registered
+          midiOutRef.current?.noteOff(0, note.pitch)
         }, stopDelay)
 
         // Store timers for cleanup (reuse scheduledSourcesRef with a dummy obj)
@@ -1052,6 +1114,78 @@ export function useAudioEngine() {
       noteGain.gain.setValueAtTime(velNorm * 0.3 + 0.001, schedEnd - 0.015)
       noteGain.gain.exponentialRampToValueAtTime(0.0001, schedEnd + 0.2)
     }
+
+    // ── CC lane playback ──────────────────────────────────────────────────────
+    // For each CC lane on the clip, interpolate the automation curve and apply
+    // it to the corresponding AudioNode parameter (or send to synth).
+    const ccLanes = clip.ccLanes
+    if (ccLanes && ccLanes.length > 0 && nodes) {
+      for (const lane of ccLanes) {
+        if (!lane.points || lane.points.length === 0) continue
+        const sorted = [...lane.points].sort((a, b) => a.beat - b.beat)
+
+        // Build a list of (beat, value) events covering the clip window
+        const events = sorted.map(p => ({
+          sec: now + Math.max(0, (clip.startBeat + p.beat - fromBeat) * secPerBeat),
+          norm: p.value / 127,          // 0-1
+          raw: p.value                  // 0-127
+        })).filter(e => e.sec >= now)
+
+        if (events.length === 0) continue
+
+        const scheduleCC = (sec: number, norm: number) => {
+          switch (lane.cc) {
+            case 7:   // Volume
+            case 11:  // Expression (both control track gain)
+              nodes.gain.gain.setTargetAtTime(norm, sec, 0.01)
+              break
+            case 10: { // Pan (−1..+1)
+              const panVal = norm * 2 - 1
+              nodes.panner.pan.setTargetAtTime(panVal, sec, 0.01)
+              break
+            }
+            case 1: { // Mod wheel → filter cutoff on EQ nodes (0..12kHz range)
+              const eqNodes = nodes.eq
+              if (eqNodes && eqNodes.length > 0) {
+                const freq = 200 + norm * 11800   // 200 Hz – 12 kHz
+                eqNodes.forEach(f => f.frequency.setTargetAtTime(freq, sec, 0.02))
+              }
+              break
+            }
+            case 64: { // Sustain pedal (>63 = on, ≤63 = off) — schedule as timer
+              const isOn = norm > 0.5
+              const delay = Math.max(0, sec - now) * 1000
+              window.setTimeout(() => {
+                const synth = instrumentSynthsRef.current.get(trackId)
+                if (synth && 'setSustain' in synth) {
+                  ;(synth as any).setSustain(isOn)
+                }
+              }, delay)
+              break
+            }
+            // CC 128 = pitch bend (−8192..+8192 re-mapped from 0-127 in our CCLane)
+            case 128: {
+              const semitones = (norm - 0.5) * 4  // ±2 semitones range
+              const delay = Math.max(0, sec - now) * 1000
+              window.setTimeout(() => {
+                const synth = instrumentSynthsRef.current.get(trackId)
+                if (synth && 'pitchBend' in synth) {
+                  ;(synth as any).pitchBend(semitones)
+                }
+              }, delay)
+              break
+            }
+            default:
+              break
+          }
+        }
+
+        // Schedule each CC event
+        for (const ev of events) {
+          scheduleCC(ev.sec, ev.norm)
+        }
+      }
+    }
   }, [getCtx, getTrackNodes])
 
   // ── MIDI Panic: Stop all held notes (Logic Pro behavior) ──
@@ -1082,10 +1216,14 @@ export function useAudioEngine() {
     }
     heldNotesRef.current.clear()
     
-    // Stop all DX7 synth voices
+    // Stop all instrument synth voices
     for (const [trackId, synth] of instrumentSynthsRef.current.entries()) {
-      console.log('[MIDI Panic] Stopping DX7 synth on track:', trackId)
-      synth.allNotesOff()
+      console.log('[MIDI Panic] Stopping synth on track:', trackId)
+      if (synth instanceof Sampler) {
+        synth.panic()
+      } else {
+        synth.allNotesOff()
+      }
     }
     
     console.log('[MIDI Panic] All notes stopped')
@@ -2310,7 +2448,7 @@ export function useAudioEngine() {
   }, [])
 
   // ── Instrument Synth Instances (per track) ────────────────────────────────
-  const instrumentSynthsRef = useRef<Map<string, DX7Synth | SFZSampler | WavetableSynth | FMSynth | GranularSynth | AnalogSynth>>(new Map())
+  const instrumentSynthsRef = useRef<Map<string, DX7Synth | SFZSampler | WavetableSynth | FMSynth | GranularSynth | AnalogSynth | Sampler>>(new Map())
 
   // ── Arpeggiator instances (one per track, created lazily) ─────────────────
   const arpeggiatorRef = useRef<Map<string, Arpeggiator>>(new Map())
@@ -2521,6 +2659,48 @@ export function useAudioEngine() {
         heldNotesRef.current.set(pitch, { osc: null as any, gain: null as any })
         return
       }
+
+      // ── Sampler (fs_sampler) ─────────────────────────────────────────────
+      const samplerPlugin2 = selectedTrack.plugins.find(p => p.type === 'fs_sampler' && p.enabled)
+      if (samplerPlugin2) {
+        let trackNodes = trackNodesRef.current.get(selectedTrack.id)
+        if (!trackNodes) trackNodes = getTrackNodes(selectedTrack.id, selectedTrack.volume, selectedTrack.pan)
+        if (!trackNodes) { console.error('[noteOn] No track nodes for Sampler'); return }
+
+        let synth = instrumentSynthsRef.current.get(selectedTrack.id)
+        if (!synth || !(synth instanceof Sampler)) {
+          synth = new Sampler(ctx)
+          ;(synth as Sampler).getOutput().connect(trackNodes.gain)
+          instrumentSynthsRef.current.set(selectedTrack.id, synth)
+        }
+        // Apply flat-param pad settings
+        const sp2 = synth as Sampler
+        for (let i = 0; i < 16; i++) {
+          const url  = samplerPlugin2.params[`pad${i}_sampleUrl`] as string | undefined
+          const name = samplerPlugin2.params[`pad${i}_name`] as string | undefined
+          const volume = samplerPlugin2.params[`pad${i}_volume`] as number | undefined
+          const pan    = samplerPlugin2.params[`pad${i}_pan`]   as number | undefined
+          const pitch2 = samplerPlugin2.params[`pad${i}_pitch`] as number | undefined
+          const upd: Record<string, unknown> = {}
+          if (name   != null) upd.name   = name
+          if (volume != null) upd.volume = volume
+          if (pan    != null) upd.pan    = pan
+          if (pitch2 != null) upd.pitch  = pitch2
+          const ep = sp2.getPad(i)
+          if (url && url !== ep?.sampleUrl) {
+            upd.sampleUrl = url
+            fetch(url)
+              .then(r => r.arrayBuffer())
+              .then(ab => ctx.decodeAudioData(ab))
+              .then(buf => { sp2.updatePad(i, { sample: buf, sampleUrl: url }) })
+              .catch(err => console.error('[Sampler] pad', i, 'load error:', err))
+          }
+          if (Object.keys(upd).length > 0) sp2.updatePad(i, upd as any)
+        }
+        ;(synth as Sampler).playNote(pitch, velocity)
+        heldNotesRef.current.set(pitch, { osc: null as any, gain: null as any })
+        return
+      }
     }
 
     // Fallback to simple oscillator (for testing or tracks without instruments)
@@ -2554,13 +2734,16 @@ export function useAudioEngine() {
       const fmPlugin       = selectedTrack.plugins.find(p => p.type === 'fs_fm'        && p.enabled)
       const granularPlugin = selectedTrack.plugins.find(p => p.type === 'fs_granular'  && p.enabled)
       const analogPlugin   = selectedTrack.plugins.find(p => p.type === 'fs_analog'    && p.enabled)
-      if (dx7Plugin || sfzPlugin || wavetablePlugin || fmPlugin || granularPlugin || analogPlugin) {
+      const samplerPluginOff = selectedTrack.plugins.find(p => p.type === 'fs_sampler' && p.enabled)
+      if (dx7Plugin || sfzPlugin || wavetablePlugin || fmPlugin || granularPlugin || analogPlugin || samplerPluginOff) {
         const synth = instrumentSynthsRef.current.get(selectedTrack.id)
         if (synth) {
           if (synth instanceof WavetableSynth) {
             synth.noteOff(pitch, (wavetablePlugin?.params ?? {}) as unknown as WavetableSynthParams)
           } else if (synth instanceof FMSynth) {
             synth.noteOff(pitch, (fmPlugin?.params ?? {}) as unknown as FMSynthParams)
+          } else if (synth instanceof Sampler) {
+            synth.stopNote(pitch)
           } else {
             synth.noteOff(pitch)
           }
@@ -3043,6 +3226,14 @@ export function useAudioEngine() {
       // Clear audio buffer cache
       audioBuffersRef.current.clear()
       pitchBufferCache.current.clear()
+    },
+    /** Register MIDI output callbacks so scheduleMidiClip can also send to hardware */
+    setMidiOutputCallbacks: (cbs: {
+      noteOn:  (channel: number, pitch: number, velocity: number) => void
+      noteOff: (channel: number, pitch: number) => void
+      sendCC:  (channel: number, cc: number, value: number) => void
+    } | null) => {
+      midiOutRef.current = cbs
     },
   }
 }
