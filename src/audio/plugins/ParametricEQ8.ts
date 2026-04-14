@@ -115,7 +115,7 @@ export class ParametricEQ8 {
       const tempMag = new Float32Array(frequencies.length)
       const tempPhase = new Float32Array(frequencies.length)
       
-      filter.getFrequencyResponse(frequencies, tempMag, tempPhase)
+      filter.getFrequencyResponse(frequencies as Float32Array<ArrayBuffer>, tempMag as Float32Array<ArrayBuffer>, tempPhase as Float32Array<ArrayBuffer>)
       
       // Multiply magnitudes
       for (let i = 0; i < frequencies.length; i++) {

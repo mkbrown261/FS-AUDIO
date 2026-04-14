@@ -271,6 +271,13 @@ export class GranularSynth {
   }
   
   /**
+   * Stop all active grains immediately (MIDI panic)
+   */
+  allNotesOff() {
+    this.stop()
+  }
+
+  /**
    * Disconnect
    */
   disconnect() {

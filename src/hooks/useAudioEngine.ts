@@ -4,6 +4,46 @@ import { DX7Synth } from '../audio/synths/DX7Synth'
 import { SFZSampler } from '../audio/synths/SFZSampler'
 import { WavetableSynth, WavetableSynthParams, WAVETABLES } from '../audio/synths/WavetableSynth'
 import { GranularSynth, GranularSynthParams } from '../audio/synths/GranularSynth'
+import { FMSynth, FMSynthParams, FM_ALGORITHMS } from '../audio/synths/FMSynth'
+
+/** Coerce a plugin param value (string | number) to number */
+const pn = (v: string | number | undefined, fallback = 0): number =>
+  typeof v === 'number' ? v : parseFloat(v as string) || fallback
+
+/**
+ * Get interpolated BPM at a given beat using the project tempoMap.
+ * Linearly interpolates between adjacent tempo points.
+ * Falls back to globalBpm when the map is empty.
+ */
+function getBpmAtBeat(beat: number, globalBpm: number, tempoMap: { beat: number; bpm: number }[]): number {
+  if (!tempoMap.length) return globalBpm
+  const sorted = [...tempoMap].sort((a, b) => a.beat - b.beat)
+  if (beat <= sorted[0].beat) return globalBpm
+  if (beat >= sorted[sorted.length - 1].beat) return sorted[sorted.length - 1].bpm
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const a = sorted[i], b = sorted[i + 1]
+    if (beat >= a.beat && beat <= b.beat) {
+      const t = (beat - a.beat) / (b.beat - a.beat)
+      return a.bpm + t * (b.bpm - a.bpm)
+    }
+  }
+  return globalBpm
+}
+
+/** Cast a plugin params record to numeric-only for audio param assignment */
+const numParams = (p: Record<string, string | number>): Record<string, number> =>
+  p as unknown as Record<string, number>
+
+/** Custom recorder object used in place of MediaRecorder for ScriptProcessor recording */
+interface CustomRecorder {
+  scriptProcessor: ScriptProcessorNode
+  silentGain: GainNode
+  recordedBuffers: Float32Array[]
+  sampleRate: number
+  getState: () => string
+  stopRecording: (callback: () => void) => void
+  getBlob: () => null
+}
 
 interface TrackNodes {
   gain: GainNode
@@ -113,7 +153,7 @@ export function useAudioEngine() {
 
   // Recording state
   const mediaStreamRef = useRef<MediaStream | null>(null)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const mediaRecorderRef = useRef<CustomRecorder | null>(null)
   const recordedChunksRef = useRef<BlobPart[]>([])
   const micAnalyserRef = useRef<AnalyserNode | null>(null)
   const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
@@ -807,9 +847,10 @@ export function useAudioEngine() {
     const dx7Plugin        = track?.plugins.find(p => p.type === 'fs_dx7'        && p.enabled)
     const sfzPlugin        = track?.plugins.find(p => p.type === 'fs_sfz'        && p.enabled)
     const wavetablePlugin  = track?.plugins.find(p => p.type === 'fs_wavetable'  && p.enabled)
+    const fmPlugin         = track?.plugins.find(p => p.type === 'fs_fm'         && p.enabled)
 
     // Helper: get or create the instrument synth instance for this track
-    const getInstrumentSynth = (): DX7Synth | SFZSampler | WavetableSynth | null => {
+    const getInstrumentSynth = (): DX7Synth | SFZSampler | WavetableSynth | FMSynth | null => {
       let synth = instrumentSynthsRef.current.get(trackId)
 
       if (dx7Plugin) {
@@ -847,6 +888,15 @@ export function useAudioEngine() {
         return synth
       }
 
+      if (fmPlugin) {
+        if (!synth || !(synth instanceof FMSynth)) {
+          synth = new FMSynth(ctx)
+          ;(synth as FMSynth).connect(nodes.gain)
+          instrumentSynthsRef.current.set(trackId, synth)
+        }
+        return synth
+      }
+
       return null
     }
 
@@ -879,6 +929,8 @@ export function useAudioEngine() {
           try {
             if (instrumentSynth instanceof WavetableSynth) {
               instrumentSynth.noteOn(note.pitch, vel / 127, (wavetablePlugin?.params ?? {}) as unknown as WavetableSynthParams)
+            } else if (instrumentSynth instanceof FMSynth) {
+              instrumentSynth.noteOn(note.pitch, vel / 127, (fmPlugin?.params ?? {}) as unknown as FMSynthParams)
             } else {
               instrumentSynth.noteOn(note.pitch, vel)
             }
@@ -889,6 +941,8 @@ export function useAudioEngine() {
           try {
             if (instrumentSynth instanceof WavetableSynth) {
               instrumentSynth.noteOff(note.pitch, (wavetablePlugin?.params ?? {}) as unknown as WavetableSynthParams)
+            } else if (instrumentSynth instanceof FMSynth) {
+              instrumentSynth.noteOff(note.pitch, (fmPlugin?.params ?? {}) as unknown as FMSynthParams)
             } else {
               instrumentSynth.noteOff(note.pitch)
             }
@@ -993,9 +1047,11 @@ export function useAudioEngine() {
     const ctx = getCtx()
     console.log('[startPlayback] fromBeat:', fromBeat, 'ctx.state:', ctx.state)
     if (ctx.state === 'suspended') await ctx.resume()
-    const { tracks, bpm, isLooping, loopStart, loopEnd } = useProjectStore.getState()
+    const { tracks, bpm, tempoMap, isLooping, loopStart, loopEnd } = useProjectStore.getState()
     const anySolo = tracks.some(t => t.solo && t.type !== 'master')
-    console.log('[startPlayback] tracks:', tracks.length, 'bpm:', bpm, 'isLooping:', isLooping)
+    // Use tempo-map-aware BPM for scheduling
+    const effectiveBpm = getBpmAtBeat(fromBeat, bpm, tempoMap)
+    console.log('[startPlayback] tracks:', tracks.length, 'bpm:', effectiveBpm, 'isLooping:', isLooping)
 
     for (const track of tracks) {
       if (track.type === 'master') continue
@@ -1016,10 +1072,10 @@ export function useAudioEngine() {
 
         if (clip.type === 'midi' && clip.midiNotes?.length) {
           // MIDI clip — schedule notes through the Web Audio synth (respects loop)
-          scheduleMidiClip(track.id, clip, bpm, fromBeat, effectiveVol, isLooping ? loopEnd : Infinity)
+          scheduleMidiClip(track.id, clip, effectiveBpm, fromBeat, effectiveVol, isLooping ? loopEnd : Infinity)
         } else if (clip.audioUrl) {
           // Audio clip (respects loop)
-          await playClip(clip.audioUrl, track.id, clip, bpm, fromBeat, effectiveVol, track.pan, isLooping ? loopEnd : Infinity)
+          await playClip(clip.audioUrl, track.id, clip, effectiveBpm, fromBeat, effectiveVol, track.pan, isLooping ? loopEnd : Infinity)
         }
       }
     }
@@ -1120,7 +1176,7 @@ export function useAudioEngine() {
       // ── FS-Saturn: Multiband Saturation ──────────────────────────────────
       const satPlugin = track.plugins.find(p => p.type === 'saturation' && p.enabled)
       if (satPlugin && nodes.satMixWet) {
-        const sp = satPlugin.params
+        const sp = numParams(satPlugin.params)
         // Update waveshaper curves
         if (nodes.satLowWS)  nodes.satLowWS.curve  = new Float32Array(makeSatCurve(sp.lowDrive ?? 0,  sp.lowMode ?? 0))
         if (nodes.satMidWS)  nodes.satMidWS.curve  = new Float32Array(makeSatCurve(sp.midDrive ?? 0,  sp.midMode ?? 1))
@@ -1143,7 +1199,7 @@ export function useAudioEngine() {
       // ── FS-Pressure: Bus Compressor ───────────────────────────────────────
       const pressPlugin = track.plugins.find(p => p.type === 'bus_compressor' && p.enabled)
       if (pressPlugin && nodes.pressureComp) {
-        const pp = pressPlugin.params
+        const pp = numParams(pressPlugin.params)
         // ratio param is a direct value (1.5–20), not an index
         const ratio   = Math.max(1, Math.min(20, pp.ratio ?? 4))
         // attack param is a direct value in seconds (0.0001–0.03)
@@ -1178,7 +1234,7 @@ export function useAudioEngine() {
       // ── FS-Spacetime: Shimmer Reverb + Ping-Pong ──────────────────────────
       const spacePlugin = track.plugins.find(p => p.type === 'spacetime' && p.enabled)
       if (spacePlugin && nodes.spaceReverb) {
-        const sp2 = spacePlugin.params
+        const sp2 = numParams(spacePlugin.params)
         // Rebuild reverb IR for new size
         const irLen = Math.round(ctx.sampleRate * (sp2.revSize ?? 3.5))
         const irBuf = ctx.createBuffer(2, irLen, ctx.sampleRate)
@@ -1215,7 +1271,7 @@ export function useAudioEngine() {
       // ── FS-Transient: Attack/Sustain Designer ─────────────────────────────
       const transPlugin = track.plugins.find(p => p.type === 'transient' && p.enabled)
       if (transPlugin && nodes.transientComp) {
-        const tp = transPlugin.params
+        const tp = numParams(transPlugin.params)
         const mode = Math.round(tp.mode ?? 1)
         // Map attack/sustain to compressor parameters
         // Attack boost → fast comp with high ratio that opens on transients
@@ -1241,7 +1297,7 @@ export function useAudioEngine() {
       // ── FS-Nova: Multiband Expander / Gate ──────────────────────────────────
       const novaPlugin = track.plugins.find(p => p.type === 'expander' && p.enabled)
       if (novaPlugin && nodes.novaGate) {
-        const np = novaPlugin.params
+        const np = numParams(novaPlugin.params)
         const thresh  = np.threshold ?? -50
         const ratio   = np.ratio ?? 10
         const attack  = np.attack ?? 0.001
@@ -1264,7 +1320,7 @@ export function useAudioEngine() {
       // ── FS-Prism: Harmonic Exciter ────────────────────────────────────────
       const prismPlugin = track.plugins.find(p => p.type === 'exciter' && p.enabled)
       if (prismPlugin && nodes.prismHP) {
-        const pp = prismPlugin.params
+        const pp = numParams(prismPlugin.params)
         nodes.prismHP.frequency.setTargetAtTime(pp.freq ?? 3000, ctx.currentTime, 0.01)
         nodes.prismHP.Q.setTargetAtTime(pp.q ?? 0.7, ctx.currentTime, 0.01)
         // Drive: scale harmonic waveshaper curve
@@ -1292,7 +1348,7 @@ export function useAudioEngine() {
       // ── FS-Vibe: Tape Vibrato ─────────────────────────────────────────────
       const vibePlugin = track.plugins.find(p => p.type === 'vibrato' && p.enabled)
       if (vibePlugin && nodes.vibeDelay) {
-        const vp = vibePlugin.params
+        const vp = numParams(vibePlugin.params)
         const depth = Math.max(0.0001, Math.min(0.01, vp.depth ?? 0.003)) // ±0.1ms–±10ms
         const mix   = vp.mix ?? 0.5
         const rate  = Math.max(0.1, Math.min(20, vp.rate ?? 5))
@@ -1313,7 +1369,7 @@ export function useAudioEngine() {
       // ── FS-Phase: Stereo Width / M-S ──────────────────────────────────────
       const phasePlugin = track.plugins.find(p => p.type === 'stereo_width' && p.enabled)
       if (phasePlugin && nodes.phaseMid) {
-        const php = phasePlugin.params
+        const php = numParams(phasePlugin.params)
         const width    = php.width ?? 1.0     // 0 = mono, 1 = normal, 2 = wide
         const midGain  = 1.0
         const sideGain = Math.max(0, width)
@@ -1330,7 +1386,7 @@ export function useAudioEngine() {
       // ── FS-Oxide: Tape Emulation ──────────────────────────────────────────
       const oxidePlugin = track.plugins.find(p => p.type === 'tape' && p.enabled)
       if (oxidePlugin && nodes.oxideWS) {
-        const op = oxidePlugin.params
+        const op = numParams(oxidePlugin.params)
         const satAmt  = op.saturation ?? 0.3
         const lpFreq  = op.brightness ?? 16000
         const hpFreq  = op.bass ?? 30
@@ -1355,7 +1411,7 @@ export function useAudioEngine() {
       // ── FS-Hades: Sub Enhancer ────────────────────────────────────────────
       const hadesPlugin = track.plugins.find(p => p.type === 'sub_enhancer' && p.enabled)
       if (hadesPlugin && nodes.hadesLP) {
-        const hp = hadesPlugin.params
+        const hp = numParams(hadesPlugin.params)
         const freq   = hp.freq ?? 120
         const amount = hp.amount ?? 0.4
         nodes.hadesLP.frequency.setTargetAtTime(freq, ctx.currentTime, 0.01)
@@ -1382,7 +1438,7 @@ export function useAudioEngine() {
       // and the gated path sum to the correct level without doubling.
       const shieldPlugin = track.plugins.find(p => p.type === 'noise_gate' && p.enabled)
       if (shieldPlugin && nodes.shieldComp) {
-        const sp = shieldPlugin.params
+        const sp = numParams(shieldPlugin.params)
         nodes.shieldComp.threshold.setTargetAtTime(sp.threshold ?? -60, ctx.currentTime, 0.01)
         nodes.shieldComp.ratio.setTargetAtTime(20, ctx.currentTime, 0.01) // hard limiting above threshold
         nodes.shieldComp.attack.setTargetAtTime(sp.attack ?? 0.001, ctx.currentTime, 0.01)
@@ -1400,7 +1456,7 @@ export function useAudioEngine() {
       // ── FS-Flux: Pitch Correct (simplified blend) ─────────────────────────
       const fluxPlugin = track.plugins.find(p => p.type === 'pitch_correct' && p.enabled)
       if (fluxPlugin && nodes.fluxDelay) {
-        const fp = fluxPlugin.params
+        const fp = numParams(fluxPlugin.params)
         // Speed = correction speed (0 = off, 1 = instant)
         const speed  = fp.speed ?? 0.5
         const amount = fp.amount ?? 0.5
@@ -1417,7 +1473,7 @@ export function useAudioEngine() {
       // ── FS-Forge: Parallel Compressor ─────────────────────────────────────
       const forgePlugin = track.plugins.find(p => p.type === 'parallel_comp' && p.enabled)
       if (forgePlugin && nodes.forgeComp) {
-        const fp = forgePlugin.params
+        const fp = numParams(forgePlugin.params)
         nodes.forgeComp.threshold.setTargetAtTime(fp.threshold ?? -20, ctx.currentTime, 0.01)
         nodes.forgeComp.ratio.setTargetAtTime(fp.ratio ?? 6, ctx.currentTime, 0.01)
         nodes.forgeComp.attack.setTargetAtTime(fp.attack ?? 0.005, ctx.currentTime, 0.01)
@@ -1438,7 +1494,7 @@ export function useAudioEngine() {
       // ── FS-Crystal: Granular Freeze ───────────────────────────────────────
       const crystalPlugin = track.plugins.find(p => p.type === 'granular' && p.enabled)
       if (crystalPlugin && nodes.crystalReverb) {
-        const cp = crystalPlugin.params
+        const cp = numParams(crystalPlugin.params)
         const size  = cp.size ?? 6          // IR length in seconds
         const decay = cp.decay ?? 0.5       // flatness (0 = fast decay, 1 = freeze)
         const mix   = cp.mix ?? 0.3
@@ -1469,7 +1525,7 @@ export function useAudioEngine() {
       // Params: b1f..b8f = freq, b2g..b8g = gain, b2q..b8q = Q, output
       const proqPlugin = track.plugins.find(p => p.type === 'fs_proq' && p.enabled)
       if (proqPlugin && nodes.lowShelf && nodes.midPeak && nodes.highShelf) {
-        const pp = proqPlugin.params
+        const pp = numParams(proqPlugin.params)
         // Map bands 4,5,6 to low shelf, mid peak, high shelf
         if (nodes.lowShelf) {
           nodes.lowShelf.frequency.setTargetAtTime(pp.b4f ?? 320, ctx.currentTime, 0.01)
@@ -1492,7 +1548,7 @@ export function useAudioEngine() {
       // FS-Cosmos: Algorithmic Reverb → maps to spaceReverb nodes
       const cosmosPlugin = track.plugins.find(p => p.type === 'fs_vintage_verb' && p.enabled)
       if (cosmosPlugin && nodes.spaceReverb && nodes.spaceReverbGain) {
-        const cp = cosmosPlugin.params
+        const cp = numParams(cosmosPlugin.params)
         const wet  = cp.wet  ?? 0.3
         const size = cp.size ?? 1.5
         const damp = cp.damp ?? 0.5  // 'damp' not 'damping' per FLOWSTATE_PRO_DEFAULTS
@@ -1521,7 +1577,7 @@ export function useAudioEngine() {
       // FS-Echo: Tape/BBD Delay → maps to spacePingDelay / delayWet nodes
       const echoPlugin = track.plugins.find(p => p.type === 'fs_echo' && p.enabled)
       if (echoPlugin && nodes.spacePingDelay && nodes.spaceDlyWet) {
-        const ep = echoPlugin.params
+        const ep = numParams(echoPlugin.params)
         const bpm2  = useProjectStore.getState().bpm
         const sync  = ep.sync ?? 0
         const syncDivOptions = [0.5, 0.25, 0.125, 1]
@@ -1541,7 +1597,7 @@ export function useAudioEngine() {
       // FS-Master: Mastering Suite → remap to comp + EQ nodes
       const masterPlugin = track.plugins.find(p => p.type === 'fs_mastering' && p.enabled)
       if (masterPlugin && nodes.compressor) {
-        const mp = masterPlugin.params
+        const mp = numParams(masterPlugin.params)
         // Tonal: EQ — params: low/lom/him/high match shelf/peak gains
         if (nodes.lowShelf) nodes.lowShelf.gain.setTargetAtTime(mp.low ?? 0, ctx.currentTime, 0.01)
         if (nodes.highShelf) nodes.highShelf.gain.setTargetAtTime(mp.high ?? 0, ctx.currentTime, 0.01)
@@ -1561,7 +1617,7 @@ export function useAudioEngine() {
       // FS-Crush: Multiband Compressor → maps to pressureComp (only if FS-Pressure not also active)
       const crushPlugin = track.plugins.find(p => p.type === 'fs_multiband_comp' && p.enabled)
       if (crushPlugin && nodes.pressureComp && !pressPlugin) {
-        const ccp = crushPlugin.params
+        const ccp = numParams(crushPlugin.params)
         // Average the 4-band thresholds and ratios into a single wideband compressor setting
         const avgThresh = ((ccp.loThresh ?? -20) + (ccp.lmThresh ?? -20) + (ccp.hmThresh ?? -20) + (ccp.hiThresh ?? -20)) / 4
         const avgRatio  = Math.max(1, Math.min(20, ((ccp.loRatio ?? 4) + (ccp.lmRatio ?? 4) + (ccp.hmRatio ?? 4) + (ccp.hiRatio ?? 4)) / 4))
@@ -1580,7 +1636,7 @@ export function useAudioEngine() {
       // Only applied if FS-Master is not also active (they both use the compressor node)
       const apexPlugin = track.plugins.find(p => p.type === 'fs_peak_limiter' && p.enabled)
       if (apexPlugin && nodes.compressor && !masterPlugin) {
-        const ap = apexPlugin.params
+        const ap = numParams(apexPlugin.params)
         nodes.compressor.threshold.setTargetAtTime(ap.threshold ?? -1, ctx.currentTime, 0.01)
         nodes.compressor.ratio.setTargetAtTime(20, ctx.currentTime, 0.01) // hard limit
         nodes.compressor.attack.setTargetAtTime(0.0001, ctx.currentTime, 0.01)
@@ -1602,7 +1658,7 @@ export function useAudioEngine() {
       // giving a high-frequency reduction ("carving space" for other instruments)
       const spacerPlugin = track.plugins.find(p => p.type === 'fs_spacer' && p.enabled)
       if (spacerPlugin && nodes.hadesLP && !hadesPlugin) {
-        const sp3 = spacerPlugin.params
+        const sp3 = numParams(spacerPlugin.params)
         const rangeHz = Math.max(200, Math.min(18000, sp3.rangeHz ?? 3000))
         const depth   = Math.max(0, Math.min(1, sp3.depth ?? 0.5))
         // Use hadesLP as the band-cut filter: LP below rangeHz = preserve lows, cut highs
@@ -1617,7 +1673,7 @@ export function useAudioEngine() {
       // FS-Reel: Analog Tape Delay → tape saturation via oxideWS + spacePingDelay for delay
       const reelPlugin = track.plugins.find(p => p.type === 'fs_tape_delay' && p.enabled)
       if (reelPlugin && nodes.oxideWS && nodes.spacePingDelay) {
-        const rp = reelPlugin.params
+        const rp = numParams(reelPlugin.params)
         const satAmt = Math.max(0, Math.min(1, rp.saturation ?? 0.3))
         const wetAmt = Math.max(0, Math.min(1, rp.wet ?? 0.35))
         // Tape saturation curve: tanh normalised, k=1..7 based on saturation amount
@@ -1642,7 +1698,7 @@ export function useAudioEngine() {
       // air/presence params are in dB (-12..+12); normalize to 0..1 for frequency/amount mapping
       const auraPlugin = track.plugins.find(p => p.type === 'fs_vocal_enhance' && p.enabled)
       if (auraPlugin && nodes.prismHP && !spacerPlugin && !reelPlugin) {
-        const auP = auraPlugin.params
+        const auP = numParams(auraPlugin.params)
         // air param: -12..+12 dB → normalize to 0..1 for frequency scaling
         const airNorm     = ((auP.air ?? 0) + 12) / 24        // 0..1
         const presNorm    = ((auP.presence ?? 0) + 12) / 24   // 0..1
@@ -1667,7 +1723,7 @@ export function useAudioEngine() {
       // FS-Voice: Pitch Corrector → maps to fluxDelay nodes
       const voicePlugin = track.plugins.find(p => p.type === 'fs_tuner' && p.enabled)
       if (voicePlugin && nodes.fluxDelay) {
-        const vp2 = voicePlugin.params
+        const vp2 = numParams(voicePlugin.params)
         // speed/amount are 0-100 in FS-Voice defaults
         const speed2  = (vp2.speed ?? 25) / 100   // normalize 0-100 → 0-1
         const amount2 = (vp2.amount ?? 100) / 100 // normalize 0-100 → 0-1
@@ -1685,7 +1741,7 @@ export function useAudioEngine() {
       // FS-Dimension: Stereo Chorus → maps to vibeDelay (modulated delay chorus)
       const dimPlugin = track.plugins.find(p => p.type === 'fs_dimension' && p.enabled)
       if (dimPlugin && nodes.vibeDelay && !vibePlugin) {
-        const dp    = dimPlugin.params
+        const dp    = numParams(dimPlugin.params)
         const depth2 = (dp.depth ?? 0.3) * 0.008 // 0-8ms chorus depth
         const rate2  = dp.rate ?? 0.5             // chorus rate Hz
         const mix2   = dp.mix ?? 0.5
@@ -1703,7 +1759,7 @@ export function useAudioEngine() {
       // Uses moderate parallel compression to thicken vocals/add character
       const mutatePlugin = track.plugins.find(p => p.type === 'fs_alter' && p.enabled)
       if (mutatePlugin && nodes.forgeComp && !forgePlugin) {
-        const muP = mutatePlugin.params
+        const muP = numParams(mutatePlugin.params)
         // Params: mode/pitch/formant/mix/detune/output/algo/voice
         // Moderate settings: -20dB threshold, ratio 4 — parallel adds presence without distorting
         nodes.forgeComp.threshold.setTargetAtTime(-20, ctx.currentTime, 0.01)
@@ -1724,7 +1780,7 @@ export function useAudioEngine() {
       // FS-Resonate: Resonance Suppressor → maps to shield (gate/compress resonances)
       const resonPlugin = track.plugins.find(p => p.type === 'fs_resonance' && p.enabled)
       if (resonPlugin && nodes.shieldComp && !shieldPlugin) {
-        const rp2 = resonPlugin.params
+        const rp2 = numParams(resonPlugin.params)
         // Params: depth(dB)/sharpness/speed/sensitivity/mix/focus/delta/mode
         const resSens  = rp2.sensitivity ?? 0.5   // 0..1 — renamed to avoid shadowing
         const resDepth = rp2.depth ?? 5            // dB of suppression (0..24)
@@ -2085,7 +2141,7 @@ export function useAudioEngine() {
   }, [])
 
   // ── Instrument Synth Instances (per track) ────────────────────────────────
-  const instrumentSynthsRef = useRef<Map<string, DX7Synth | SFZSampler | WavetableSynth>>(new Map())
+  const instrumentSynthsRef = useRef<Map<string, DX7Synth | SFZSampler | WavetableSynth | FMSynth>>(new Map())
 
   // ── Play a preview note (piano roll key click) ────────────────────────────
   const heldNotesRef = useRef<Map<number, { osc: OscillatorNode; gain: GainNode }>>(new Map())
@@ -2134,7 +2190,7 @@ export function useAudioEngine() {
         }
         
         if (synth) {
-          synth.noteOn(pitch, velocity)
+          (synth as DX7Synth).noteOn(pitch, velocity)
 
           // Store a reference for noteOff
           heldNotesRef.current.set(pitch, { osc: null as any, gain: null as any }) // Just mark as held
@@ -2219,6 +2275,25 @@ export function useAudioEngine() {
         heldNotesRef.current.set(pitch, { osc: null as any, gain: null as any })
         return
       }
+
+      // ── FMSynth ─────────────────────────────────────────────────────────
+      const fmPlugin = selectedTrack.plugins.find(p => p.type === 'fs_fm' && p.enabled)
+      if (fmPlugin) {
+        let trackNodes = trackNodesRef.current.get(selectedTrack.id)
+        if (!trackNodes) trackNodes = getTrackNodes(selectedTrack.id, selectedTrack.volume, selectedTrack.pan)
+        if (!trackNodes) { console.error('[noteOn] No track nodes for FMSynth'); return }
+
+        let synth = instrumentSynthsRef.current.get(selectedTrack.id)
+        if (!synth || !(synth instanceof FMSynth)) {
+          synth = new FMSynth(ctx)
+          ;(synth as FMSynth).connect(trackNodes.gain)
+          instrumentSynthsRef.current.set(selectedTrack.id, synth)
+        }
+        const fp = fmPlugin.params as unknown as FMSynthParams
+        ;(synth as FMSynth).noteOn(pitch, velocity / 127, fp)
+        heldNotesRef.current.set(pitch, { osc: null as any, gain: null as any })
+        return
+      }
     }
 
     // Fallback to simple oscillator (for testing or tracks without instruments)
@@ -2251,13 +2326,17 @@ export function useAudioEngine() {
       const dx7Plugin = selectedTrack.plugins.find(p => p.type === 'fs_dx7' && p.enabled)
       const sfzPlugin = selectedTrack.plugins.find(p => p.type === 'fs_sfz' && p.enabled)
       const wavetablePlugin = selectedTrack.plugins.find(p => p.type === 'fs_wavetable' && p.enabled)
+      const fmPlugin = selectedTrack.plugins.find(p => p.type === 'fs_fm' && p.enabled)
       
-      if (dx7Plugin || sfzPlugin || wavetablePlugin) {
+      if (dx7Plugin || sfzPlugin || wavetablePlugin || fmPlugin) {
         const synth = instrumentSynthsRef.current.get(selectedTrack.id)
         if (synth) {
           if (synth instanceof WavetableSynth) {
             const wp = (wavetablePlugin?.params ?? {}) as unknown as WavetableSynthParams
             synth.noteOff(pitch, wp)
+          } else if (synth instanceof FMSynth) {
+            const fp = (fmPlugin?.params ?? {}) as unknown as FMSynthParams
+            synth.noteOff(pitch, fp)
           } else {
             synth.noteOff(pitch)
           }
@@ -2387,13 +2466,13 @@ export function useAudioEngine() {
     const eqPlugin = track.plugins.find(p => p.type === 'eq' && p.enabled)
     const lowShelf = offCtx.createBiquadFilter()
     lowShelf.type = 'lowshelf'; lowShelf.frequency.value = 320
-    lowShelf.gain.value = eqPlugin?.params.low ?? 0
+    lowShelf.gain.value = pn(eqPlugin?.params.low, 0)
     const midPeak = offCtx.createBiquadFilter()
     midPeak.type = 'peaking'; midPeak.frequency.value = 1000; midPeak.Q.value = 0.5
-    midPeak.gain.value = eqPlugin?.params.mid ?? 0
+    midPeak.gain.value = pn(eqPlugin?.params.mid, 0)
     const highShelf = offCtx.createBiquadFilter()
     highShelf.type = 'highshelf'; highShelf.frequency.value = 3200
-    highShelf.gain.value = eqPlugin?.params.high ?? 0
+    highShelf.gain.value = pn(eqPlugin?.params.high, 0)
 
     trackGain.connect(lowShelf)
     lowShelf.connect(midPeak)
@@ -2539,7 +2618,7 @@ export function useAudioEngine() {
     return () => {
       stopAll()
       stopMetronome()
-      mediaRecorderRef.current?.stop()
+      mediaRecorderRef.current?.stopRecording(() => {})
       mediaStreamRef.current?.getTracks().forEach(t => t.stop())
       ctxRef.current?.close()
     }

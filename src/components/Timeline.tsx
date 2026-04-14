@@ -2,6 +2,7 @@ import React, { useRef, useCallback, useEffect, useState } from 'react'
 import { useProjectStore, Clip, Track, EditTool } from '../store/projectStore'
 import { ContextMenu, ContextMenuItem } from './ContextMenu'
 import { AutomationLaneView, AddAutomationLaneButton } from './AutomationLaneView'
+import { GlobalTracksBar } from './GlobalTracksBar'
 
 // ── Flat centerline for audio clips with no waveform data ─────────────────────
 function FlatLine({ width, height, color }: { width: number; height: number; color: string }) {
@@ -863,7 +864,7 @@ export function Timeline({
   const {
     tracks, pixelsPerBeat, scrollLeft, setScrollLeft, bpm, loopStart, loopEnd, isLooping,
     timeSignature, isRecording, currentTime, zoom, setZoom, snapValue, setSnapValue, activeTool,
-    automationLanes, markers,
+    automationLanes, markers, showGlobalTracks,
   } = store
   const scrollRef = useRef<HTMLDivElement>(null)
   const TOTAL_BARS = 96
@@ -1267,6 +1268,15 @@ export function Timeline({
           )
         })()}
       </div>
+
+      {/* ── Global Tracks Bar (Tempo / Key / Time Sig) ───────────────────── */}
+      {showGlobalTracks && (
+        <GlobalTracksBar
+          pixelsPerBeat={pixelsPerBeat}
+          scrollLeft={scrollLeft}
+          totalWidth={totalWidth}
+        />
+      )}
 
       {/* ── Marker Bar ───────────────────────────────────────────────────── */}
       <MarkerBar

@@ -970,6 +970,14 @@ export default function App() {
           }
           break
 
+        // ── Global Tracks ─────────────────────────────────────────────────
+        case 'KeyG':
+          if (!meta && !inPianoRoll) {
+            e.preventDefault()
+            store.setShowGlobalTracks(!useProjectStore.getState().showGlobalTracks)
+          }
+          break
+
         // ── Loop ─────────────────────────────────────────────────────────
         case 'KeyL':
           if (!meta) store.toggleLoop()

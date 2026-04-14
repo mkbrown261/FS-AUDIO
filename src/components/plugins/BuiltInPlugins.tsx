@@ -518,6 +518,32 @@ export const PLUGIN_DEFAULTS: Record<string, { params: Record<string, number | s
     },
   },
 
+  fs_fm: {
+    name: 'FS-FM',
+    type: 'fs_fm',
+    params: {
+      algorithm: 0,
+      globalDetune: 0,
+      outputLevel: 0.7,
+      pitchEGAmount: 0,
+      lfoRate: 5,
+      lfoAmount: 0,
+      lfoDestination: 'pitch',
+      // Operator 0 (carrier)
+      op0_ratio: 1, op0_level: 0.9, op0_attack: 5, op0_decay: 200, op0_sustain: 0.7, op0_release: 300, op0_detune: 0, op0_feedback: 0,
+      // Operator 1 (modulator)
+      op1_ratio: 1, op1_level: 0.5, op1_attack: 5, op1_decay: 100, op1_sustain: 0.5, op1_release: 200, op1_detune: 0, op1_feedback: 0,
+      // Operator 2
+      op2_ratio: 2, op2_level: 0.3, op2_attack: 5, op2_decay: 80,  op2_sustain: 0.3, op2_release: 150, op2_detune: 0, op2_feedback: 0,
+      // Operator 3
+      op3_ratio: 3, op3_level: 0.2, op3_attack: 5, op3_decay: 60,  op3_sustain: 0.2, op3_release: 100, op3_detune: 0, op3_feedback: 0,
+      // Operator 4
+      op4_ratio: 4, op4_level: 0.1, op4_attack: 5, op4_decay: 50,  op4_sustain: 0.1, op4_release: 80,  op4_detune: 0, op4_feedback: 0,
+      // Operator 5
+      op5_ratio: 7, op5_level: 0.05, op5_attack: 5, op5_decay: 40, op5_sustain: 0.0, op5_release: 60,  op5_detune: 0, op5_feedback: 0.3,
+    },
+  },
+
   fs_wavetable: {
     name: 'FS-Wavetable',
     type: 'fs_wavetable',
@@ -1368,7 +1394,7 @@ function PluginSlot({ trackId, plugin, slotIndex }: PluginSlotProps) {
     fs_proq: '#a855f7', fs_resonance: '#10b981', fs_vintage_verb: '#818cf8',
     fs_echo: '#f59e0b', fs_tuner: '#e879f9', fs_mastering: '#facc15',
     fs_spacer: '#38bdf8', fs_peak_limiter: '#ef4444', fs_alter: '#22d3ee',
-    fs_glitch: '#f97316', fs_wavetable: '#3b82f6', fs_granular: '#10b981', fs_multiband_comp: '#fb923c',
+    fs_glitch: '#f97316', fs_fm: '#f59e0b', fs_wavetable: '#3b82f6', fs_granular: '#10b981', fs_multiband_comp: '#fb923c',
     fs_tape_delay: '#f59e0b', fs_vocal_enhance: '#c084fc', fs_dimension: '#22d3ee',
   }
   const color = typeColors[plugin.type] ?? '#6b7280'
@@ -1587,6 +1613,7 @@ const INSTRUMENT_CATEGORIES: { label: string; color: string; icon: string; plugi
     plugins: [
       { key: 'fs_analog',     name: 'FS-Analog',     type: 'fs_analog',     desc: 'Analog subtractive synthesizer' },
       { key: 'fs_dx7',        name: 'FS-DX7',        type: 'fs_dx7',        desc: '6-operator FM synthesizer (DX7 clone)' },
+      { key: 'fs_fm',         name: 'FS-FM',         type: 'fs_fm',         desc: '6-operator FM synth with 8 algorithms + LFO' },
       { key: 'fs_wavetable',  name: 'FS-Wavetable',  type: 'fs_wavetable',  desc: 'Serum-style dual wavetable synthesizer' },
       { key: 'fs_granular',   name: 'FS-Granular',   type: 'fs_granular',   desc: 'Sample-based granular cloud synthesizer' },
     ],

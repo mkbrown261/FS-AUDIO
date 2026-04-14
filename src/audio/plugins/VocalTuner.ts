@@ -26,7 +26,7 @@ export class VocalTuner {
   
   // Analysis
   private analyser: AnalyserNode
-  private dataArray: Float32Array
+  private dataArray: Float32Array<ArrayBuffer>
   private detectedPitch: number = 0
   private targetPitch: number = 0
   
@@ -62,7 +62,7 @@ export class VocalTuner {
   private startPitchDetection() {
     const detect = () => {
       this.analyser.getFloatTimeDomainData(this.dataArray)
-      this.detectedPitch = this.detectPitchAutocorrelation(this.dataArray, this.context.sampleRate)
+      this.detectedPitch = this.detectPitchAutocorrelation(this.dataArray as Float32Array<ArrayBuffer>, this.context.sampleRate)
       requestAnimationFrame(detect)
     }
     detect()
@@ -72,7 +72,7 @@ export class VocalTuner {
    * Autocorrelation pitch detection algorithm
    * Returns frequency in Hz, or 0 if no pitch detected
    */
-  private detectPitchAutocorrelation(buffer: Float32Array, sampleRate: number): number {
+  private detectPitchAutocorrelation(buffer: Float32Array<ArrayBuffer>, sampleRate: number): number {
     // Find RMS to check if signal is loud enough
     let rms = 0
     for (let i = 0; i < buffer.length; i++) {

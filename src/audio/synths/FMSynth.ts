@@ -21,6 +21,8 @@ export interface FMAlgorithm {
   // Connection matrix: [mod_op][carrier_op] = amount
   // 6x6 matrix where 1 = modulation connection
   connections: number[][]
+  // Carrier operator indices (those that output to master)
+  carriers?: number[]
 }
 
 export interface FMSynthParams {
@@ -352,16 +354,21 @@ export class FMSynth {
   }
   
   /**
+   * Stop all active notes immediately (MIDI panic)
+   */
+  allNotesOff() {
+    this.activeNotes.forEach(note => {
+      note.oscillators.forEach(osc => { try { osc.stop() } catch {} })
+    })
+    this.activeNotes.clear()
+  }
+
+  /**
    * Disconnect all
    */
   disconnect() {
+    this.allNotesOff()
     this.output.disconnect()
-    this.lfo.stop()
-    
-    // Stop all active notes
-    this.activeNotes.forEach(note => {
-      note.oscillators.forEach(osc => osc.stop())
-    })
-    this.activeNotes.clear()
+    try { this.lfo.stop() } catch {}
   }
 }

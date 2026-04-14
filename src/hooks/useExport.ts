@@ -19,6 +19,10 @@ import { useProjectStore } from '../store/projectStore'
 import { encodeAudioBufferToMp3 } from '../utils/mp3Encoder'
 import { measureLufs, computeLufsNormGain, LUFS_TARGETS } from '../utils/lufs'
 
+/** Safely coerce plugin param (string | number) → number */
+const pn = (v: string | number | undefined, fallback = 0): number =>
+  typeof v === 'number' ? v : parseFloat(v as string) || fallback
+
 export interface ExportOptions {
   /** 'project' = 0 to end of last clip; 'loop' = loopStart to loopEnd */
   range: 'project' | 'loop'
@@ -203,24 +207,24 @@ export function useExport(audioBuffersRef: React.MutableRefObject<Map<string, Au
         const eqPlugin = track.plugins.find(p => p.type === 'eq' && p.enabled)
         const lowShelf = offCtx.createBiquadFilter()
         lowShelf.type = 'lowshelf'; lowShelf.frequency.value = 320
-        lowShelf.gain.value = eqPlugin?.params.low ?? 0
+        lowShelf.gain.value = pn(eqPlugin?.params.low, 0)
 
         const midPeak = offCtx.createBiquadFilter()
         midPeak.type = 'peaking'; midPeak.frequency.value = 1000; midPeak.Q.value = 0.5
-        midPeak.gain.value = eqPlugin?.params.mid ?? 0
+        midPeak.gain.value = pn(eqPlugin?.params.mid, 0)
 
         const highShelf = offCtx.createBiquadFilter()
         highShelf.type = 'highshelf'; highShelf.frequency.value = 3200
-        highShelf.gain.value = eqPlugin?.params.high ?? 0
+        highShelf.gain.value = pn(eqPlugin?.params.high, 0)
 
         // Compressor
         const compPlugin = track.plugins.find(p => p.type === 'compressor' && p.enabled)
         const comp = offCtx.createDynamicsCompressor()
-        comp.threshold.value = compPlugin?.params.threshold ?? -24
+        comp.threshold.value = pn(compPlugin?.params.threshold, -24)
         comp.knee.value      = 30
-        comp.ratio.value     = compPlugin?.params.ratio   ?? 4
-        comp.attack.value    = compPlugin?.params.attack  ?? 0.003
-        comp.release.value   = compPlugin?.params.release ?? 0.25
+        comp.ratio.value     = pn(compPlugin?.params.ratio, 4)
+        comp.attack.value    = pn(compPlugin?.params.attack, 0.003)
+        comp.release.value   = pn(compPlugin?.params.release, 0.25)
 
         // Chain: trackGain → lowShelf → midPeak → highShelf → comp → panner → masterGain
         trackGain.connect(lowShelf)
@@ -409,13 +413,13 @@ export function useExport(audioBuffersRef: React.MutableRefObject<Map<string, Au
       const eqPlugin = track.plugins.find(p => p.type === 'eq' && p.enabled)
       const lowShelf = offCtx.createBiquadFilter()
       lowShelf.type = 'lowshelf'; lowShelf.frequency.value = 320
-      lowShelf.gain.value = eqPlugin?.params.low ?? 0
+      lowShelf.gain.value = pn(eqPlugin?.params.low, 0)
       const midPeak = offCtx.createBiquadFilter()
       midPeak.type = 'peaking'; midPeak.frequency.value = 1000; midPeak.Q.value = 0.5
-      midPeak.gain.value = eqPlugin?.params.mid ?? 0
+      midPeak.gain.value = pn(eqPlugin?.params.mid, 0)
       const highShelf = offCtx.createBiquadFilter()
       highShelf.type = 'highshelf'; highShelf.frequency.value = 3200
-      highShelf.gain.value = eqPlugin?.params.high ?? 0
+      highShelf.gain.value = pn(eqPlugin?.params.high, 0)
 
       trackGain.connect(lowShelf)
       lowShelf.connect(midPeak)

@@ -210,12 +210,22 @@ export class WavetableSynth {
   }
   
   /**
+   * Stop all active voices immediately (MIDI panic)
+   */
+  allNotesOff() {
+    this.voices.forEach(voice => {
+      try { voice.disconnect() } catch {}
+    })
+    this.voices = []
+  }
+
+  /**
    * Disconnect
    */
   disconnect() {
-    this.voices.forEach(voice => voice.disconnect())
+    this.allNotesOff()
     this.output.disconnect()
-    this.lfo.stop()
+    try { this.lfo.stop() } catch {}
   }
 }
 
@@ -245,7 +255,7 @@ class WavetableVoice {
     
     // Create buffer from waveform
     const buffer = this.context.createBuffer(1, waveform.length, this.context.sampleRate)
-    buffer.copyToChannel(waveform, 0)
+    buffer.copyToChannel(waveform as Float32Array<ArrayBuffer>, 0)
     
     // Create buffer source
     this.bufferSource = this.context.createBufferSource()

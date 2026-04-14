@@ -18,6 +18,7 @@ const DX7SynthUI = React.lazy(() => import('./plugins/DX7SynthUI').then(m => ({ 
 const SFZSamplerUI = React.lazy(() => import('./plugins/SFZSamplerUI').then(m => ({ default: m.SFZSamplerUI })))
 const WavetableSynthUI = React.lazy(() => import('./instruments/WavetableSynthUI').then(m => ({ default: m.WavetableSynthUI })))
 const GranularSynthUI = React.lazy(() => import('./instruments/GranularSynthUI').then(m => ({ default: m.GranularSynthUI })))
+const FMSynthUI = React.lazy(() => import('./instruments/FMSynthUI').then(m => ({ default: m.FMSynthUI })))
 
 // Professional Knob Component
 function ProfessionalKnob({ 
@@ -635,6 +636,14 @@ export function PluginUIRenderer({ plugin, trackId, onUpdateParams }: PluginUIRe
           plugin={plugin} 
           onParamChange={(pluginId, key, value) => onUpdateParams({ [key]: value })}
         />
+      </React.Suspense>
+    )
+  }
+
+  if (plugin.type === 'fs_fm') {
+    return (
+      <React.Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#fff' }}>Loading FM Synth...</div>}>
+        <FMSynthUI params={plugin.params} onUpdate={onUpdateParams} />
       </React.Suspense>
     )
   }

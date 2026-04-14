@@ -143,6 +143,7 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport
     setZoom, zoom, countIn, snapEnabled, snapValue,
     setSnapEnabled, setSnapValue, inspectorOpen, setInspectorOpen,
     tracks, activeTool, setActiveTool,
+    showGlobalTracks, setShowGlobalTracks,
   } = useProjectStore()
 
   const bpmRef = useRef<HTMLInputElement>(null)
@@ -344,6 +345,16 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport
       </div>
 
       <div className="toolbar-sep" />
+
+      {/* Global Tracks */}
+      <button
+        className={`tbt ${showGlobalTracks ? 'active' : ''}`}
+        onClick={() => setShowGlobalTracks(!showGlobalTracks)}
+        title="Global tracks — Tempo / Key / Time Signature (G)"
+        style={{ color: showGlobalTracks ? '#f59e0b' : undefined, borderColor: showGlobalTracks ? '#f59e0b' : undefined, fontSize: 10, padding: '2px 6px' }}
+      >
+        ♩ GLOBAL
+      </button>
 
       {/* Snap */}
       <div className="snap-wrap">

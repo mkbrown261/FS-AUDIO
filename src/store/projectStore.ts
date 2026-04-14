@@ -15,7 +15,7 @@ export interface Plugin {
     // Flowstate Pro Suite
     | 'fs_proq' | 'fs_resonance' | 'fs_vintage_verb' | 'fs_echo' | 'fs_tuner'
     | 'fs_mastering' | 'fs_spacer' | 'fs_peak_limiter' | 'fs_alter' | 'fs_glitch'
-    | 'fs_wavetable' | 'fs_multiband_comp' | 'fs_tape_delay' | 'fs_vocal_enhance' | 'fs_dimension'
+    | 'fs_wavetable' | 'fs_fm' | 'fs_multiband_comp' | 'fs_tape_delay' | 'fs_vocal_enhance' | 'fs_dimension'
     // AI Plugin Suite
     | 'fs_oracle' | 'fs_clone' | 'fs_architect' | 'fs_phantom' | 'fs_nerve' | 'fs_bpmfinder'
     // Experimental AI Suite
@@ -139,6 +139,27 @@ export interface Marker {
   color: string       // hex color — defaults to accent purple
 }
 
+// Global track automation points for tempo / key / time-sig
+export interface TempoPoint {
+  id: string
+  beat: number
+  bpm: number
+}
+
+export interface KeyChange {
+  id: string
+  beat: number
+  key: string       // e.g. "C", "F#"
+  scale: string     // e.g. "Major", "Natural Minor"
+}
+
+export interface SigChange {
+  id: string
+  beat: number
+  numerator: number
+  denominator: number
+}
+
 // Tool modes — matching Logic Pro's toolbox
 export type EditTool = 'pointer' | 'scissors' | 'glue' | 'fade' | 'zoom' | 'mute' | 'marquee' | 'pencil'
 
@@ -188,6 +209,12 @@ export interface ProjectState {
 
   // Arrangement Markers
   markers: Marker[]
+
+  // Global Tracks — Tempo Map, Key Changes, Time Sig Changes
+  tempoMap: TempoPoint[]
+  keyChanges: KeyChange[]
+  sigChanges: SigChange[]
+  showGlobalTracks: boolean
 
   // AI
   clawbotEnabled: boolean
@@ -372,6 +399,16 @@ interface Actions {
   updateMarker: (id: string, patch: Partial<Omit<Marker, 'id'>>) => void
   removeMarker: (id: string) => void
   clearMarkers: () => void
+
+  // Global Tracks
+  setShowGlobalTracks: (v: boolean) => void
+  addTempoPoint: (beat: number, bpm: number) => void
+  updateTempoPoint: (id: string, patch: Partial<Omit<TempoPoint, 'id'>>) => void
+  removeTempoPoint: (id: string) => void
+  addKeyChange: (beat: number, key: string, scale: string) => void
+  removeKeyChange: (id: string) => void
+  addSigChange: (beat: number, numerator: number, denominator: number) => void
+  removeSigChange: (id: string) => void
 }
 
 export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
@@ -412,6 +449,10 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
   tracks: defaultTracks(),
   automationLanes: [],
   markers: [],
+  tempoMap: [],
+  keyChanges: [],
+  sigChanges: [],
+  showGlobalTracks: false,
 
   clawbotEnabled: true,
   aiLevel: 50,
@@ -984,6 +1025,9 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
       metronomeVolume: st.metronomeVolume,
       zoom: st.zoom,
       markers: st.markers,
+      tempoMap: st.tempoMap,
+      keyChanges: st.keyChanges,
+      sigChanges: st.sigChanges,
       automationLanes: st.automationLanes,
       tracks: st.tracks.map(t => ({
         ...t,
@@ -1183,4 +1227,38 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
   })),
 
   clearMarkers: () => set({ markers: [], isDirty: true }),
+
+  // ── Global Tracks ──────────────────────────────────────────────────────────
+  setShowGlobalTracks: (v) => set({ showGlobalTracks: v }),
+
+  addTempoPoint: (beat, bpm) => set(st => ({
+    tempoMap: [...st.tempoMap, { id: `tp-${Date.now()}`, beat, bpm }].sort((a, b) => a.beat - b.beat),
+    isDirty: true,
+  })),
+  updateTempoPoint: (id, patch) => set(st => ({
+    tempoMap: st.tempoMap.map(p => p.id === id ? { ...p, ...patch } : p).sort((a, b) => a.beat - b.beat),
+    isDirty: true,
+  })),
+  removeTempoPoint: (id) => set(st => ({
+    tempoMap: st.tempoMap.filter(p => p.id !== id),
+    isDirty: true,
+  })),
+
+  addKeyChange: (beat, key, scale) => set(st => ({
+    keyChanges: [...st.keyChanges, { id: `kc-${Date.now()}`, beat, key, scale }].sort((a, b) => a.beat - b.beat),
+    isDirty: true,
+  })),
+  removeKeyChange: (id) => set(st => ({
+    keyChanges: st.keyChanges.filter(k => k.id !== id),
+    isDirty: true,
+  })),
+
+  addSigChange: (beat, numerator, denominator) => set(st => ({
+    sigChanges: [...st.sigChanges, { id: `sc-${Date.now()}`, beat, numerator, denominator }].sort((a, b) => a.beat - b.beat),
+    isDirty: true,
+  })),
+  removeSigChange: (id) => set(st => ({
+    sigChanges: st.sigChanges.filter(s => s.id !== id),
+    isDirty: true,
+  })),
 }))
