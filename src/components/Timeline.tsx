@@ -846,6 +846,137 @@ function MarkerBar({
   )
 }
 
+// ── Song Overview Minimap ─────────────────────────────────────────────────────
+// A compact overview bar showing all clips as tiny colored blocks with a
+// draggable viewport window that scrolls the main timeline.
+function SongOverview({
+  tracks, totalBeats, currentBeat, loopStart, loopEnd, isLooping,
+  scrollLeft, viewportWidth, pixelsPerBeat, onScrollTo,
+}: {
+  tracks: import('../store/projectStore').Track[]
+  totalBeats: number
+  currentBeat: number
+  loopStart: number
+  loopEnd: number
+  isLooping: boolean
+  scrollLeft: number
+  viewportWidth: number
+  pixelsPerBeat: number
+  onScrollTo: (px: number) => void
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const HEIGHT = 36
+  const INNER_H = 24 // clip bar height
+
+  // compute scale: overview px per beat
+  const scale = containerRef.current ? containerRef.current.clientWidth / Math.max(1, totalBeats) : 1
+
+  // viewport window dims in overview coords
+  const vwLeft  = scrollLeft * scale / pixelsPerBeat
+  const vwWidth = viewportWidth * scale / pixelsPerBeat
+
+  function handleOverviewClick(e: React.MouseEvent) {
+    if (!containerRef.current) return
+    const rect = containerRef.current.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const clickBeat = x / scale
+    // Center viewport on click
+    const newScrollPx = (clickBeat - (viewportWidth / pixelsPerBeat) / 2) * pixelsPerBeat
+    onScrollTo(Math.max(0, newScrollPx))
+  }
+
+  function handleVpDrag(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (!containerRef.current) return
+    const rect = containerRef.current.getBoundingClientRect()
+    const startX = e.clientX
+    const startScroll = scrollLeft
+    const mv = (me: MouseEvent) => {
+      const dx = me.clientX - startX
+      const beatDelta = dx / scale
+      onScrollTo(Math.max(0, startScroll + beatDelta * pixelsPerBeat))
+    }
+    const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up) }
+    window.addEventListener('mousemove', mv)
+    window.addEventListener('mouseup', up)
+  }
+
+  // Flatten all clips with their track color
+  const allClips = tracks.flatMap(t => t.clips.map(c => ({ ...c, color: t.color, muted: c.muted || t.muted })))
+
+  // Track rows: assign each track a row in the minimap
+  const trackCount = Math.max(1, tracks.length)
+  const rowH = Math.max(3, Math.floor(INNER_H / trackCount))
+
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        position: 'relative', height: HEIGHT, background: 'rgba(0,0,0,0.35)',
+        borderBottom: '1px solid rgba(255,255,255,0.06)', cursor: 'crosshair',
+        flexShrink: 0, overflow: 'hidden', userSelect: 'none',
+      }}
+      onClick={handleOverviewClick}
+      title="Song overview — click or drag to scroll"
+    >
+      {/* Loop region */}
+      {isLooping && (
+        <div style={{
+          position: 'absolute', top: 0, bottom: 0,
+          left: loopStart * scale, width: Math.max(1, (loopEnd - loopStart) * scale),
+          background: 'rgba(6,182,212,0.15)', pointerEvents: 'none',
+        }} />
+      )}
+
+      {/* Clip blocks — one row per track */}
+      {tracks.map((track, tIdx) => {
+        const top = 6 + tIdx * rowH
+        return track.clips.map(clip => {
+          const left = clip.startBeat * scale
+          const width = Math.max(2, clip.durationBeats * scale)
+          return (
+            <div key={clip.id} style={{
+              position: 'absolute', left, top,
+              width, height: Math.max(2, rowH - 1),
+              background: clip.muted || track.muted ? '#4b5563' : track.color,
+              opacity: clip.muted || track.muted ? 0.3 : 0.7,
+              borderRadius: 1, pointerEvents: 'none',
+            }} />
+          )
+        })
+      })}
+
+      {/* Playhead line */}
+      <div style={{
+        position: 'absolute', top: 0, bottom: 0,
+        left: currentBeat * scale, width: 1,
+        background: '#ef4444', pointerEvents: 'none', opacity: 0.9,
+      }} />
+
+      {/* Viewport window */}
+      <div
+        style={{
+          position: 'absolute', top: 0, bottom: 0,
+          left: Math.max(0, vwLeft), width: Math.max(4, vwWidth),
+          background: 'rgba(255,255,255,0.06)',
+          border: '1px solid rgba(255,255,255,0.25)',
+          borderRadius: 2, cursor: 'ew-resize', zIndex: 2,
+          boxSizing: 'border-box',
+        }}
+        onMouseDown={handleVpDrag}
+        onClick={e => e.stopPropagation()}
+      />
+
+      {/* Label */}
+      <div style={{
+        position: 'absolute', right: 4, bottom: 2,
+        fontSize: 8, color: 'rgba(255,255,255,0.2)',
+        pointerEvents: 'none', fontFamily: 'monospace', letterSpacing: 1,
+      }}>OVERVIEW</div>
+    </div>
+  )
+}
+
 // ── Main Timeline ─────────────────────────────────────────────────────────────
 export function Timeline({
   playheadX, onScrub, onImportAudio, onDropCreateTrack, recordingMicLevel = 0,
@@ -876,6 +1007,7 @@ export function Timeline({
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null)
   const [lassoBox, setLassoBox] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null)
   const recordStartBeatRef = useRef(0)
+  const [viewportWidth, setViewportWidth] = useState(800)
   const userScrollingRef = useRef(false)
   const scrollTimeoutRef = useRef<number>()
   useEffect(() => {
@@ -903,6 +1035,16 @@ export function Timeline({
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current)
     }
   }, [setScrollLeft])
+
+  // Track viewport width for minimap
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setViewportWidth(el.clientWidth))
+    ro.observe(el)
+    setViewportWidth(el.clientWidth)
+    return () => ro.disconnect()
+  }, [])
 
   // Auto-scroll playhead into view ONLY when it goes out of frame
   useEffect(() => {
@@ -1114,6 +1256,24 @@ export function Timeline({
   }
 
   return (
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minHeight: 0 }}>
+
+    {/* ── Song Overview Minimap ── */}
+    <SongOverview
+      tracks={tracks}
+      totalBeats={totalBeats}
+      currentBeat={currentBeat}
+      loopStart={loopStart}
+      loopEnd={loopEnd}
+      isLooping={isLooping}
+      scrollLeft={scrollLeft}
+      viewportWidth={viewportWidth}
+      pixelsPerBeat={pixelsPerBeat}
+      onScrollTo={px => {
+        if (scrollRef.current) scrollRef.current.scrollLeft = px
+      }}
+    />
+
     <div
       ref={scrollRef}
       className="timeline"
@@ -1427,6 +1587,7 @@ export function Timeline({
       {ctxMenu && (
         <ContextMenu x={ctxMenu.x} y={ctxMenu.y} items={ctxMenu.items} onClose={() => setCtxMenu(null)} />
       )}
+    </div>
     </div>
   )
 }

@@ -1,27 +1,90 @@
-import React, { useRef, useState, useCallback } from 'react'
+import React, { useRef, useState, useCallback, useEffect } from 'react'
 import { useProjectStore, Track } from '../store/projectStore'
 import { PluginRack, PLUGIN_DEFAULTS } from './plugins/BuiltInPlugins'
 import { MidiOutputPanel } from './MidiOutputPanel'
 import { AutomationLaneView, AddAutomationLaneButton, AUTOMATION_PARAMS } from './AutomationLaneView'
 
-// ── VU Meter ──────────────────────────────────────────────────────────────────
+// ── VU Meter with Peak Hold ───────────────────────────────────────────────────
 const VU_SEGS = 20
+const PEAK_HOLD_MS = 2500   // how long peak hold lingers
+const PEAK_FALL_MS = 800    // how long it takes to fall after hold
+
 function VuMeter({ level }: { level: number }) {
   const db = level > 0.001 ? 20 * Math.log10(level) : -60
   // -60dB = 0 segs, 0dB = 20 segs
   const lit = Math.max(0, Math.round(((db + 60) / 60) * VU_SEGS))
+
+  // Peak hold state
+  const peakDbRef = useRef(-60)
+  const peakTimeRef = useRef(0)
+  const [peakSeg, setPeakSeg] = useState(-1)
+  const rafRef = useRef(0)
+
+  useEffect(() => {
+    const now = performance.now()
+    if (db > peakDbRef.current) {
+      peakDbRef.current = db
+      peakTimeRef.current = now
+    }
+
+    const animate = (t: number) => {
+      const elapsed = t - peakTimeRef.current
+      if (elapsed > PEAK_HOLD_MS + PEAK_FALL_MS) {
+        peakDbRef.current = -60
+      } else if (elapsed > PEAK_HOLD_MS) {
+        // linear fall
+        const progress = (elapsed - PEAK_HOLD_MS) / PEAK_FALL_MS
+        peakDbRef.current -= progress * 2
+      }
+      const seg = Math.max(0, Math.round(((peakDbRef.current + 60) / 60) * VU_SEGS)) - 1
+      setPeakSeg(seg)
+      rafRef.current = requestAnimationFrame(animate)
+    }
+    rafRef.current = requestAnimationFrame(animate)
+    return () => cancelAnimationFrame(rafRef.current)
+  }, [db])
+
+  // Clip LED — lights red if level is clipping (>= 0 dBFS)
+  const isClipping = db >= -0.5
+
   return (
-    <div className="vu-meter">
+    <div className="vu-meter" style={{ position: 'relative' }}>
+      {/* Clip LED */}
+      <div
+        style={{
+          width: 6, height: 6, borderRadius: '50%',
+          background: isClipping ? '#ef4444' : 'rgba(255,255,255,0.08)',
+          boxShadow: isClipping ? '0 0 6px #ef4444' : 'none',
+          margin: '0 auto 2px',
+          transition: 'background 0.1s, box-shadow 0.1s',
+        }}
+        title={isClipping ? 'CLIPPING!' : 'No clip'}
+      />
       {Array.from({ length: VU_SEGS }, (_, i) => {
         const segIdx = VU_SEGS - 1 - i // top = 19 (0dB), bottom = 0 (-60dB)
         const isLit = segIdx < lit
+        const isPeak = segIdx === peakSeg
         let color = 'rgba(255,255,255,0.06)'
         if (isLit) {
-          if (segIdx >= 17) color = '#ef4444'       // top 3 = red (0 to -6dB)
-          else if (segIdx >= 14) color = '#f59e0b'  // next 3 = yellow (-6 to -12dB)
-          else color = '#10b981'                     // rest = green
+          if (segIdx >= 17) color = '#ef4444'
+          else if (segIdx >= 14) color = '#f59e0b'
+          else color = '#10b981'
+        } else if (isPeak && peakSeg >= 0) {
+          // Peak hold indicator — same color band but brighter
+          if (segIdx >= 17) color = '#ff6b6b'
+          else if (segIdx >= 14) color = '#fbbf24'
+          else color = '#34d399'
         }
-        return <div key={i} className="vu-seg" style={{ background: color }} />
+        return (
+          <div
+            key={i}
+            className="vu-seg"
+            style={{
+              background: color,
+              boxShadow: isPeak && peakSeg >= 0 ? `0 0 3px ${color}` : undefined,
+            }}
+          />
+        )
       })}
     </div>
   )

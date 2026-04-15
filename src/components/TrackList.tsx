@@ -1,9 +1,14 @@
-import React, { useRef, useCallback, useState } from 'react'
+import React, { useRef, useCallback, useState, useEffect } from 'react'
 import { useProjectStore, Track } from '../store/projectStore'
 import { AddAutomationLaneButton } from './AutomationLaneView'
 import { ParameterSlider } from './ParameterSlider'
 
-const COLORS = ['#a855f7','#ec4899','#3b82f6','#10b981','#f59e0b','#06b6d4','#ef4444','#8b5cf6','#14b8a6','#f97316','#84cc16','#e879f9']
+const COLORS = [
+  '#a855f7','#ec4899','#3b82f6','#10b981','#f59e0b','#06b6d4',
+  '#ef4444','#8b5cf6','#14b8a6','#f97316','#84cc16','#e879f9',
+  '#6366f1','#0ea5e9','#22c55e','#facc15','#fb923c','#f43f5e',
+  '#7c3aed','#0891b2','#15803d','#b45309','#9f1239','#1d4ed8',
+]
 
 function volToDb(v: number): string {
   if (v <= 0.001) return '-∞'
@@ -93,6 +98,7 @@ function TrackHeader({
   const nameRef = useRef<HTMLInputElement>(null)
   const isMaster = track.type === 'master'
   const isSelected = selectedTrackId === track.id
+  const [showColorPicker, setShowColorPicker] = useState(false)
 
   // Visual drag feedback
   const isDragging = dragState?.dragIdx === idx
@@ -100,10 +106,13 @@ function TrackHeader({
   const dropAbove = isDropTarget && dragState!.overIdx < dragState!.dragIdx
   const dropBelow = isDropTarget && dragState!.overIdx > dragState!.dragIdx
 
-  function cycleColor() {
-    const cidx = COLORS.indexOf(track.color)
-    updateTrack(track.id, { color: COLORS[(cidx + 1) % COLORS.length] })
-  }
+  // Close color picker on outside click
+  useEffect(() => {
+    if (!showColorPicker) return
+    const close = () => setShowColorPicker(false)
+    setTimeout(() => window.addEventListener('mousedown', close), 0)
+    return () => window.removeEventListener('mousedown', close)
+  }, [showColorPicker])
 
   const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -143,7 +152,52 @@ function TrackHeader({
           </div>
         )}
 
-        <div className="track-color-dot" style={{ background: track.color }} onClick={e => { e.stopPropagation(); cycleColor() }} title="Click to change color" />
+        {/* Color picker dot + popup palette */}
+        <div style={{ position: 'relative' }}>
+          <div
+            className="track-color-dot"
+            style={{ background: track.color }}
+            onClick={e => { e.stopPropagation(); setShowColorPicker(p => !p) }}
+            title="Click to change track color"
+          />
+          {showColorPicker && (
+            <div
+              style={{
+                position: 'absolute', top: '100%', left: 0, zIndex: 500,
+                background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.15)',
+                borderRadius: 8, padding: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.7)',
+                display: 'grid', gridTemplateColumns: 'repeat(6, 18px)', gap: 4,
+              }}
+              onMouseDown={e => e.stopPropagation()}
+            >
+              {COLORS.map(c => (
+                <div
+                  key={c}
+                  onClick={e => { e.stopPropagation(); updateTrack(track.id, { color: c }); setShowColorPicker(false) }}
+                  style={{
+                    width: 18, height: 18, borderRadius: 4, background: c, cursor: 'pointer',
+                    border: track.color === c ? '2px solid #fff' : '2px solid transparent',
+                    boxSizing: 'border-box', transition: 'transform 0.1s',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.transform = 'scale(1.25)')}
+                  onMouseLeave={e => (e.currentTarget.style.transform = 'scale(1)')}
+                  title={c}
+                />
+              ))}
+              {/* Custom hex input */}
+              <div style={{ gridColumn: '1/-1', marginTop: 4, display: 'flex', gap: 4 }}>
+                <input
+                  type="color"
+                  defaultValue={track.color}
+                  style={{ width: 28, height: 20, border: 'none', borderRadius: 3, cursor: 'pointer', padding: 0, background: 'none' }}
+                  onChange={e => updateTrack(track.id, { color: e.target.value })}
+                  title="Custom color"
+                />
+                <span style={{ fontSize: 9, color: '#64748b', alignSelf: 'center' }}>custom</span>
+              </div>
+            </div>
+          )}
+        </div>
         <span className="track-type-badge"><TrackTypeIcon type={track.type} /> {track.type.toUpperCase()}</span>
         <input
           ref={nameRef}

@@ -77,6 +77,44 @@ interface PianoRollProps {
   onPlayNote?: (pitch: number) => void
 }
 
+// ── Chord Suggestor data ──────────────────────────────────────────────────────
+// Each entry: { name, label, intervals (semitones relative to root), octave offset }
+interface ChordDef { name: string; intervals: number[]; octave?: number }
+const CHORD_SUGGESTIONS: { category: string; color: string; chords: ChordDef[] }[] = [
+  { category: 'Triads', color: '#a855f7', chords: [
+    { name: 'Maj',   intervals: [0,4,7] },
+    { name: 'Min',   intervals: [0,3,7] },
+    { name: 'Aug',   intervals: [0,4,8] },
+    { name: 'Dim',   intervals: [0,3,6] },
+    { name: 'Sus2',  intervals: [0,2,7] },
+    { name: 'Sus4',  intervals: [0,5,7] },
+  ]},
+  { category: '7ths', color: '#06b6d4', chords: [
+    { name: 'Maj7',  intervals: [0,4,7,11] },
+    { name: 'Min7',  intervals: [0,3,7,10] },
+    { name: 'Dom7',  intervals: [0,4,7,10] },
+    { name: 'Dim7',  intervals: [0,3,6,9] },
+    { name: 'm7♭5',  intervals: [0,3,6,10] },
+    { name: 'MinMaj7',intervals:[0,3,7,11] },
+  ]},
+  { category: '9ths', color: '#10b981', chords: [
+    { name: 'Maj9',  intervals: [0,4,7,11,14] },
+    { name: 'Min9',  intervals: [0,3,7,10,14] },
+    { name: 'Dom9',  intervals: [0,4,7,10,14] },
+    { name: 'Add9',  intervals: [0,4,7,14] },
+    { name: 'mAdd9', intervals: [0,3,7,14] },
+    { name: '6/9',   intervals: [0,4,7,9,14] },
+  ]},
+  { category: 'Spread', color: '#f59e0b', chords: [
+    { name: 'Pow5',  intervals: [0,7,12] },
+    { name: 'Oct',   intervals: [0,12] },
+    { name: 'Shell7',intervals: [0,7,10] },
+    { name: 'Shell9',intervals: [0,7,14] },
+    { name: '1-3-5-9',intervals:[0,4,7,14] },
+    { name: '1-5-9', intervals: [0,7,14] },
+  ]},
+]
+
 export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
   const { tracks, updateClip, updateClipCCLane } = useProjectStore()
   const [ppb, setPpb] = useState(BASE_PPB)
@@ -87,6 +125,14 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
   const [saveFlash, setSaveFlash] = useState(false)
   const [cursorBeat, setCursorBeat] = useState<number | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  // ── Chord Suggestor state ──────────────────────────────────────────────────
+  const [showChords, setShowChords] = useState(false)
+  const [chordRoot, setChordRoot] = useState(60)       // MIDI pitch of root (default C4)
+  const [chordInsertBeat, setChordInsertBeat] = useState(0)
+  const [chordVelocity, setChordVelocity] = useState(80)
+  const [chordDuration, setChordDuration] = useState(1) // beats
+  const [chordStagger, setChordStagger] = useState(0)   // seconds stagger between notes (0=block)
 
   // ── Scale Lock state ───────────────────────────────────────────────────────
   const [scaleLock, setScaleLock] = useState(false)
@@ -363,6 +409,23 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
     updateClip(clip.id, { midiNotes: newNotes })
   }, [clip, notes, selectedNotes, quantize, txTranspose, txVelScale, txVelOffset, updateClip])
 
+  // ── Insert Chord from Suggestor ───────────────────────────────────────────
+  const insertChord = useCallback((intervals: number[]) => {
+    if (!clip) return
+    const st = useProjectStore.getState()
+    const bps = st.bpm / 60
+    const staggerBeats = chordStagger * bps  // convert sec → beats
+    const newNotes: MidiNote[] = intervals.map((semi, i) => ({
+      id: `n-chord-${Date.now()}-${i}`,
+      pitch: Math.max(0, Math.min(127, chordRoot + semi)),
+      velocity: chordVelocity,
+      startBeat: chordInsertBeat + i * staggerBeats,
+      durationBeats: chordDuration,
+    }))
+    updateClip(clip.id, { midiNotes: [...notes, ...newNotes] })
+    setSelectedNotes(new Set(newNotes.map(n => n.id)))
+  }, [clip, notes, chordRoot, chordInsertBeat, chordVelocity, chordDuration, chordStagger, updateClip])
+
   // ── Grid click ────────────────────────────────────────────────────────────
   const handleGridClick = useCallback((e: React.MouseEvent<HTMLDivElement>, pitchOverride?: number) => {
     if (tool !== 'draw' || !clip) return
@@ -613,6 +676,118 @@ export function PianoRoll({ clipId, onPlayNote }: PianoRollProps) {
               {Object.keys(SCALES).map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </>)}
+        </div>
+
+        {/* ── Chord Suggestor ── */}
+        <div style={{ position: 'relative' }}>
+          <button
+            className={`tbt ${showChords ? 'active' : ''}`}
+            title="Chord Suggestor — click to insert chords at playhead/cursor"
+            onClick={() => setShowChords(c => !c)}
+            style={{ fontSize: 10, padding: '2px 6px', color: showChords ? '#a855f7' : undefined, borderColor: showChords ? '#a855f7' : undefined }}
+          >♟ CHORDS</button>
+
+          {showChords && (
+            <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 300, background: '#12122a', border: '1px solid rgba(168,85,247,0.3)', borderRadius: 10, padding: 12, minWidth: 320, boxShadow: '0 12px 32px rgba(0,0,0,0.7)' }}
+              onClick={e => e.stopPropagation()}>
+
+              {/* Header */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#e2e8f0' }}>♟ Chord Suggestor</span>
+                <button className="tbt" style={{ fontSize: 10, padding: '1px 6px' }} onClick={() => setShowChords(false)}>✕</button>
+              </div>
+
+              {/* Controls row */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+                {/* Root note */}
+                <div>
+                  <div style={{ fontSize: 9, color: '#64748b', marginBottom: 3 }}>Root note</div>
+                  <select
+                    className="key-select" style={{ width: '100%', fontSize: 10 }}
+                    value={chordRoot}
+                    onChange={e => setChordRoot(Number(e.target.value))}
+                  >
+                    {Array.from({ length: 3 }, (_, oct) =>
+                      KEY_ROOTS.map((k, i) => {
+                        const pitch = (oct + 3) * 12 + i
+                        return <option key={pitch} value={pitch}>{k}{oct + 3}</option>
+                      })
+                    )}
+                  </select>
+                </div>
+                {/* Insert beat */}
+                <div>
+                  <div style={{ fontSize: 9, color: '#64748b', marginBottom: 3 }}>Insert at beat</div>
+                  <input type="number" min={0} step={0.25}
+                    style={{ width: '100%', fontSize: 10, background: '#1e1e3a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4, color: '#e2e8f0', padding: '3px 6px' }}
+                    value={chordInsertBeat}
+                    onChange={e => setChordInsertBeat(Number(e.target.value))}
+                  />
+                </div>
+                {/* Duration */}
+                <div>
+                  <div style={{ fontSize: 9, color: '#64748b', marginBottom: 3 }}>Duration (beats): {chordDuration}</div>
+                  <input type="range" min={0.25} max={8} step={0.25}
+                    style={{ width: '100%' }}
+                    value={chordDuration}
+                    onChange={e => setChordDuration(Number(e.target.value))}
+                  />
+                </div>
+                {/* Velocity */}
+                <div>
+                  <div style={{ fontSize: 9, color: '#64748b', marginBottom: 3 }}>Velocity: {chordVelocity}</div>
+                  <input type="range" min={1} max={127}
+                    style={{ width: '100%' }}
+                    value={chordVelocity}
+                    onChange={e => setChordVelocity(Number(e.target.value))}
+                  />
+                </div>
+                {/* Stagger */}
+                <div style={{ gridColumn: '1/-1' }}>
+                  <div style={{ fontSize: 9, color: '#64748b', marginBottom: 3 }}>
+                    Stagger: {chordStagger === 0 ? 'Block (simultaneous)' : `${(chordStagger * 1000).toFixed(0)} ms`}
+                  </div>
+                  <input type="range" min={0} max={0.12} step={0.005}
+                    style={{ width: '100%' }}
+                    value={chordStagger}
+                    onChange={e => setChordStagger(Number(e.target.value))}
+                  />
+                </div>
+              </div>
+
+              {/* Set insert beat to cursor button */}
+              {cursorBeat !== null && (
+                <button className="tbt" style={{ fontSize: 9, marginBottom: 8, background: 'rgba(168,85,247,0.15)', borderColor: '#a855f7', color: '#c084fc' }}
+                  onClick={() => setChordInsertBeat(Math.floor(cursorBeat! / quantize) * quantize)}>
+                  ↖ Snap to cursor ({(Math.floor(cursorBeat / quantize) * quantize).toFixed(2)} b)
+                </button>
+              )}
+
+              {/* Chord categories */}
+              {CHORD_SUGGESTIONS.map(cat => (
+                <div key={cat.category} style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 9, color: cat.color, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>{cat.category}</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {cat.chords.map(chord => {
+                      // Build display name with root
+                      const rootName = KEY_ROOTS[chordRoot % 12]
+                      return (
+                        <button key={chord.name}
+                          style={{ fontSize: 10, padding: '3px 8px', borderRadius: 5, background: 'rgba(255,255,255,0.05)', border: `1px solid ${cat.color}55`, color: cat.color, cursor: 'pointer', fontWeight: 600, transition: 'all 0.1s' }}
+                          title={`Insert ${rootName}${chord.name} at beat ${chordInsertBeat}`}
+                          onClick={() => insertChord(chord.intervals)}
+                          onMouseEnter={e => { (e.target as HTMLElement).style.background = cat.color + '22'; (e.target as HTMLElement).style.borderColor = cat.color }}
+                          onMouseLeave={e => { (e.target as HTMLElement).style.background = 'rgba(255,255,255,0.05)'; (e.target as HTMLElement).style.borderColor = cat.color + '55' }}
+                        >
+                          {rootName}{chord.name}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* ── Humanize ── */}
