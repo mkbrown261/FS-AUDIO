@@ -21,6 +21,13 @@ import { useMidiOutput } from './hooks/useMidiOutput'
 import { useMidiInput } from './hooks/useMidiInput'
 import { parseMidiFile, downloadMidiFile } from './utils/midiFile'
 import { NewProjectModal } from './components/NewProjectModal'
+import DrummerPanel from './components/DrummerPanel'
+import StepSequencer from './components/StepSequencer'
+import AudioToMidi from './components/AudioToMidi'
+import CompEditor from './components/CompEditor'
+import SmartControls from './components/SmartControls'
+import ScoreView from './components/ScoreView'
+import LiveLoops from './components/LiveLoops'
 
 const FLOWSTATE_HUB = 'https://flowst8.cc'
 
@@ -70,6 +77,14 @@ export default function App() {
   const [freezingTrackId, setFreezingTrackId] = useState<string | null>(null)
   const [freezeProgress, setFreezeProgress] = useState(0)
   const [toasts, setToasts] = useState<Toast[]>([])
+  // ── New feature panel states ──────────────────────────────────────────────
+  const [showDrummer, setShowDrummer] = useState(false)
+  const [showStepSeq, setShowStepSeq] = useState(false)
+  const [showAudioToMidi, setShowAudioToMidi] = useState(false)
+  const [showCompEditor, setShowCompEditor] = useState(false)
+  const [showSmartControls, setShowSmartControls] = useState(false)
+  const [showScoreView, setShowScoreView] = useState(false)
+  const [showLiveLoops, setShowLiveLoops] = useState(false)
 
   const showToast = useCallback((msg: string, kind: Toast['kind'] = 'info', ms = 3200) => {
     const id = ++_toastId
@@ -1237,6 +1252,23 @@ export default function App() {
           if (meta) { e.preventDefault(); setShowExport(true) }
           break
 
+        // ── New Feature Shortcuts ─────────────────────────────────────────
+        case 'KeyD':
+          if (meta && e.shiftKey) { e.preventDefault(); setShowDrummer(true) }
+          break
+        case 'KeyT':
+          if (meta) { e.preventDefault(); setShowCompEditor(true) }
+          break
+        case 'KeyK':
+          if (meta) { e.preventDefault(); setShowSmartControls(v => !v) }
+          break
+        case 'Slash':
+          if (meta) { e.preventDefault(); setShowScoreView(true) }
+          break
+        case 'KeyL':
+          if (meta) { e.preventDefault(); setShowLiveLoops(true) }
+          break
+
         // ── Audio Preferences ─────────────────────────────────────────────
         case 'Comma':
           if (meta) { e.preventDefault(); setShowAudioPrefs(true) }
@@ -1300,6 +1332,13 @@ export default function App() {
         onOpenAudioPrefs={() => setShowAudioPrefs(true)}
         onImportMidi={file => handleImportMidi(file)}
         onExportMidi={handleExportMidi}
+        onOpenDrummer={() => setShowDrummer(true)}
+        onOpenStepSeq={() => setShowStepSeq(true)}
+        onOpenAudioToMidi={() => setShowAudioToMidi(true)}
+        onOpenCompEditor={() => setShowCompEditor(true)}
+        onOpenSmartControls={() => setShowSmartControls(!showSmartControls)}
+        onOpenScoreView={() => setShowScoreView(true)}
+        onOpenLiveLoops={() => setShowLiveLoops(true)}
       />
 
       <div className="main-area">
@@ -1415,6 +1454,59 @@ export default function App() {
 
       {/* ── Floating plugin windows ── */}
       <PluginWindowManager />
+
+      {/* ── New Feature Panels ────────────────────────────────────────────────── */}
+      <DrummerPanel
+        isOpen={showDrummer}
+        onClose={() => setShowDrummer(false)}
+      />
+
+      <StepSequencer
+        isOpen={showStepSeq}
+        onClose={() => setShowStepSeq(false)}
+        onNoteOn={(pitch, vel) => engine.noteOn(pitch, vel)}
+        onNoteOff={pitch => engine.noteOff(pitch)}
+      />
+
+      <AudioToMidi
+        isOpen={showAudioToMidi}
+        onClose={() => setShowAudioToMidi(false)}
+        getAudioBuffer={url => engine.audioBuffersRef.current.get(url)}
+      />
+
+      <CompEditor
+        isOpen={showCompEditor}
+        onClose={() => setShowCompEditor(false)}
+        clipId={store.selectedClipIds[0] ?? null}
+      />
+
+      <SmartControls
+        isOpen={showSmartControls}
+        onClose={() => setShowSmartControls(false)}
+        onUpdatePlugin={(trackId, pluginId, params) => store.updatePlugin(trackId, pluginId, params)}
+      />
+
+      <ScoreView
+        isOpen={showScoreView}
+        onClose={() => setShowScoreView(false)}
+        clipId={store.activePianoRollClipId ?? store.selectedClipIds[0] ?? null}
+      />
+
+      <LiveLoops
+        isOpen={showLiveLoops}
+        onClose={() => setShowLiveLoops(false)}
+        onPlayClip={(trackId, clip, fromBeat) => {
+          const track = store.tracks.find(t => t.id === trackId)
+          if (!track) return
+          const bpm = store.bpm
+          if (clip.type === 'midi') {
+            engine.scheduleMidiClip(trackId, clip, bpm, fromBeat ?? 0, track.volume ?? 1, Infinity)
+          } else if (clip.audioUrl) {
+            engine.playClip(clip.audioUrl, trackId, clip, bpm, fromBeat ?? 0, track.volume ?? 1, track.pan ?? 0, Infinity)
+          }
+        }}
+        onStopClip={_trackId => engine.stopAll()}
+      />
     </div>
   )
 }

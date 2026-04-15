@@ -12,6 +12,14 @@ interface ToolbarProps {
   onOpenAudioPrefs?: () => void
   onImportMidi?: (file: File) => Promise<void>
   onExportMidi?: () => void
+  // New feature buttons
+  onOpenDrummer?: () => void
+  onOpenStepSeq?: () => void
+  onOpenAudioToMidi?: () => void
+  onOpenCompEditor?: () => void
+  onOpenSmartControls?: () => void
+  onOpenScoreView?: () => void
+  onOpenLiveLoops?: () => void
 }
 
 const KEYS = [
@@ -134,7 +142,7 @@ function secToTime(sec: number): string {
   return `${m}:${String(s).padStart(2,'0')}.${String(ms).padStart(3,'0')}`
 }
 
-export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport, onOpenAudioPrefs, onImportMidi, onExportMidi }: ToolbarProps) {
+export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport, onOpenAudioPrefs, onImportMidi, onExportMidi, onOpenDrummer, onOpenStepSeq, onOpenAudioToMidi, onOpenCompEditor, onOpenSmartControls, onOpenScoreView, onOpenLiveLoops }: ToolbarProps) {
   const {
     bpm, setBpm, key, setKey,
     isPlaying, isRecording, isLooping, metronomeEnabled, metronomeVolume, setMetronomeVolume,
@@ -472,6 +480,47 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport
         </svg>
         <span style={{fontSize:'7px',marginLeft:'1px'}}>MID</span>
       </button>
+
+      {/* ── Separator ── */}
+      <div style={{ width:1, height:20, background:'#2a2a3e', margin:'0 4px', alignSelf:'center' }} />
+
+      {/* Drummer */}
+      <button className="tbt" onClick={onOpenDrummer} title="Drummer — Algorithmic Beat Generator (D)">
+        🥁
+      </button>
+
+      {/* Step Sequencer */}
+      <button className="tbt" onClick={onOpenStepSeq} title="Step Sequencer — 16-64 steps">
+        🎛
+      </button>
+
+      {/* Audio to MIDI */}
+      <button className="tbt" onClick={onOpenAudioToMidi} title="Audio to MIDI — Convert audio clips to MIDI">
+        🎵→🎹
+      </button>
+
+      {/* Comp Editor */}
+      <button className="tbt" onClick={onOpenCompEditor} title="Comp Editor — Build composite from takes (⌘T)">
+        ✂️
+      </button>
+
+      {/* Smart Controls */}
+      <button className="tbt" onClick={onOpenSmartControls} title="Smart Controls — 8 macro knobs (⌘K)">
+        🎚
+      </button>
+
+      {/* Score View */}
+      <button className="tbt" onClick={onOpenScoreView} title="Score View — Notation editor (⌘/)">
+        🎼
+      </button>
+
+      {/* Live Loops */}
+      <button className="tbt" onClick={onOpenLiveLoops} title="Live Loops — Session View (⌘L)">
+        🟢
+      </button>
+
+      {/* ── Separator ── */}
+      <div style={{ width:1, height:20, background:'#2a2a3e', margin:'0 4px', alignSelf:'center' }} />
 
       {/* Audio Preferences */}
       <button

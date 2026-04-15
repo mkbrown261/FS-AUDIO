@@ -38,6 +38,8 @@ export interface Plugin {
     | 'vocal_tuner' | 'parametric_eq8' | 'multiband_comp' | 'deesser' | 'fs_granular'
     // MIDI processors
     | 'arpeggiator' | 'note_repeat' | 'chord_memorizer'
+    // New instruments/generators
+    | 'fs_drummer' | 'fs_step_seq'
   enabled: boolean
   params: Record<string, number | string>  // Allow string for waveform types, etc.
   vstPath?: string
@@ -94,6 +96,7 @@ export interface Take {
   audioUrl: string
   waveformPeaks?: number[]
   gain?: number
+  midiNotes?: MidiNote[]   // MIDI take data
 }
 
 export interface Track {
