@@ -3991,3 +3991,423 @@ html, body, #root {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.55; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   FS-AUDIO — Premium Plugin UI Redesign
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Knob ─────────────────────────────────────────────────────────────────────── */
+.fs-knob-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  cursor: ns-resize;
+  user-select: none;
+  padding: 2px 4px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.fs-knob-wrap:hover { background: rgba(255,255,255,0.04); }
+
+.fs-knob-svg {
+  cursor: ns-resize;
+  user-select: none;
+  transition: filter 0.2s;
+  display: block;
+}
+.fs-knob-svg:hover { filter: brightness(1.2); }
+
+.fs-knob-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: #6b7280;
+  text-align: center;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.fs-knob-value {
+  font-size: 9px;
+  color: #9ca3af;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+
+/* ── Plugin Rack ──────────────────────────────────────────────────────────────── */
+.fs-plugin-rack {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  position: relative;
+}
+
+.fs-plugin-rack-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 10px 5px 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.fs-plugin-rack-title {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #4b5563;
+}
+
+.fs-plugin-rack-add-btn {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgba(168,85,247,0.12);
+  border: 1px solid rgba(168,85,247,0.3);
+  color: #a855f7;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.fs-plugin-rack-add-btn:hover {
+  background: rgba(168,85,247,0.22);
+  border-color: rgba(168,85,247,0.6);
+  color: #c084fc;
+}
+
+.fs-plugin-rack-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.fs-plugin-rack-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 18px 12px;
+  font-size: 10px;
+  color: #374151;
+  text-align: center;
+}
+
+/* ── Plugin Slot ──────────────────────────────────────────────────────────────── */
+.fs-plugin-slot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid transparent;
+  border-radius: 0;
+  overflow: hidden;
+  transition: border-color 0.15s, background 0.15s;
+  background: rgba(10,10,18,0.6);
+}
+
+.fs-plugin-slot:not(:last-child) {
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+.fs-plugin-slot.fs-plugin-expanded {
+  border-radius: 4px;
+  margin: 2px 0;
+}
+
+.fs-plugin-bypassed { opacity: 0.45; }
+.fs-plugin-bypassed .fs-plugin-header { opacity: 0.7; }
+
+.fs-plugin-accent-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  border-radius: 1px 0 0 1px;
+}
+
+.fs-plugin-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 10px;
+  cursor: pointer;
+  transition: background 0.1s;
+  user-select: none;
+}
+.fs-plugin-header:hover { background: rgba(255,255,255,0.025); }
+
+.fs-plugin-num {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  border: 1px solid;
+  flex-shrink: 0;
+}
+
+.fs-plugin-power {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #374151;
+  border: 1px solid rgba(255,255,255,0.08);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.fs-plugin-power:hover { transform: scale(1.2); }
+.fs-plugin-power-on { border-color: transparent; }
+
+.fs-plugin-name {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  flex: 1;
+  transition: color 0.15s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fs-plugin-type-badge {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid;
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+.fs-plugin-arrow {
+  font-size: 8px;
+  flex-shrink: 0;
+  transition: color 0.15s;
+  width: 12px;
+  text-align: center;
+}
+
+.fs-plugin-remove {
+  background: transparent;
+  border: none;
+  color: #374151;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 2px 3px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  line-height: 1;
+  transition: color 0.12s, background 0.12s;
+}
+.fs-plugin-remove:hover { color: #ef4444; background: rgba(239,68,68,0.12); }
+
+.fs-plugin-body {
+  padding: 10px 10px 10px 12px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+  background: rgba(0,0,0,0.2);
+}
+
+/* ── Plugin Editor Layouts ────────────────────────────────────────────────────── */
+.fs-plugin-knobs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: flex-end;
+}
+
+.fs-plugin-editor-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fs-plugin-band-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.fs-plugin-band-divider {
+  width: 1px;
+  background: rgba(255,255,255,0.06);
+  align-self: stretch;
+  margin: 0 4px;
+}
+
+.fs-plugin-band-label {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.fs-plugin-section-title {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 0 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.fs-plugin-band-section {
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 6px 8px;
+  background: rgba(255,255,255,0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fs-plugin-select-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.fs-plugin-select-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: #6b7280;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  min-width: 36px;
+}
+
+.fs-plugin-select {
+  flex: 1;
+  background: rgba(255,255,255,0.05);
+  color: #e5e7eb;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 10px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.fs-plugin-select:focus { border-color: rgba(168,85,247,0.5); }
+
+/* ── Step Buttons (mode selectors) ───────────────────────────────────────────── */
+.fs-step-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.fs-step-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+
+.fs-step-label {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #4b5563;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+.fs-step-btn {
+  padding: 3px 7px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.12s;
+  white-space: nowrap;
+  line-height: 1.5;
+}
+.fs-step-btn:hover {
+  background: rgba(255,255,255,0.08);
+  color: #9ca3af;
+  border-color: rgba(255,255,255,0.15);
+}
+.fs-step-btn.active {
+  background: rgba(168,85,247,0.2);
+  color: #c084fc;
+  border-color: rgba(168,85,247,0.5);
+}
+
+.fs-step-btn-sm {
+  padding: 2px 4px;
+  font-size: 8px;
+  min-width: 22px;
+  text-align: center;
+}
+
+/* ── Mode buttons ────────────────────────────────────────────────────────────── */
+.fs-mode-group {
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+
+.fs-mode-btn {
+  padding: 3px 8px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.12s;
+  line-height: 1.5;
+}
+.fs-mode-btn:hover {
+  background: rgba(255,255,255,0.08);
+  color: #9ca3af;
+}
+.fs-mode-btn.active {
+  background: rgba(168,85,247,0.2);
+  color: #c084fc;
+  border-color: rgba(168,85,247,0.5);
+}
+
+/* ── Plugin Dropdown ─────────────────────────────────────────────────────────── */
+/* Keep existing pdd-* classes for the dropdown, just override some */
+.pdd-overlay {
+  background: #0e0e1a;
+  border: 1px solid rgba(168,85,247,0.2);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(168,85,247,0.08);
+}
+
+.pdd-tab-active {
+  border-bottom: 2px solid;
+}
+
+.pdd-plugin-row:hover {
+  background: rgba(168,85,247,0.06);
+}
+
+/* ── Plugin Dropdown "fs-" redesign overrides ─────────────────────────────────── */

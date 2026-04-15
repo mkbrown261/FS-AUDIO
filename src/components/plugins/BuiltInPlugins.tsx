@@ -45,7 +45,7 @@ const pn = (v: string | number | undefined, def: number): number => {
   return isNaN(n) ? def : n
 }
 
-// ── Knob Component ────────────────────────────────────────────────────────────
+// ── Knob Component — Premium Redesign ────────────────────────────────────────
 interface KnobProps {
   label: string
   value: number
@@ -55,12 +55,14 @@ interface KnobProps {
   unit?: string
   onChange: (v: number) => void
   size?: number
+  color?: string
 }
 
-function Knob({ label, value, min, max, step = 0.01, unit = '', onChange, size = 36 }: KnobProps) {
-  const norm = (value - min) / (max - min)
-  const angle = -135 + norm * 270 // -135° to +135°
-  const cx = size / 2, cy = size / 2, r = size / 2 - 3
+function Knob({ label, value, min, max, step = 0.01, unit = '', onChange, size = 44, color = '#a855f7' }: KnobProps) {
+  const norm = Math.max(0, Math.min(1, (value - min) / (max - min)))
+  const cx = size / 2, cy = size / 2
+  const r = size / 2 - 4
+  const trackR = r - 2
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -69,66 +71,104 @@ function Knob({ label, value, min, max, step = 0.01, unit = '', onChange, size =
     const range = max - min
 
     const move = (me: MouseEvent) => {
-      const dy = startY - me.clientY // drag up = increase
-      const delta = (dy / 120) * range
+      const dy = startY - me.clientY
+      const delta = (dy / 150) * range
       const newVal = Math.max(min, Math.min(max, startVal + delta))
       const snapped = step ? Math.round(newVal / step) * step : newVal
-      onChange(Math.round(snapped * 1000) / 1000)
+      onChange(Math.round(snapped * 10000) / 10000)
     }
-    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
+    const up = () => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+    }
     window.addEventListener('mousemove', move)
     window.addEventListener('mouseup', up)
   }, [value, min, max, step, onChange])
 
-  const rad = (angle * Math.PI) / 180
-  const tickX = cx + r * Math.sin(rad)
-  const tickY = cy - r * Math.cos(rad)
-  const innerX = cx + (r - 6) * Math.sin(rad)
-  const innerY = cy - (r - 6) * Math.cos(rad)
+  // Double-click to reset to midpoint
+  const handleDblClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const mid = min + (max - min) / 2
+    const snapped = step ? Math.round(mid / step) * step : mid
+    onChange(Math.round(snapped * 10000) / 10000)
+  }, [min, max, step, onChange])
 
   const formatVal = (v: number) => {
+    if (Math.abs(v) >= 10000) return `${(v/1000).toFixed(0)}k`
     if (Math.abs(v) >= 1000) return `${(v/1000).toFixed(1)}k`
-    if (Math.abs(v) < 10 && v % 1 !== 0) return v.toFixed(1)
+    if (Math.abs(v) < 10 && v % 1 !== 0) return v.toFixed(2)
+    if (Math.abs(v) < 100 && v % 1 !== 0) return v.toFixed(1)
     return Math.round(v).toString()
   }
 
+  // Arc path
+  const startAngle = -135
+  const endAngle = -135 + norm * 270
+  const trackStart = startAngle
+  const trackEnd = 135
+
   return (
-    <div className="knob-wrap" style={{ width: size + 16 }}>
+    <div className="fs-knob-wrap">
       <svg
         width={size} height={size}
-        className="knob-svg"
+        className="fs-knob-svg"
         onMouseDown={handleMouseDown}
-        style={{ cursor: 'ns-resize', userSelect: 'none' }}
+        onDoubleClick={handleDblClick}
         aria-label={`${label}: ${formatVal(value)}${unit}`}
       >
-        {/* Track arc */}
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth={3} />
-        {/* Value arc */}
+        <defs>
+          <radialGradient id={`kg-${label.replace(/\s/g,'')}`} cx="40%" cy="30%" r="70%">
+            <stop offset="0%" stopColor="rgba(255,255,255,0.15)" />
+            <stop offset="100%" stopColor="rgba(0,0,0,0.4)" />
+          </radialGradient>
+          <filter id={`glow-${label.replace(/\s/g,'')}`}>
+            <feGaussianBlur stdDeviation="1.5" result="blur" />
+            <feComposite in="SourceGraphic" in2="blur" operator="over" />
+          </filter>
+        </defs>
+        {/* Outer groove ring */}
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(0,0,0,0.5)" strokeWidth={5} />
+        {/* Track arc (full range) */}
         <path
-          d={describeArc(cx, cy, r, -135, -135 + norm * 270)}
-          fill="none" stroke="var(--accent)" strokeWidth={3} strokeLinecap="round"
+          d={describeArc(cx, cy, trackR, trackStart, trackEnd)}
+          fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={4} strokeLinecap="round"
         />
-        {/* Dot */}
-        <circle cx={cx} cy={cy} r={r - 8} fill="rgba(255,255,255,0.05)" />
-        {/* Pointer */}
-        <line x1={innerX} y1={innerY} x2={tickX} y2={tickY} stroke="#fff" strokeWidth={2} strokeLinecap="round" />
+        {/* Value arc */}
+        {norm > 0.001 && (
+          <path
+            d={describeArc(cx, cy, trackR, startAngle, endAngle)}
+            fill="none" stroke={color} strokeWidth={4} strokeLinecap="round"
+            style={{ filter: `drop-shadow(0 0 3px ${color}88)` }}
+          />
+        )}
+        {/* Knob body */}
+        <circle cx={cx} cy={cy} r={r - 6} fill={`url(#kg-${label.replace(/\s/g,'')})`} />
+        <circle cx={cx} cy={cy} r={r - 6} fill="rgba(18,18,28,0.92)" />
+        {/* Pointer dot */}
+        {(() => {
+          const rad = (endAngle * Math.PI) / 180
+          const dotX = cx + (r - 12) * Math.sin(rad)
+          const dotY = cy - (r - 12) * Math.cos(rad)
+          return <circle cx={dotX} cy={dotY} r={2} fill={color} style={{ filter: `drop-shadow(0 0 2px ${color})` }} />
+        })()}
+        {/* Center dot */}
+        <circle cx={cx} cy={cy} r={2} fill="rgba(255,255,255,0.12)" />
       </svg>
-      <div style={{ fontSize: 9, color: 'var(--text-m)', textAlign: 'center', lineHeight: 1.2 }}>{label}</div>
-      <div style={{ fontSize: 9, color: 'var(--text-s)', textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
-        {formatVal(value)}{unit}
-      </div>
+      <div className="fs-knob-label">{label}</div>
+      <div className="fs-knob-value">{formatVal(value)}{unit}</div>
     </div>
   )
 }
 
 function describeArc(cx: number, cy: number, r: number, startAngle: number, endAngle: number): string {
+  const clampedEnd = Math.max(startAngle + 0.01, endAngle)
   const startRad = (startAngle * Math.PI) / 180
-  const endRad = (endAngle * Math.PI) / 180
+  const endRad = (clampedEnd * Math.PI) / 180
   const x1 = cx + r * Math.sin(startRad)
   const y1 = cy - r * Math.cos(startRad)
   const x2 = cx + r * Math.sin(endRad)
   const y2 = cy - r * Math.cos(endRad)
-  const large = endAngle - startAngle > 180 ? 1 : 0
+  const large = clampedEnd - startAngle > 180 ? 1 : 0
   return `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`
 }
 
@@ -752,39 +792,56 @@ interface PluginEditorProps {
 function EQEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
   return (
-    <div className="plugin-knobs-row">
-      <Knob label="LO GAIN" value={pn(p.lowGain, 0)} min={-18} max={18} unit=" dB" onChange={v => onChange({ ...p, lowGain: v })} />
-      <Knob label="LO Hz" value={pn(p.lowFreq, 100)} min={20} max={500} step={1} unit=" Hz" onChange={v => onChange({ ...p, lowFreq: v })} />
-      <Knob label="MID GAIN" value={pn(p.midGain, 0)} min={-18} max={18} unit=" dB" onChange={v => onChange({ ...p, midGain: v })} />
-      <Knob label="MID Hz" value={pn(p.midFreq, 1000)} min={200} max={8000} step={10} unit=" Hz" onChange={v => onChange({ ...p, midFreq: v })} />
-      <Knob label="MID Q" value={pn(p.midQ, 1)} min={0.1} max={10} step={0.1} onChange={v => onChange({ ...p, midQ: v })} />
-      <Knob label="HI GAIN" value={pn(p.highGain, 0)} min={-18} max={18} unit=" dB" onChange={v => onChange({ ...p, highGain: v })} />
-      <Knob label="HI Hz" value={pn(p.highFreq, 8000)} min={2000} max={20000} step={100} unit=" Hz" onChange={v => onChange({ ...p, highFreq: v })} />
+    <div style={{ display: 'flex', gap: 4, alignItems: 'stretch' }}>
+      <div className="fs-plugin-band-section" style={{ borderColor: '#60a5fa44', flex: 1 }}>
+        <div className="fs-plugin-band-label" style={{ color: '#60a5fa' }}>LOW</div>
+        <div className="fs-plugin-knobs">
+          <Knob label="GAIN" value={pn(p.lowGain, 0)} min={-18} max={18} unit="dB" color="#60a5fa" onChange={v => onChange({ ...p, lowGain: v })} />
+          <Knob label="FREQ" value={pn(p.lowFreq, 100)} min={20} max={500} step={1} unit="Hz" color="#60a5fa" onChange={v => onChange({ ...p, lowFreq: v })} />
+        </div>
+      </div>
+      <div className="fs-plugin-band-section" style={{ borderColor: '#06b6d444', flex: 1 }}>
+        <div className="fs-plugin-band-label" style={{ color: '#06b6d4' }}>MID</div>
+        <div className="fs-plugin-knobs">
+          <Knob label="GAIN" value={pn(p.midGain, 0)} min={-18} max={18} unit="dB" color="#06b6d4" onChange={v => onChange({ ...p, midGain: v })} />
+          <Knob label="FREQ" value={pn(p.midFreq, 1000)} min={200} max={8000} step={10} unit="Hz" color="#06b6d4" onChange={v => onChange({ ...p, midFreq: v })} />
+          <Knob label="Q" value={pn(p.midQ, 1)} min={0.1} max={10} step={0.1} color="#06b6d4" onChange={v => onChange({ ...p, midQ: v })} />
+        </div>
+      </div>
+      <div className="fs-plugin-band-section" style={{ borderColor: '#67e8f944', flex: 1 }}>
+        <div className="fs-plugin-band-label" style={{ color: '#67e8f9' }}>HIGH</div>
+        <div className="fs-plugin-knobs">
+          <Knob label="GAIN" value={pn(p.highGain, 0)} min={-18} max={18} unit="dB" color="#67e8f9" onChange={v => onChange({ ...p, highGain: v })} />
+          <Knob label="FREQ" value={pn(p.highFreq, 8000)} min={2000} max={20000} step={100} unit="Hz" color="#67e8f9" onChange={v => onChange({ ...p, highFreq: v })} />
+        </div>
+      </div>
     </div>
   )
 }
 
 function CompressorEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
+  const C = '#10b981'
   return (
-    <div className="plugin-knobs-row">
-      <Knob label="THRESH" value={pn(p.threshold, -18)} min={-60} max={0} unit=" dB" onChange={v => onChange({ ...p, threshold: v })} />
-      <Knob label="RATIO" value={pn(p.ratio, 4)} min={1} max={20} step={0.1} unit=":1" onChange={v => onChange({ ...p, ratio: v })} />
-      <Knob label="ATTACK" value={pn(p.attack, 0.01) * 1000} min={0.1} max={200} step={0.1} unit=" ms" onChange={v => onChange({ ...p, attack: v / 1000 })} />
-      <Knob label="RELEASE" value={pn(p.release, 0.1) * 1000} min={10} max={2000} step={10} unit=" ms" onChange={v => onChange({ ...p, release: v / 1000 })} />
-      <Knob label="KNEE" value={pn(p.knee, 6)} min={0} max={40} unit=" dB" onChange={v => onChange({ ...p, knee: v })} />
-      <Knob label="MAKEUP" value={pn(p.makeupGain, 0)} min={0} max={24} unit=" dB" onChange={v => onChange({ ...p, makeupGain: v })} />
+    <div className="fs-plugin-knobs">
+      <Knob label="THRESH" value={pn(p.threshold, -18)} min={-60} max={0} unit="dB" color={C} onChange={v => onChange({ ...p, threshold: v })} />
+      <Knob label="RATIO" value={pn(p.ratio, 4)} min={1} max={20} step={0.1} unit=":1" color={C} onChange={v => onChange({ ...p, ratio: v })} />
+      <Knob label="ATTACK" value={pn(p.attack, 0.01) * 1000} min={0.1} max={200} step={0.1} unit="ms" color="#34d399" onChange={v => onChange({ ...p, attack: v / 1000 })} />
+      <Knob label="RELEASE" value={pn(p.release, 0.1) * 1000} min={10} max={2000} step={10} unit="ms" color="#34d399" onChange={v => onChange({ ...p, release: v / 1000 })} />
+      <Knob label="KNEE" value={pn(p.knee, 6)} min={0} max={40} unit="dB" color="#6ee7b7" onChange={v => onChange({ ...p, knee: v })} />
+      <Knob label="MAKEUP" value={pn(p.makeupGain, 0)} min={0} max={24} unit="dB" color={C} onChange={v => onChange({ ...p, makeupGain: v })} />
     </div>
   )
 }
 
 function LimiterEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
+  const C = '#ef4444'
   return (
-    <div className="plugin-knobs-row">
-      <Knob label="CEILING" value={pn(p.ceiling, -0.1)} min={-12} max={0} step={0.1} unit=" dB" onChange={v => onChange({ ...p, ceiling: v })} />
-      <Knob label="THRESH" value={pn(p.threshold, -1)} min={-20} max={0} step={0.1} unit=" dB" onChange={v => onChange({ ...p, threshold: v })} />
-      <Knob label="RELEASE" value={pn(p.release, 0.05) * 1000} min={1} max={500} step={1} unit=" ms" onChange={v => onChange({ ...p, release: v / 1000 })} />
+    <div className="fs-plugin-knobs">
+      <Knob label="CEILING" value={pn(p.ceiling, -0.1)} min={-12} max={0} step={0.1} unit="dB" color={C} onChange={v => onChange({ ...p, ceiling: v })} />
+      <Knob label="THRESH" value={pn(p.threshold, -1)} min={-20} max={0} step={0.1} unit="dB" color="#f87171" onChange={v => onChange({ ...p, threshold: v })} />
+      <Knob label="RELEASE" value={pn(p.release, 0.05) * 1000} min={1} max={500} step={1} unit="ms" color="#fca5a5" onChange={v => onChange({ ...p, release: v / 1000 })} />
     </div>
   )
 }
@@ -799,24 +856,24 @@ const IR_TYPES = [
 function ReverbEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
   const irType = (p.irType as string) || 'hall'
+  const C = '#a855f7'
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {/* IR type selector */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 4px' }}>
-        <span style={{ fontSize: 10, color: '#9ca3af', letterSpacing: '0.05em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>Space</span>
+    <div className="fs-plugin-editor-col">
+      <div className="fs-plugin-select-row">
+        <span className="fs-plugin-select-label">SPACE</span>
         <select
           value={irType}
           onChange={e => onChange({ ...p, irType: e.target.value })}
-          style={{ flex: 1, background: '#1f2937', color: '#e5e7eb', border: '1px solid #374151', borderRadius: 4, padding: '2px 4px', fontSize: 11 }}
+          className="fs-plugin-select"
         >
           {IR_TYPES.map(ir => <option key={ir.value} value={ir.value}>{ir.label}</option>)}
         </select>
       </div>
-      <div className="plugin-knobs-row">
-        <Knob label="WET" value={pn(p.wet, 0.3)} min={0} max={1} unit="" onChange={v => onChange({ ...p, wet: v })} />
-        <Knob label="SIZE" value={pn(p.size, 2.5)} min={0.1} max={10} step={0.1} unit=" s" onChange={v => onChange({ ...p, size: v })} />
-        <Knob label="DAMP" value={pn(p.damping, 0.5)} min={0} max={1} onChange={v => onChange({ ...p, damping: v })} />
-        <Knob label="PRE-DLY" value={pn(p.predelay, 0.02) * 1000} min={0} max={100} step={1} unit=" ms" onChange={v => onChange({ ...p, predelay: v / 1000 })} />
+      <div className="fs-plugin-knobs">
+        <Knob label="WET" value={pn(p.wet, 0.3)} min={0} max={1} color={C} onChange={v => onChange({ ...p, wet: v })} />
+        <Knob label="SIZE" value={pn(p.size, 2.5)} min={0.1} max={10} step={0.1} unit="s" color="#c084fc" onChange={v => onChange({ ...p, size: v })} />
+        <Knob label="DAMP" value={pn(p.damping, 0.5)} min={0} max={1} color="#7c3aed" onChange={v => onChange({ ...p, damping: v })} />
+        <Knob label="PRE-DLY" value={pn(p.predelay, 0.02) * 1000} min={0} max={100} step={1} unit="ms" color="#9333ea" onChange={v => onChange({ ...p, predelay: v / 1000 })} />
       </div>
     </div>
   )
@@ -824,35 +881,38 @@ function ReverbEditor({ plugin, onChange }: PluginEditorProps) {
 
 function DelayEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
+  const C = '#3b82f6'
   return (
-    <div className="plugin-knobs-row">
-      <Knob label="WET" value={pn(p.wet, 0.25)} min={0} max={1} onChange={v => onChange({ ...p, wet: v })} />
-      <Knob label="TIME" value={pn(p.time, 0.375) * 1000} min={1} max={2000} step={1} unit=" ms" onChange={v => onChange({ ...p, time: v / 1000 })} />
-      <Knob label="FDBK" value={pn(p.feedback, 0.35)} min={0} max={0.98} step={0.01} onChange={v => onChange({ ...p, feedback: v })} />
-      <Knob label="SPREAD" value={pn(p.stereoSpread, 0.3)} min={0} max={1} onChange={v => onChange({ ...p, stereoSpread: v })} />
+    <div className="fs-plugin-knobs">
+      <Knob label="WET" value={pn(p.wet, 0.25)} min={0} max={1} color={C} onChange={v => onChange({ ...p, wet: v })} />
+      <Knob label="TIME" value={pn(p.time, 0.375) * 1000} min={1} max={2000} step={1} unit="ms" color="#60a5fa" onChange={v => onChange({ ...p, time: v / 1000 })} />
+      <Knob label="FDBK" value={pn(p.feedback, 0.35)} min={0} max={0.98} step={0.01} color="#93c5fd" onChange={v => onChange({ ...p, feedback: v })} />
+      <Knob label="SPREAD" value={pn(p.stereoSpread, 0.3)} min={0} max={1} color="#bfdbfe" onChange={v => onChange({ ...p, stereoSpread: v })} />
     </div>
   )
 }
 
 function ChorusEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
+  const C = '#ec4899'
   return (
-    <div className="plugin-knobs-row">
-      <Knob label="WET" value={pn(p.wet, 0.5)} min={0} max={1} onChange={v => onChange({ ...p, wet: v })} />
-      <Knob label="RATE" value={pn(p.rate, 0.8)} min={0.05} max={8} step={0.05} unit=" Hz" onChange={v => onChange({ ...p, rate: v })} />
-      <Knob label="DEPTH" value={pn(p.depth, 0.003) * 1000} min={0.1} max={20} step={0.1} unit=" ms" onChange={v => onChange({ ...p, depth: v / 1000 })} />
-      <Knob label="DELAY" value={pn(p.delay, 0.015) * 1000} min={1} max={50} step={1} unit=" ms" onChange={v => onChange({ ...p, delay: v / 1000 })} />
+    <div className="fs-plugin-knobs">
+      <Knob label="WET" value={pn(p.wet, 0.5)} min={0} max={1} color={C} onChange={v => onChange({ ...p, wet: v })} />
+      <Knob label="RATE" value={pn(p.rate, 0.8)} min={0.05} max={8} step={0.05} unit="Hz" color="#f472b6" onChange={v => onChange({ ...p, rate: v })} />
+      <Knob label="DEPTH" value={pn(p.depth, 0.003) * 1000} min={0.1} max={20} step={0.1} unit="ms" color="#f9a8d4" onChange={v => onChange({ ...p, depth: v / 1000 })} />
+      <Knob label="DELAY" value={pn(p.delay, 0.015) * 1000} min={1} max={50} step={1} unit="ms" color="#fce7f3" onChange={v => onChange({ ...p, delay: v / 1000 })} />
     </div>
   )
 }
 
 function DistortionEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
+  const C = '#f59e0b'
   return (
-    <div className="plugin-knobs-row">
-      <Knob label="BITS" value={pn(p.bits, 16)} min={2} max={16} step={1} onChange={v => onChange({ ...p, bits: v })} />
-      <Knob label="RATE ÷" value={pn(p.downsample, 1)} min={1} max={32} step={1} onChange={v => onChange({ ...p, downsample: v })} />
-      <Knob label="WET" value={pn(p.wet, 0.5)} min={0} max={1} onChange={v => onChange({ ...p, wet: v })} />
+    <div className="fs-plugin-knobs">
+      <Knob label="BITS" value={pn(p.bits, 16)} min={2} max={16} step={1} color={C} onChange={v => onChange({ ...p, bits: v })} />
+      <Knob label="RATE ÷" value={pn(p.downsample, 1)} min={1} max={32} step={1} color="#fbbf24" onChange={v => onChange({ ...p, downsample: v })} />
+      <Knob label="WET" value={pn(p.wet, 0.5)} min={0} max={1} color="#fde68a" onChange={v => onChange({ ...p, wet: v })} />
     </div>
   )
 }
@@ -862,49 +922,46 @@ const SAT_MODES = ['TAPE', 'TUBE', 'CLIP', 'FUZZ']
 
 function SaturnEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
-  const modeBtn = (band: string, modeKey: string) => (
-    <div className="plugin-mode-group">
+  const modeBtn = (modeKey: string, color: string) => (
+    <div className="fs-mode-group">
       {SAT_MODES.map((m, i) => (
         <button
           key={m}
-          className={`plugin-mode-btn ${Math.round(Number(p[modeKey] ?? 0)) === i ? 'active' : ''}`}
+          className={`fs-mode-btn ${Math.round(Number(p[modeKey] ?? 0)) === i ? 'active' : ''}`}
+          style={Math.round(Number(p[modeKey] ?? 0)) === i ? { background: color + '30', color, borderColor: color + '80' } : {}}
           onClick={() => onChange({ ...p, [modeKey]: i })}
         >{m}</button>
       ))}
-      <span className="plugin-mode-label">{band}</span>
     </div>
   )
   return (
-    <div className="plugin-saturn-wrap">
-      <div className="plugin-saturn-band">
-        <div className="plugin-saturn-band-label" style={{ color: '#f59e0b' }}>LOW</div>
-        <div className="plugin-knobs-row">
-          <Knob label="DRIVE" value={pn(p.lowDrive, 0)} min={0} max={10} step={0.1} onChange={v => onChange({ ...p, lowDrive: v })} />
-          <Knob label="FREQ" value={pn(p.lowFreq, 250)} min={50} max={800} step={10} unit=" Hz" onChange={v => onChange({ ...p, lowFreq: v })} />
+    <div className="fs-plugin-editor-col" style={{ gap: 8 }}>
+      <div className="fs-plugin-band-section" style={{ borderColor: '#f59e0b44' }}>
+        <div className="fs-plugin-band-label" style={{ color: '#f59e0b' }}>LOW BAND</div>
+        <div className="fs-plugin-knobs">
+          <Knob label="DRIVE" value={pn(p.lowDrive, 0)} min={0} max={10} step={0.1} color="#f59e0b" onChange={v => onChange({ ...p, lowDrive: v })} />
+          <Knob label="FREQ" value={pn(p.lowFreq, 250)} min={50} max={800} step={10} unit="Hz" color="#fbbf24" onChange={v => onChange({ ...p, lowFreq: v })} />
         </div>
-        {modeBtn('MODE', 'lowMode')}
+        {modeBtn('lowMode', '#f59e0b')}
       </div>
-      <div className="plugin-saturn-divider" />
-      <div className="plugin-saturn-band">
-        <div className="plugin-saturn-band-label" style={{ color: '#10b981' }}>MID</div>
-        <div className="plugin-knobs-row">
-          <Knob label="DRIVE" value={pn(p.midDrive, 0)} min={0} max={10} step={0.1} onChange={v => onChange({ ...p, midDrive: v })} />
-          <Knob label="FREQ" value={pn(p.midFreq, 3000)} min={800} max={8000} step={100} unit=" Hz" onChange={v => onChange({ ...p, midFreq: v })} />
+      <div className="fs-plugin-band-section" style={{ borderColor: '#10b98144' }}>
+        <div className="fs-plugin-band-label" style={{ color: '#10b981' }}>MID BAND</div>
+        <div className="fs-plugin-knobs">
+          <Knob label="DRIVE" value={pn(p.midDrive, 0)} min={0} max={10} step={0.1} color="#10b981" onChange={v => onChange({ ...p, midDrive: v })} />
+          <Knob label="FREQ" value={pn(p.midFreq, 3000)} min={800} max={8000} step={100} unit="Hz" color="#34d399" onChange={v => onChange({ ...p, midFreq: v })} />
         </div>
-        {modeBtn('MODE', 'midMode')}
+        {modeBtn('midMode', '#10b981')}
       </div>
-      <div className="plugin-saturn-divider" />
-      <div className="plugin-saturn-band">
-        <div className="plugin-saturn-band-label" style={{ color: '#06b6d4' }}>HIGH</div>
-        <div className="plugin-knobs-row">
-          <Knob label="DRIVE" value={pn(p.highDrive, 0)} min={0} max={10} step={0.1} onChange={v => onChange({ ...p, highDrive: v })} />
+      <div className="fs-plugin-band-section" style={{ borderColor: '#06b6d444' }}>
+        <div className="fs-plugin-band-label" style={{ color: '#06b6d4' }}>HIGH BAND</div>
+        <div className="fs-plugin-knobs">
+          <Knob label="DRIVE" value={pn(p.highDrive, 0)} min={0} max={10} step={0.1} color="#06b6d4" onChange={v => onChange({ ...p, highDrive: v })} />
         </div>
-        {modeBtn('MODE', 'highMode')}
+        {modeBtn('highMode', '#06b6d4')}
       </div>
-      <div className="plugin-saturn-divider" />
-      <div className="plugin-knobs-row">
-        <Knob label="MIX" value={pn(p.mix, 0.5)} min={0} max={1} onChange={v => onChange({ ...p, mix: v })} />
-        <Knob label="OUTPUT" value={pn(p.output, 0)} min={-12} max={12} unit=" dB" onChange={v => onChange({ ...p, output: v })} />
+      <div className="fs-plugin-knobs" style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>
+        <Knob label="MIX" value={pn(p.mix, 0.5)} min={0} max={1} color="#f97316" onChange={v => onChange({ ...p, mix: v })} />
+        <Knob label="OUTPUT" value={pn(p.output, 0)} min={-12} max={12} unit="dB" color="#fb923c" onChange={v => onChange({ ...p, output: v })} />
       </div>
     </div>
   )
@@ -917,50 +974,56 @@ const PRESSURE_COLORS  = ['CLEAN', 'SSL', 'NEVE']
 
 function PressureEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
+  const C = '#22d3ee'
   return (
-    <div className="plugin-pressure-wrap">
-      <div className="plugin-knobs-row">
-        <Knob label="THRESH"  value={pn(p.threshold, -12)} min={-40} max={0}   unit=" dB" onChange={v => onChange({ ...p, threshold: v })} />
-        <Knob label="MAKEUP"  value={pn(p.makeup, 0)}      min={0}   max={20}  unit=" dB" onChange={v => onChange({ ...p, makeup: v })} />
-        <Knob label="MIX"     value={pn(p.mix, 1)}         min={0}   max={1}   onChange={v => onChange({ ...p, mix: v })} />
+    <div className="fs-plugin-editor-col">
+      <div className="fs-plugin-knobs">
+        <Knob label="THRESH"  value={pn(p.threshold, -12)} min={-40} max={0}   unit="dB" color={C} onChange={v => onChange({ ...p, threshold: v })} />
+        <Knob label="MAKEUP"  value={pn(p.makeup, 0)}      min={0}   max={20}  unit="dB" color="#67e8f9" onChange={v => onChange({ ...p, makeup: v })} />
+        <Knob label="MIX"     value={pn(p.mix, 1)}         min={0}   max={1}   color="#a5f3fc" onChange={v => onChange({ ...p, mix: v })} />
       </div>
-      <div className="plugin-step-row">
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">RATIO</span>
+      <div className="fs-step-row">
+        <div className="fs-step-group">
+          <span className="fs-step-label">RATIO</span>
           {PRESSURE_RATIOS.map((r, i) => (
-            <button key={r} className={`plugin-step-btn ${Math.round(pn(p.ratio, 1)) === i ? 'active' : ''}`}
+            <button key={r} className={`fs-step-btn ${Math.round(pn(p.ratio, 1)) === i ? 'active' : ''}`}
+              style={Math.round(pn(p.ratio, 1)) === i ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
               onClick={() => onChange({ ...p, ratio: i })}>{r}:1</button>
           ))}
         </div>
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">ATTACK ms</span>
+        <div className="fs-step-group">
+          <span className="fs-step-label">ATTACK ms</span>
           {PRESSURE_ATTACKS.map((a, i) => (
-            <button key={a} className={`plugin-step-btn ${Math.round(pn(p.attack, 2) * 10) === i ? 'active' : ''}`}
+            <button key={a} className={`fs-step-btn ${Math.round(pn(p.attack, 2) * 10) === i ? 'active' : ''}`}
+              style={Math.round(pn(p.attack, 2) * 10) === i ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
               onClick={() => onChange({ ...p, attack: i / 10 })}>{a}</button>
           ))}
         </div>
       </div>
-      <div className="plugin-step-row">
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">RELEASE</span>
-          <Knob label="ms" value={pn(p.release, 0.1) * 1000} min={50} max={1200} step={10} unit=" ms"
+      <div className="fs-step-row">
+        <div className="fs-step-group">
+          <span className="fs-step-label">RELEASE</span>
+          <Knob label="ms" value={pn(p.release, 0.1) * 1000} min={50} max={1200} step={10} unit="ms" color={C}
             onChange={v => onChange({ ...p, release: v / 1000 })} />
           <button
-            className={`plugin-step-btn ${p.release === -1 ? 'active' : ''}`}
+            className={`fs-step-btn ${p.release === -1 ? 'active' : ''}`}
+            style={p.release === -1 ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
             onClick={() => onChange({ ...p, release: -1 })}>AUTO</button>
         </div>
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">COLOR</span>
+        <div className="fs-step-group">
+          <span className="fs-step-label">COLOR</span>
           {PRESSURE_COLORS.map((c, i) => (
             <button key={c}
-              className={`plugin-step-btn ${Math.round(pn(p.color, 1)) === i ? 'active' : ''}`}
+              className={`fs-step-btn ${Math.round(pn(p.color, 1)) === i ? 'active' : ''}`}
+              style={Math.round(pn(p.color, 1)) === i ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
               onClick={() => onChange({ ...p, color: i })}>{c}</button>
           ))}
         </div>
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">AUTO-GAIN</span>
+        <div className="fs-step-group">
+          <span className="fs-step-label">AUTO-GAIN</span>
           <button
-            className={`plugin-step-btn ${p.autoGain ? 'active' : ''}`}
+            className={`fs-step-btn ${p.autoGain ? 'active' : ''}`}
+            style={p.autoGain ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
             onClick={() => onChange({ ...p, autoGain: p.autoGain ? 0 : 1 })}>
             {p.autoGain ? 'ON' : 'OFF'}
           </button>
@@ -975,31 +1038,31 @@ const SYNC_LABELS = ['FREE', '1/4', '1/8', '1/2', '1/16']
 
 function SpacetimeEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
+  const C1 = '#c084fc', C2 = '#60a5fa'
   return (
-    <div className="plugin-spacetime-wrap">
-      {/* Shimmer Reverb section */}
-      <div className="plugin-section-title" style={{ color: '#a855f7' }}>✦ SHIMMER REVERB</div>
-      <div className="plugin-knobs-row">
-        <Knob label="WET"      value={pn(p.revWet, 0.3)}       min={0}   max={1}   onChange={v => onChange({ ...p, revWet: v })} />
-        <Knob label="SIZE"     value={pn(p.revSize, 3.5)}       min={0.1} max={12}  step={0.1} unit=" s" onChange={v => onChange({ ...p, revSize: v })} />
-        <Knob label="DAMP"     value={pn(p.revDamping, 0.4)}    min={0}   max={1}   onChange={v => onChange({ ...p, revDamping: v })} />
-        <Knob label="PRE-DLY"  value={pn(p.revPredelay, 0.02) * 1000} min={0} max={100} step={1} unit=" ms" onChange={v => onChange({ ...p, revPredelay: v / 1000 })} />
-        <Knob label="SHIMMER"  value={pn(p.shimmer, 0.3)}       min={0}   max={1}   onChange={v => onChange({ ...p, shimmer: v })} />
-        <Knob label="SHIM +st" value={pn(p.shimmerPitch, 12)}   min={1}   max={24}  step={1}  onChange={v => onChange({ ...p, shimmerPitch: v })} />
+    <div className="fs-plugin-editor-col">
+      <div className="fs-plugin-section-title" style={{ color: C1 }}>✦ SHIMMER REVERB</div>
+      <div className="fs-plugin-knobs">
+        <Knob label="WET"      value={pn(p.revWet, 0.3)}       min={0}   max={1}   color={C1} onChange={v => onChange({ ...p, revWet: v })} />
+        <Knob label="SIZE"     value={pn(p.revSize, 3.5)}       min={0.1} max={12}  step={0.1} unit="s" color="#a855f7" onChange={v => onChange({ ...p, revSize: v })} />
+        <Knob label="DAMP"     value={pn(p.revDamping, 0.4)}    min={0}   max={1}   color="#7c3aed" onChange={v => onChange({ ...p, revDamping: v })} />
+        <Knob label="PRE-DLY"  value={pn(p.revPredelay, 0.02) * 1000} min={0} max={100} step={1} unit="ms" color="#9333ea" onChange={v => onChange({ ...p, revPredelay: v / 1000 })} />
+        <Knob label="SHIMMER"  value={pn(p.shimmer, 0.3)}       min={0}   max={1}   color={C1} onChange={v => onChange({ ...p, shimmer: v })} />
+        <Knob label="SHIM +st" value={pn(p.shimmerPitch, 12)}   min={1}   max={24}  step={1}  color="#e9d5ff" onChange={v => onChange({ ...p, shimmerPitch: v })} />
       </div>
-      {/* Ping-Pong Delay section */}
-      <div className="plugin-section-title" style={{ color: '#3b82f6', marginTop: 8 }}>⬡ PING-PONG DELAY</div>
-      <div className="plugin-knobs-row">
-        <Knob label="WET"    value={pn(p.dlyWet, 0.2)}      min={0}    max={1}    onChange={v => onChange({ ...p, dlyWet: v })} />
-        <Knob label="TIME"   value={pn(p.dlyTime, 0.375) * 1000} min={10} max={2000} step={1} unit=" ms" onChange={v => onChange({ ...p, dlyTime: v / 1000 })} />
-        <Knob label="FDBK"   value={pn(p.dlyFeedback, 0.4)} min={0}    max={0.95} step={0.01} onChange={v => onChange({ ...p, dlyFeedback: v })} />
-        <Knob label="SPREAD" value={pn(p.dlySpread, 0.8)}   min={0}    max={1}    onChange={v => onChange({ ...p, dlySpread: v })} />
+      <div className="fs-plugin-section-title" style={{ color: C2, marginTop: 4 }}>⬡ PING-PONG DELAY</div>
+      <div className="fs-plugin-knobs">
+        <Knob label="WET"    value={pn(p.dlyWet, 0.2)}      min={0}    max={1}    color={C2} onChange={v => onChange({ ...p, dlyWet: v })} />
+        <Knob label="TIME"   value={pn(p.dlyTime, 0.375) * 1000} min={10} max={2000} step={1} unit="ms" color="#93c5fd" onChange={v => onChange({ ...p, dlyTime: v / 1000 })} />
+        <Knob label="FDBK"   value={pn(p.dlyFeedback, 0.4)} min={0}    max={0.95} step={0.01} color="#bfdbfe" onChange={v => onChange({ ...p, dlyFeedback: v })} />
+        <Knob label="SPREAD" value={pn(p.dlySpread, 0.8)}   min={0}    max={1}    color="#dbeafe" onChange={v => onChange({ ...p, dlySpread: v })} />
       </div>
-      <div className="plugin-step-row">
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">BPM SYNC</span>
+      <div className="fs-step-row">
+        <div className="fs-step-group">
+          <span className="fs-step-label">BPM SYNC</span>
           {SYNC_LABELS.map((s, i) => (
-            <button key={s} className={`plugin-step-btn ${Math.round(pn(p.dlySync, 1)) === i ? 'active' : ''}`}
+            <button key={s} className={`fs-step-btn ${Math.round(pn(p.dlySync, 1)) === i ? 'active' : ''}`}
+              style={Math.round(pn(p.dlySync, 1)) === i ? { background: C2 + '30', color: C2, borderColor: C2 + '80' } : {}}
               onClick={() => onChange({ ...p, dlySync: i })}>{s}</button>
           ))}
         </div>
@@ -1013,26 +1076,29 @@ const TRANSIENT_MODES = ['DRUM', 'GENERAL', 'SMOOTH']
 
 function TransientEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
+  const C = '#4ade80'
   return (
-    <div className="plugin-transient-wrap">
-      <div className="plugin-knobs-row">
-        <Knob label="ATTACK"  value={pn(p.attack, 0)}       min={-24} max={24} unit=" dB" onChange={v => onChange({ ...p, attack: v })} />
-        <Knob label="SUSTAIN" value={pn(p.sustain, 0)}      min={-24} max={24} unit=" dB" onChange={v => onChange({ ...p, sustain: v })} />
-        <Knob label="GAIN"    value={pn(p.gain, 0)}         min={-12} max={12} unit=" dB" onChange={v => onChange({ ...p, gain: v })} />
-        <Knob label="SENSE"   value={pn(p.sensitivity, 0.5)} min={0}  max={1}  onChange={v => onChange({ ...p, sensitivity: v })} />
+    <div className="fs-plugin-editor-col">
+      <div className="fs-plugin-knobs">
+        <Knob label="ATTACK"  value={pn(p.attack, 0)}       min={-24} max={24} unit="dB" color={C} onChange={v => onChange({ ...p, attack: v })} />
+        <Knob label="SUSTAIN" value={pn(p.sustain, 0)}      min={-24} max={24} unit="dB" color="#86efac" onChange={v => onChange({ ...p, sustain: v })} />
+        <Knob label="GAIN"    value={pn(p.gain, 0)}         min={-12} max={12} unit="dB" color="#bbf7d0" onChange={v => onChange({ ...p, gain: v })} />
+        <Knob label="SENSE"   value={pn(p.sensitivity, 0.5)} min={0}  max={1}  color="#22c55e" onChange={v => onChange({ ...p, sensitivity: v })} />
       </div>
-      <div className="plugin-step-row">
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">MODE</span>
+      <div className="fs-step-row">
+        <div className="fs-step-group">
+          <span className="fs-step-label">MODE</span>
           {TRANSIENT_MODES.map((m, i) => (
-            <button key={m} className={`plugin-step-btn ${Math.round(pn(p.mode, 1)) === i ? 'active' : ''}`}
+            <button key={m} className={`fs-step-btn ${Math.round(pn(p.mode, 1)) === i ? 'active' : ''}`}
+              style={Math.round(pn(p.mode, 1)) === i ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
               onClick={() => onChange({ ...p, mode: i })}>{m}</button>
           ))}
         </div>
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">CLIP PROTECT</span>
+        <div className="fs-step-group">
+          <span className="fs-step-label">CLIP PROT</span>
           <button
-            className={`plugin-step-btn ${p.clipProtect ? 'active' : ''}`}
+            className={`fs-step-btn ${p.clipProtect ? 'active' : ''}`}
+            style={p.clipProtect ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
             onClick={() => onChange({ ...p, clipProtect: p.clipProtect ? 0 : 1 })}>
             {p.clipProtect ? 'ON' : 'OFF'}
           </button>
@@ -1047,27 +1113,29 @@ const NOVA_BANDS  = ['FULL', 'LOW', 'MID', 'HIGH']
 
 function NovaEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
+  const C = '#84cc16'
   return (
-    <div className="plugin-nova-wrap">
-      <div className="plugin-knobs-row">
-        <Knob label="THRESH"  value={pn(p.threshold, -50)} min={-80} max={0}   unit=" dB" onChange={v => onChange({ ...p, threshold: v })} />
-        <Knob label="RATIO"   value={pn(p.ratio, 10)}      min={1}   max={20}  step={0.5} unit=":1" onChange={v => onChange({ ...p, ratio: v })} />
-        <Knob label="ATTACK"  value={pn(p.attack, 0.001) * 1000} min={0.1} max={200} step={0.1} unit=" ms" onChange={v => onChange({ ...p, attack: v / 1000 })} />
-        <Knob label="RELEASE" value={pn(p.release, 0.1) * 1000}  min={10}  max={2000} step={10} unit=" ms" onChange={v => onChange({ ...p, release: v / 1000 })} />
-        <Knob label="RANGE"   value={pn(p.range, 40)}      min={0}   max={80}  unit=" dB" onChange={v => onChange({ ...p, range: v })} />
-        <Knob label="MAKEUP"  value={pn(p.makeup, 0)}      min={0}   max={18}  unit=" dB" onChange={v => onChange({ ...p, makeup: v })} />
+    <div className="fs-plugin-editor-col">
+      <div className="fs-plugin-knobs">
+        <Knob label="THRESH"  value={pn(p.threshold, -50)} min={-80} max={0}   unit="dB" color={C} onChange={v => onChange({ ...p, threshold: v })} />
+        <Knob label="RATIO"   value={pn(p.ratio, 10)}      min={1}   max={20}  step={0.5} unit=":1" color="#a3e635" onChange={v => onChange({ ...p, ratio: v })} />
+        <Knob label="ATTACK"  value={pn(p.attack, 0.001) * 1000} min={0.1} max={200} step={0.1} unit="ms" color="#bef264" onChange={v => onChange({ ...p, attack: v / 1000 })} />
+        <Knob label="RELEASE" value={pn(p.release, 0.1) * 1000}  min={10}  max={2000} step={10} unit="ms" color="#d9f99d" onChange={v => onChange({ ...p, release: v / 1000 })} />
+        <Knob label="RANGE"   value={pn(p.range, 40)}      min={0}   max={80}  unit="dB" color="#ecfccb" onChange={v => onChange({ ...p, range: v })} />
+        <Knob label="MAKEUP"  value={pn(p.makeup, 0)}      min={0}   max={18}  unit="dB" color={C} onChange={v => onChange({ ...p, makeup: v })} />
       </div>
-      <div className="plugin-step-row">
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">BAND</span>
+      <div className="fs-step-row">
+        <div className="fs-step-group">
+          <span className="fs-step-label">BAND</span>
           {NOVA_BANDS.map((b, i) => (
-            <button key={b} className={`plugin-step-btn ${Math.round(pn(p.band, 0)) === i ? 'active' : ''}`}
+            <button key={b} className={`fs-step-btn ${Math.round(pn(p.band, 0)) === i ? 'active' : ''}`}
+              style={Math.round(pn(p.band, 0)) === i ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
               onClick={() => onChange({ ...p, band: i })}>{b}</button>
           ))}
         </div>
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">LOOK-AHD</span>
-          <Knob label="ms" value={pn(p.lookahead, 0)} min={0} max={20} step={1} unit=" ms" onChange={v => onChange({ ...p, lookahead: v })} />
+        <div className="fs-step-group">
+          <span className="fs-step-label">LOOK-AHD</span>
+          <Knob label="ms" value={pn(p.lookahead, 0)} min={0} max={20} step={1} unit="ms" color={C} onChange={v => onChange({ ...p, lookahead: v })} />
         </div>
       </div>
     </div>
@@ -1080,32 +1148,36 @@ const PRISM_MODES  = ['WARM', 'SMOOTH', 'CRISP']
 
 function PrismEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
+  const C = '#f0abfc'
   return (
-    <div className="plugin-prism-wrap">
-      <div className="plugin-knobs-row">
-        <Knob label="FREQ"  value={pn(p.freq, 3000)}   min={500}  max={16000} step={100} unit=" Hz" onChange={v => onChange({ ...p, freq: v })} />
-        <Knob label="DRIVE" value={pn(p.drive, 0.3)}   min={0}    max={1}    step={0.01} onChange={v => onChange({ ...p, drive: v })} />
-        <Knob label="Q"     value={pn(p.q, 0.7)}       min={0.1}  max={5}    step={0.1}  onChange={v => onChange({ ...p, q: v })} />
-        <Knob label="MIX"   value={pn(p.mix, 0.3)}     min={0}    max={1}    step={0.01} onChange={v => onChange({ ...p, mix: v })} />
+    <div className="fs-plugin-editor-col">
+      <div className="fs-plugin-knobs">
+        <Knob label="FREQ"  value={pn(p.freq, 3000)}   min={500}  max={16000} step={100} unit="Hz" color={C} onChange={v => onChange({ ...p, freq: v })} />
+        <Knob label="DRIVE" value={pn(p.drive, 0.3)}   min={0}    max={1}    step={0.01} color="#e879f9" onChange={v => onChange({ ...p, drive: v })} />
+        <Knob label="Q"     value={pn(p.q, 0.7)}       min={0.1}  max={5}    step={0.1}  color="#d946ef" onChange={v => onChange({ ...p, q: v })} />
+        <Knob label="MIX"   value={pn(p.mix, 0.3)}     min={0}    max={1}    step={0.01} color={C} onChange={v => onChange({ ...p, mix: v })} />
       </div>
-      <div className="plugin-step-row">
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">RANGE</span>
+      <div className="fs-step-row">
+        <div className="fs-step-group">
+          <span className="fs-step-label">RANGE</span>
           {PRISM_COLORS.map((c, i) => (
-            <button key={c} className={`plugin-step-btn ${Math.round(pn(p.color, 0)) === i ? 'active' : ''}`}
+            <button key={c} className={`fs-step-btn ${Math.round(pn(p.color, 0)) === i ? 'active' : ''}`}
+              style={Math.round(pn(p.color, 0)) === i ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
               onClick={() => onChange({ ...p, color: i })}>{c}</button>
           ))}
         </div>
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">CHARACTER</span>
+        <div className="fs-step-group">
+          <span className="fs-step-label">CHARACTER</span>
           {PRISM_MODES.map((m, i) => (
-            <button key={m} className={`plugin-step-btn ${Math.round(pn(p.mode, 0)) === i ? 'active' : ''}`}
+            <button key={m} className={`fs-step-btn ${Math.round(pn(p.mode, 0)) === i ? 'active' : ''}`}
+              style={Math.round(pn(p.mode, 0)) === i ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
               onClick={() => onChange({ ...p, mode: i })}>{m}</button>
           ))}
         </div>
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">ODD HARM</span>
-          <button className={`plugin-step-btn ${p.oddOnly ? 'active' : ''}`}
+        <div className="fs-step-group">
+          <span className="fs-step-label">ODD HARM</span>
+          <button className={`fs-step-btn ${p.oddOnly ? 'active' : ''}`}
+            style={p.oddOnly ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
             onClick={() => onChange({ ...p, oddOnly: p.oddOnly ? 0 : 1 })}>{p.oddOnly ? 'ON' : 'OFF'}</button>
         </div>
       </div>
@@ -1119,26 +1191,29 @@ const VIBE_MODES     = ['VIBRATO', 'CHORUS', 'TAPE']
 
 function VibeEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
+  const C = '#fb923c'
   return (
-    <div className="plugin-vibe-wrap">
-      <div className="plugin-knobs-row">
-        <Knob label="RATE"   value={pn(p.rate, 5)}         min={0.1}  max={20}   step={0.1}  unit=" Hz" onChange={v => onChange({ ...p, rate: v })} />
-        <Knob label="DEPTH"  value={pn(p.depth, 0.003) * 1000} min={0.1} max={15} step={0.1} unit=" ms" onChange={v => onChange({ ...p, depth: v / 1000 })} />
-        <Knob label="MIX"    value={pn(p.mix, 0.5)}        min={0}    max={1}    step={0.01} onChange={v => onChange({ ...p, mix: v })} />
-        <Knob label="STEREO" value={pn(p.stereo, 0.5)}     min={0}    max={1}    step={0.01} onChange={v => onChange({ ...p, stereo: v })} />
+    <div className="fs-plugin-editor-col">
+      <div className="fs-plugin-knobs">
+        <Knob label="RATE"   value={pn(p.rate, 5)}         min={0.1}  max={20}   step={0.1}  unit="Hz" color={C} onChange={v => onChange({ ...p, rate: v })} />
+        <Knob label="DEPTH"  value={pn(p.depth, 0.003) * 1000} min={0.1} max={15} step={0.1} unit="ms" color="#fdba74" onChange={v => onChange({ ...p, depth: v / 1000 })} />
+        <Knob label="MIX"    value={pn(p.mix, 0.5)}        min={0}    max={1}    step={0.01} color="#fed7aa" onChange={v => onChange({ ...p, mix: v })} />
+        <Knob label="STEREO" value={pn(p.stereo, 0.5)}     min={0}    max={1}    step={0.01} color={C} onChange={v => onChange({ ...p, stereo: v })} />
       </div>
-      <div className="plugin-step-row">
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">WAVEFORM</span>
+      <div className="fs-step-row">
+        <div className="fs-step-group">
+          <span className="fs-step-label">WAVEFORM</span>
           {VIBE_WAVEFORMS.map((w, i) => (
-            <button key={w} className={`plugin-step-btn ${Math.round(pn(p.waveform, 0)) === i ? 'active' : ''}`}
+            <button key={w} className={`fs-step-btn ${Math.round(pn(p.waveform, 0)) === i ? 'active' : ''}`}
+              style={Math.round(pn(p.waveform, 0)) === i ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
               onClick={() => onChange({ ...p, waveform: i })}>{w}</button>
           ))}
         </div>
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">MODE</span>
+        <div className="fs-step-group">
+          <span className="fs-step-label">MODE</span>
           {VIBE_MODES.map((m, i) => (
-            <button key={m} className={`plugin-step-btn ${Math.round(pn(p.mode, 0)) === i ? 'active' : ''}`}
+            <button key={m} className={`fs-step-btn ${Math.round(pn(p.mode, 0)) === i ? 'active' : ''}`}
+              style={Math.round(pn(p.mode, 0)) === i ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
               onClick={() => onChange({ ...p, mode: i })}>{m}</button>
           ))}
         </div>
@@ -1151,30 +1226,40 @@ function VibeEditor({ plugin, onChange }: PluginEditorProps) {
 function PhaseEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
   const widthPct = Math.round(pn(p.width, 1) * 100)
+  const C = '#38bdf8'
   return (
-    <div className="plugin-phase-wrap">
-      {/* Width visualizer */}
-      <div className="plugin-phase-vis">
-        <div className="plugin-phase-meter">
-          <div className="plugin-phase-bar" style={{ width: `${Math.min(100, widthPct / 2)}%`, background: widthPct > 100 ? '#a855f7' : '#3b82f6' }} />
-          <span className="plugin-phase-pct">{widthPct}%</span>
+    <div className="fs-plugin-editor-col">
+      {/* Width visualizer bar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0 2px' }}>
+        <span style={{ fontSize: 9, color: '#64748b', fontWeight: 700, letterSpacing: '.05em', minWidth: 32 }}>WIDTH</span>
+        <div style={{ flex: 1, height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+          <div style={{
+            width: `${Math.min(100, widthPct / 2)}%`,
+            height: '100%',
+            background: widthPct > 100 ? 'linear-gradient(90deg,#38bdf8,#a855f7)' : '#38bdf8',
+            borderRadius: 3,
+            transition: 'width 0.1s',
+            boxShadow: `0 0 6px ${widthPct > 100 ? '#a855f7' : '#38bdf8'}88`,
+          }} />
         </div>
+        <span style={{ fontSize: 10, color: C, fontVariantNumeric: 'tabular-nums', minWidth: 36, textAlign: 'right', fontWeight: 700 }}>{widthPct}%</span>
       </div>
-      <div className="plugin-knobs-row">
-        <Knob label="WIDTH"    value={pn(p.width, 1)}       min={0}   max={2}   step={0.01} onChange={v => onChange({ ...p, width: v })} />
-        <Knob label="BALANCE"  value={pn(p.balance, 0)}     min={-1}  max={1}   step={0.01} onChange={v => onChange({ ...p, balance: v })} />
-        <Knob label="MID dB"   value={pn(p.midGain, 0)}     min={-18} max={18}  unit=" dB"  onChange={v => onChange({ ...p, midGain: v })} />
-        <Knob label="SIDE dB"  value={pn(p.sideGain, 0)}    min={-18} max={18}  unit=" dB"  onChange={v => onChange({ ...p, sideGain: v })} />
-        <Knob label="OUTPUT"   value={pn(p.output, 0)}      min={-12} max={12}  unit=" dB"  onChange={v => onChange({ ...p, output: v })} />
+      <div className="fs-plugin-knobs">
+        <Knob label="WIDTH"    value={pn(p.width, 1)}       min={0}   max={2}   step={0.01} color={C} onChange={v => onChange({ ...p, width: v })} />
+        <Knob label="BALANCE"  value={pn(p.balance, 0)}     min={-1}  max={1}   step={0.01} color="#7dd3fc" onChange={v => onChange({ ...p, balance: v })} />
+        <Knob label="MID dB"   value={pn(p.midGain, 0)}     min={-18} max={18}  unit="dB"  color="#bae6fd" onChange={v => onChange({ ...p, midGain: v })} />
+        <Knob label="SIDE dB"  value={pn(p.sideGain, 0)}    min={-18} max={18}  unit="dB"  color="#e0f2fe" onChange={v => onChange({ ...p, sideGain: v })} />
+        <Knob label="OUTPUT"   value={pn(p.output, 0)}      min={-12} max={12}  unit="dB"  color={C} onChange={v => onChange({ ...p, output: v })} />
       </div>
-      <div className="plugin-step-row">
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">BASS MONO ≤</span>
-          <Knob label="Hz" value={pn(p.bassMonoFreq, 0)} min={0} max={300} step={10} unit=" Hz" onChange={v => onChange({ ...p, bassMonoFreq: v })} />
+      <div className="fs-step-row">
+        <div className="fs-step-group">
+          <span className="fs-step-label">BASS MONO ≤</span>
+          <Knob label="Hz" value={pn(p.bassMonoFreq, 0)} min={0} max={300} step={10} unit="Hz" color={C} onChange={v => onChange({ ...p, bassMonoFreq: v })} />
         </div>
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">M/S MODE</span>
-          <button className={`plugin-step-btn ${p.msMode ? 'active' : ''}`}
+        <div className="fs-step-group">
+          <span className="fs-step-label">M/S MODE</span>
+          <button className={`fs-step-btn ${p.msMode ? 'active' : ''}`}
+            style={p.msMode ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
             onClick={() => onChange({ ...p, msMode: p.msMode ? 0 : 1 })}>{p.msMode ? 'M/S EQ' : 'WIDTH'}</button>
         </div>
       </div>
@@ -1187,21 +1272,23 @@ const OXIDE_SPEEDS = ['7.5 ips', '15 ips', '30 ips']
 
 function OxideEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
+  const C = '#d97706'
   return (
-    <div className="plugin-oxide-wrap">
-      <div className="plugin-knobs-row">
-        <Knob label="SAT"      value={pn(p.saturation, 0.3)}  min={0}     max={1}     step={0.01} onChange={v => onChange({ ...p, saturation: v })} />
-        <Knob label="BRIGHT"   value={pn(p.brightness, 16000)} min={3000}  max={20000} step={100}  unit=" Hz" onChange={v => onChange({ ...p, brightness: v })} />
-        <Knob label="BASS"     value={pn(p.bass, 30)}          min={20}    max={200}   step={5}    unit=" Hz" onChange={v => onChange({ ...p, bass: v })} />
-        <Knob label="MIX"      value={pn(p.mix, 0.6)}          min={0}     max={1}     step={0.01} onChange={v => onChange({ ...p, mix: v })} />
-        <Knob label="AGE"      value={pn(p.age, 0.2)}          min={0}     max={1}     step={0.01} onChange={v => onChange({ ...p, age: v })} />
-        <Knob label="NOISE"    value={pn(p.noise, 0)}          min={0}     max={1}     step={0.01} onChange={v => onChange({ ...p, noise: v })} />
+    <div className="fs-plugin-editor-col">
+      <div className="fs-plugin-knobs">
+        <Knob label="SAT"      value={pn(p.saturation, 0.3)}  min={0}     max={1}     step={0.01} color={C} onChange={v => onChange({ ...p, saturation: v })} />
+        <Knob label="BRIGHT"   value={pn(p.brightness, 16000)} min={3000}  max={20000} step={100}  unit="Hz" color="#f59e0b" onChange={v => onChange({ ...p, brightness: v })} />
+        <Knob label="BASS"     value={pn(p.bass, 30)}          min={20}    max={200}   step={5}    unit="Hz" color="#fbbf24" onChange={v => onChange({ ...p, bass: v })} />
+        <Knob label="MIX"      value={pn(p.mix, 0.6)}          min={0}     max={1}     step={0.01} color={C} onChange={v => onChange({ ...p, mix: v })} />
+        <Knob label="AGE"      value={pn(p.age, 0.2)}          min={0}     max={1}     step={0.01} color="#92400e" onChange={v => onChange({ ...p, age: v })} />
+        <Knob label="NOISE"    value={pn(p.noise, 0)}          min={0}     max={1}     step={0.01} color="#78350f" onChange={v => onChange({ ...p, noise: v })} />
       </div>
-      <div className="plugin-step-row">
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">TAPE SPEED</span>
+      <div className="fs-step-row">
+        <div className="fs-step-group">
+          <span className="fs-step-label">TAPE SPEED</span>
           {OXIDE_SPEEDS.map((s, i) => (
-            <button key={s} className={`plugin-step-btn ${Math.round(pn(p.speed, 1)) === i ? 'active' : ''}`}
+            <button key={s} className={`fs-step-btn ${Math.round(pn(p.speed, 1)) === i ? 'active' : ''}`}
+              style={Math.round(pn(p.speed, 1)) === i ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
               onClick={() => onChange({ ...p, speed: i })}>{s}</button>
           ))}
         </div>
@@ -1215,26 +1302,29 @@ const HADES_MODES = ['SUB OCT', 'HARMONIC', 'DEEP']
 
 function HadesEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
+  const C = '#7c3aed'
   return (
-    <div className="plugin-hades-wrap">
-      <div className="plugin-knobs-row">
-        <Knob label="FREQ"    value={pn(p.freq, 80)}      min={20}   max={250}  step={5}    unit=" Hz" onChange={v => onChange({ ...p, freq: v })} />
-        <Knob label="AMOUNT"  value={pn(p.amount, 0.4)}   min={0}    max={1}    step={0.01} onChange={v => onChange({ ...p, amount: v })} />
-        <Knob label="ATTACK"  value={pn(p.attack, 0.005) * 1000} min={0.1} max={100} step={0.1} unit=" ms" onChange={v => onChange({ ...p, attack: v / 1000 })} />
-        <Knob label="RELEASE" value={pn(p.release, 0.1) * 1000}  min={10}  max={500}  step={10}  unit=" ms" onChange={v => onChange({ ...p, release: v / 1000 })} />
-        <Knob label="OUTPUT"  value={pn(p.output, 0)}     min={-12}  max={12}   unit=" dB" onChange={v => onChange({ ...p, output: v })} />
+    <div className="fs-plugin-editor-col">
+      <div className="fs-plugin-knobs">
+        <Knob label="FREQ"    value={pn(p.freq, 80)}      min={20}   max={250}  step={5}    unit="Hz" color={C} onChange={v => onChange({ ...p, freq: v })} />
+        <Knob label="AMOUNT"  value={pn(p.amount, 0.4)}   min={0}    max={1}    step={0.01} color="#8b5cf6" onChange={v => onChange({ ...p, amount: v })} />
+        <Knob label="ATTACK"  value={pn(p.attack, 0.005) * 1000} min={0.1} max={100} step={0.1} unit="ms" color="#a78bfa" onChange={v => onChange({ ...p, attack: v / 1000 })} />
+        <Knob label="RELEASE" value={pn(p.release, 0.1) * 1000}  min={10}  max={500}  step={10}  unit="ms" color="#c4b5fd" onChange={v => onChange({ ...p, release: v / 1000 })} />
+        <Knob label="OUTPUT"  value={pn(p.output, 0)}     min={-12}  max={12}   unit="dB" color={C} onChange={v => onChange({ ...p, output: v })} />
       </div>
-      <div className="plugin-step-row">
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">MODE</span>
+      <div className="fs-step-row">
+        <div className="fs-step-group">
+          <span className="fs-step-label">MODE</span>
           {HADES_MODES.map((m, i) => (
-            <button key={m} className={`plugin-step-btn ${Math.round(pn(p.mode, 1)) === i ? 'active' : ''}`}
+            <button key={m} className={`fs-step-btn ${Math.round(pn(p.mode, 1)) === i ? 'active' : ''}`}
+              style={Math.round(pn(p.mode, 1)) === i ? { background: C + '30', color: '#a78bfa', borderColor: '#8b5cf680' } : {}}
               onClick={() => onChange({ ...p, mode: i })}>{m}</button>
           ))}
         </div>
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">SC HPF</span>
-          <button className={`plugin-step-btn ${p.sidechain ? 'active' : ''}`}
+        <div className="fs-step-group">
+          <span className="fs-step-label">SC HPF</span>
+          <button className={`fs-step-btn ${p.sidechain ? 'active' : ''}`}
+            style={p.sidechain ? { background: C + '30', color: '#a78bfa', borderColor: '#8b5cf680' } : {}}
             onClick={() => onChange({ ...p, sidechain: p.sidechain ? 0 : 1 })}>{p.sidechain ? 'ON' : 'OFF'}</button>
         </div>
       </div>
@@ -1247,27 +1337,30 @@ const SHIELD_MODES = ['GATE', 'EXPANDER', 'DUCK']
 
 function ShieldEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
+  const C = '#14b8a6'
   return (
-    <div className="plugin-shield-wrap">
-      <div className="plugin-knobs-row">
-        <Knob label="THRESH"   value={pn(p.threshold, -60)} min={-90} max={0}    unit=" dB" onChange={v => onChange({ ...p, threshold: v })} />
-        <Knob label="ATTACK"   value={pn(p.attack, 0.001) * 1000}  min={0.1} max={200} step={0.1} unit=" ms" onChange={v => onChange({ ...p, attack: v / 1000 })} />
-        <Knob label="HOLD"     value={pn(p.hold, 0.05) * 1000}     min={0}   max={500} step={5}   unit=" ms" onChange={v => onChange({ ...p, hold: v / 1000 })} />
-        <Knob label="RELEASE"  value={pn(p.release, 0.2) * 1000}   min={10}  max={2000} step={10} unit=" ms" onChange={v => onChange({ ...p, release: v / 1000 })} />
-        <Knob label="HYST"     value={pn(p.hysteresis, 3)}  min={0}   max={20}   unit=" dB" onChange={v => onChange({ ...p, hysteresis: v })} />
-        <Knob label="MAKEUP"   value={pn(p.makeup, 0)}      min={0}   max={18}   unit=" dB" onChange={v => onChange({ ...p, makeup: v })} />
+    <div className="fs-plugin-editor-col">
+      <div className="fs-plugin-knobs">
+        <Knob label="THRESH"   value={pn(p.threshold, -60)} min={-90} max={0}    unit="dB" color={C} onChange={v => onChange({ ...p, threshold: v })} />
+        <Knob label="ATTACK"   value={pn(p.attack, 0.001) * 1000}  min={0.1} max={200} step={0.1} unit="ms" color="#2dd4bf" onChange={v => onChange({ ...p, attack: v / 1000 })} />
+        <Knob label="HOLD"     value={pn(p.hold, 0.05) * 1000}     min={0}   max={500} step={5}   unit="ms" color="#5eead4" onChange={v => onChange({ ...p, hold: v / 1000 })} />
+        <Knob label="RELEASE"  value={pn(p.release, 0.2) * 1000}   min={10}  max={2000} step={10} unit="ms" color="#99f6e4" onChange={v => onChange({ ...p, release: v / 1000 })} />
+        <Knob label="HYST"     value={pn(p.hysteresis, 3)}  min={0}   max={20}   unit="dB" color="#ccfbf1" onChange={v => onChange({ ...p, hysteresis: v })} />
+        <Knob label="MAKEUP"   value={pn(p.makeup, 0)}      min={0}   max={18}   unit="dB" color={C} onChange={v => onChange({ ...p, makeup: v })} />
       </div>
-      <div className="plugin-step-row">
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">MODE</span>
+      <div className="fs-step-row">
+        <div className="fs-step-group">
+          <span className="fs-step-label">MODE</span>
           {SHIELD_MODES.map((m, i) => (
-            <button key={m} className={`plugin-step-btn ${Math.round(pn(p.mode, 0)) === i ? 'active' : ''}`}
+            <button key={m} className={`fs-step-btn ${Math.round(pn(p.mode, 0)) === i ? 'active' : ''}`}
+              style={Math.round(pn(p.mode, 0)) === i ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
               onClick={() => onChange({ ...p, mode: i })}>{m}</button>
           ))}
         </div>
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">FLIP GATE</span>
-          <button className={`plugin-step-btn ${p.flip ? 'active' : ''}`}
+        <div className="fs-step-group">
+          <span className="fs-step-label">FLIP GATE</span>
+          <button className={`fs-step-btn ${p.flip ? 'active' : ''}`}
+            style={p.flip ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
             onClick={() => onChange({ ...p, flip: p.flip ? 0 : 1 })}>{p.flip ? 'ON' : 'OFF'}</button>
         </div>
       </div>
@@ -1281,34 +1374,38 @@ const FLUX_SCALES = ['CHROM', 'MAJOR', 'MINOR', 'PENTA']
 
 function FluxEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
+  const C = '#e879f9'
   return (
-    <div className="plugin-flux-wrap">
-      <div className="plugin-knobs-row">
-        <Knob label="SPEED"    value={pn(p.speed, 0.5)}   min={0}   max={1}   step={0.01} onChange={v => onChange({ ...p, speed: v })} />
-        <Knob label="AMOUNT"   value={pn(p.amount, 0.8)}  min={0}   max={1}   step={0.01} onChange={v => onChange({ ...p, amount: v })} />
-        <Knob label="FORMANT"  value={pn(p.formant, 0)}   min={-1}  max={1}   step={0.01} onChange={v => onChange({ ...p, formant: v })} />
-        <Knob label="DETUNE"   value={pn(p.detune, 0)}    min={-50} max={50}  step={1}    unit=" c" onChange={v => onChange({ ...p, detune: v })} />
+    <div className="fs-plugin-editor-col">
+      <div className="fs-plugin-knobs">
+        <Knob label="SPEED"    value={pn(p.speed, 0.5)}   min={0}   max={1}   step={0.01} color={C} onChange={v => onChange({ ...p, speed: v })} />
+        <Knob label="AMOUNT"   value={pn(p.amount, 0.8)}  min={0}   max={1}   step={0.01} color="#d946ef" onChange={v => onChange({ ...p, amount: v })} />
+        <Knob label="FORMANT"  value={pn(p.formant, 0)}   min={-1}  max={1}   step={0.01} color="#c026d3" onChange={v => onChange({ ...p, formant: v })} />
+        <Knob label="DETUNE"   value={pn(p.detune, 0)}    min={-50} max={50}  step={1}    unit="¢" color="#f0abfc" onChange={v => onChange({ ...p, detune: v })} />
       </div>
-      <div className="plugin-step-row">
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">KEY</span>
+      <div className="fs-step-row">
+        <div className="fs-step-group">
+          <span className="fs-step-label">KEY</span>
           {FLUX_KEYS.map((k, i) => (
-            <button key={k} className={`plugin-step-btn plugin-step-btn-sm ${Math.round(pn(p.key, 0)) === i ? 'active' : ''}`}
+            <button key={k} className={`fs-step-btn fs-step-btn-sm ${Math.round(pn(p.key, 0)) === i ? 'active' : ''}`}
+              style={Math.round(pn(p.key, 0)) === i ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
               onClick={() => onChange({ ...p, key: i })}>{k}</button>
           ))}
         </div>
       </div>
-      <div className="plugin-step-row">
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">SCALE</span>
+      <div className="fs-step-row">
+        <div className="fs-step-group">
+          <span className="fs-step-label">SCALE</span>
           {FLUX_SCALES.map((s, i) => (
-            <button key={s} className={`plugin-step-btn ${Math.round(pn(p.scale, 1)) === i ? 'active' : ''}`}
+            <button key={s} className={`fs-step-btn ${Math.round(pn(p.scale, 1)) === i ? 'active' : ''}`}
+              style={Math.round(pn(p.scale, 1)) === i ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
               onClick={() => onChange({ ...p, scale: i })}>{s}</button>
           ))}
         </div>
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">BYPASS</span>
-          <button className={`plugin-step-btn ${p.bypass ? 'active' : ''}`}
+        <div className="fs-step-group">
+          <span className="fs-step-label">BYPASS</span>
+          <button className={`fs-step-btn ${p.bypass ? 'active' : ''}`}
+            style={p.bypass ? { background: '#ef444430', color: '#ef4444', borderColor: '#ef444480' } : {}}
             onClick={() => onChange({ ...p, bypass: p.bypass ? 0 : 1 })}>{p.bypass ? 'ON' : 'OFF'}</button>
         </div>
       </div>
@@ -1322,28 +1419,31 @@ const FORGE_BANDS  = ['WIDE', 'LOW', 'MID', 'HIGH']
 
 function ForgeEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
+  const C = '#facc15'
   return (
-    <div className="plugin-forge-wrap">
-      <div className="plugin-knobs-row">
-        <Knob label="THRESH"  value={pn(p.threshold, -20)} min={-60} max={0}   unit=" dB" onChange={v => onChange({ ...p, threshold: v })} />
-        <Knob label="RATIO"   value={pn(p.ratio, 6)}       min={1}   max={20}  step={0.5} unit=":1" onChange={v => onChange({ ...p, ratio: v })} />
-        <Knob label="ATTACK"  value={pn(p.attack, 0.005) * 1000} min={0.1} max={300} step={0.1} unit=" ms" onChange={v => onChange({ ...p, attack: v / 1000 })} />
-        <Knob label="RELEASE" value={pn(p.release, 0.2) * 1000}  min={10}  max={2000} step={10}  unit=" ms" onChange={v => onChange({ ...p, release: v / 1000 })} />
-        <Knob label="MAKEUP"  value={pn(p.makeup, 3)}      min={0}   max={24}  unit=" dB" onChange={v => onChange({ ...p, makeup: v })} />
-        <Knob label="BLEND"   value={pn(p.blend, 0.5)}     min={0}   max={1}   step={0.01} onChange={v => onChange({ ...p, blend: v })} />
+    <div className="fs-plugin-editor-col">
+      <div className="fs-plugin-knobs">
+        <Knob label="THRESH"  value={pn(p.threshold, -20)} min={-60} max={0}   unit="dB" color={C} onChange={v => onChange({ ...p, threshold: v })} />
+        <Knob label="RATIO"   value={pn(p.ratio, 6)}       min={1}   max={20}  step={0.5} unit=":1" color="#fde047" onChange={v => onChange({ ...p, ratio: v })} />
+        <Knob label="ATTACK"  value={pn(p.attack, 0.005) * 1000} min={0.1} max={300} step={0.1} unit="ms" color="#fef08a" onChange={v => onChange({ ...p, attack: v / 1000 })} />
+        <Knob label="RELEASE" value={pn(p.release, 0.2) * 1000}  min={10}  max={2000} step={10}  unit="ms" color="#fef9c3" onChange={v => onChange({ ...p, release: v / 1000 })} />
+        <Knob label="MAKEUP"  value={pn(p.makeup, 3)}      min={0}   max={24}  unit="dB" color={C} onChange={v => onChange({ ...p, makeup: v })} />
+        <Knob label="BLEND"   value={pn(p.blend, 0.5)}     min={0}   max={1}   step={0.01} color="#ca8a04" onChange={v => onChange({ ...p, blend: v })} />
       </div>
-      <div className="plugin-step-row">
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">COLOR</span>
+      <div className="fs-step-row">
+        <div className="fs-step-group">
+          <span className="fs-step-label">COLOR</span>
           {FORGE_COLORS.map((c, i) => (
-            <button key={c} className={`plugin-step-btn ${Math.round(pn(p.color, 1)) === i ? 'active' : ''}`}
+            <button key={c} className={`fs-step-btn ${Math.round(pn(p.color, 1)) === i ? 'active' : ''}`}
+              style={Math.round(pn(p.color, 1)) === i ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
               onClick={() => onChange({ ...p, color: i })}>{c}</button>
           ))}
         </div>
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">BAND</span>
+        <div className="fs-step-group">
+          <span className="fs-step-label">BAND</span>
           {FORGE_BANDS.map((b, i) => (
-            <button key={b} className={`plugin-step-btn ${Math.round(pn(p.band, 0)) === i ? 'active' : ''}`}
+            <button key={b} className={`fs-step-btn ${Math.round(pn(p.band, 0)) === i ? 'active' : ''}`}
+              style={Math.round(pn(p.band, 0)) === i ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
               onClick={() => onChange({ ...p, band: i })}>{b}</button>
           ))}
         </div>
@@ -1357,27 +1457,30 @@ const CRYSTAL_MODES = ['FREEZE', 'SHIMMER', 'STUTTER']
 
 function CrystalEditor({ plugin, onChange }: PluginEditorProps) {
   const p = plugin.params
+  const C = '#818cf8'
   return (
-    <div className="plugin-crystal-wrap">
-      <div className="plugin-knobs-row">
-        <Knob label="MIX"     value={pn(p.mix, 0.3)}     min={0}   max={1}   step={0.01} onChange={v => onChange({ ...p, mix: v })} />
-        <Knob label="SIZE"    value={pn(p.size, 4)}       min={0.5} max={12}  step={0.1}  unit=" s" onChange={v => onChange({ ...p, size: v })} />
-        <Knob label="DECAY"   value={pn(p.decay, 0.7)}   min={0}   max={1}   step={0.01} onChange={v => onChange({ ...p, decay: v })} />
-        <Knob label="PITCH"   value={pn(p.pitch, 0)}     min={-12} max={12}  step={1}    unit=" st" onChange={v => onChange({ ...p, pitch: v })} />
-        <Knob label="SCATTER" value={pn(p.scatter, 0.3)} min={0}   max={1}   step={0.01} onChange={v => onChange({ ...p, scatter: v })} />
-        <Knob label="DENSITY" value={pn(p.density, 0.8)} min={0.1} max={1}   step={0.01} onChange={v => onChange({ ...p, density: v })} />
+    <div className="fs-plugin-editor-col">
+      <div className="fs-plugin-knobs">
+        <Knob label="MIX"     value={pn(p.mix, 0.3)}     min={0}   max={1}   step={0.01} color={C} onChange={v => onChange({ ...p, mix: v })} />
+        <Knob label="SIZE"    value={pn(p.size, 4)}       min={0.5} max={12}  step={0.1}  unit="s" color="#a5b4fc" onChange={v => onChange({ ...p, size: v })} />
+        <Knob label="DECAY"   value={pn(p.decay, 0.7)}   min={0}   max={1}   step={0.01} color="#c7d2fe" onChange={v => onChange({ ...p, decay: v })} />
+        <Knob label="PITCH"   value={pn(p.pitch, 0)}     min={-12} max={12}  step={1}    unit="st" color="#e0e7ff" onChange={v => onChange({ ...p, pitch: v })} />
+        <Knob label="SCATTER" value={pn(p.scatter, 0.3)} min={0}   max={1}   step={0.01} color="#6366f1" onChange={v => onChange({ ...p, scatter: v })} />
+        <Knob label="DENSITY" value={pn(p.density, 0.8)} min={0.1} max={1}   step={0.01} color={C} onChange={v => onChange({ ...p, density: v })} />
       </div>
-      <div className="plugin-step-row">
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">MODE</span>
+      <div className="fs-step-row">
+        <div className="fs-step-group">
+          <span className="fs-step-label">MODE</span>
           {CRYSTAL_MODES.map((m, i) => (
-            <button key={m} className={`plugin-step-btn ${Math.round(pn(p.mode, 0)) === i ? 'active' : ''}`}
+            <button key={m} className={`fs-step-btn ${Math.round(pn(p.mode, 0)) === i ? 'active' : ''}`}
+              style={Math.round(pn(p.mode, 0)) === i ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
               onClick={() => onChange({ ...p, mode: i })}>{m}</button>
           ))}
         </div>
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">REVERSE</span>
-          <button className={`plugin-step-btn ${p.reverse ? 'active' : ''}`}
+        <div className="fs-step-group">
+          <span className="fs-step-label">REVERSE</span>
+          <button className={`fs-step-btn ${p.reverse ? 'active' : ''}`}
+            style={p.reverse ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
             onClick={() => onChange({ ...p, reverse: p.reverse ? 0 : 1 })}>{p.reverse ? 'ON' : 'OFF'}</button>
         </div>
       </div>
@@ -1409,53 +1512,49 @@ function ArpEditor({ plugin, onChange }: PluginEditorProps) {
   const swing   = pn(p.swing,    0)
   const pattern = (p.pattern ?? 'up') as string
   const velocity= pn(p.velocity, 0)
+  const C = '#a78bfa'
 
   return (
-    <div className="plugin-editor-body">
-      {/* Rate row */}
-      <div className="plugin-step-row">
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">RATE</span>
+    <div className="fs-plugin-editor-col">
+      <div className="fs-step-row">
+        <div className="fs-step-group">
+          <span className="fs-step-label">RATE</span>
           {ARP_RATE_OPTIONS.map(o => (
             <button key={o.value}
-              className={`plugin-step-btn${rate === o.value ? ' active' : ''}`}
+              className={`fs-step-btn${rate === o.value ? ' active' : ''}`}
+              style={rate === o.value ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
               onClick={() => onChange({ ...p, rate: o.value })}
             >{o.label}</button>
           ))}
         </div>
       </div>
-
-      {/* Pattern row */}
-      <div className="plugin-step-row">
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">PATTERN</span>
+      <div className="fs-step-row">
+        <div className="fs-step-group">
+          <span className="fs-step-label">PATTERN</span>
           {ARP_PATTERN_OPTIONS.map(o => (
             <button key={o.value}
-              className={`plugin-step-btn${pattern === o.value ? ' active' : ''}`}
+              className={`fs-step-btn${pattern === o.value ? ' active' : ''}`}
+              style={pattern === o.value ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
               onClick={() => onChange({ ...p, pattern: o.value })}
             >{o.label}</button>
           ))}
         </div>
       </div>
-
-      {/* Knobs */}
-      <div className="plugin-knob-row">
-        <Knob label="OCTAVES"  value={octaves}  min={1}    max={4}   step={1}    onChange={v => onChange({ ...p, octaves: v })} />
-        <Knob label="GATE"     value={gate}     min={0.05} max={1}   step={0.01} onChange={v => onChange({ ...p, gate: v })} />
-        <Knob label="SWING"    value={swing}    min={0}    max={0.49} step={0.01} onChange={v => onChange({ ...p, swing: v })} />
-        <Knob label="VEL"      value={velocity} min={0}    max={127} step={1}
-          unit={velocity === 0 ? '' : ''}
+      <div className="fs-plugin-knobs">
+        <Knob label="OCTAVES"  value={octaves}  min={1}    max={4}   step={1}    color={C} onChange={v => onChange({ ...p, octaves: v })} />
+        <Knob label="GATE"     value={gate}     min={0.05} max={1}   step={0.01} color="#c4b5fd" onChange={v => onChange({ ...p, gate: v })} />
+        <Knob label="SWING"    value={swing}    min={0}    max={0.49} step={0.01} color="#ddd6fe" onChange={v => onChange({ ...p, swing: v })} />
+        <Knob label="VEL"      value={velocity} min={0}    max={127} step={1} color="#ede9fe"
           onChange={v => onChange({ ...p, velocity: v })}
         />
       </div>
-
-      {/* Bypass toggle */}
-      <div className="plugin-step-row" style={{ marginTop: 2 }}>
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">BYPASS</span>
-          <button className={`plugin-step-btn${pn(p.enabled, 1) === 0 ? ' active' : ''}`}
+      <div className="fs-step-row" style={{ marginTop: 2 }}>
+        <div className="fs-step-group">
+          <span className="fs-step-label">BYPASS</span>
+          <button className={`fs-step-btn${pn(p.enabled, 1) === 0 ? ' active' : ''}`}
+            style={pn(p.enabled, 1) === 0 ? { background: '#ef444430', color: '#ef4444', borderColor: '#ef444480' } : {}}
             onClick={() => onChange({ ...p, enabled: pn(p.enabled, 1) === 0 ? 1 : 0 })}
-          >{pn(p.enabled, 1) === 0 ? 'ON' : 'OFF'}</button>
+          >{pn(p.enabled, 1) === 0 ? 'BYPASSED' : 'ACTIVE'}</button>
         </div>
         <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', marginLeft: 8 }}>
           {velocity === 0 ? 'vel: pass-thru' : `vel: ${velocity}`}
@@ -1482,47 +1581,52 @@ function NoteRepeatEditor({ plugin, onChange }: PluginEditorProps) {
   const velDecay= pn(p.velDecay, 0.8)
   const swing   = pn(p.swing,    0)
   const latch   = pn(p.latch,    0)
+  const C = '#c084fc'
   return (
-    <div className="plugin-editor-body">
-      <div className="plugin-step-row">
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">RATE</span>
+    <div className="fs-plugin-editor-col">
+      <div className="fs-step-row">
+        <div className="fs-step-group">
+          <span className="fs-step-label">RATE</span>
           {NR_RATE_OPTIONS.map(o => (
             <button key={o.value}
-              className={`plugin-step-btn${rate === o.value ? ' active' : ''}`}
+              className={`fs-step-btn${rate === o.value ? ' active' : ''}`}
+              style={rate === o.value ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
               onClick={() => onChange({ ...p, rate: o.value })}
             >{o.label}</button>
           ))}
         </div>
       </div>
-      <div className="plugin-step-row">
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">VEL MODE</span>
+      <div className="fs-step-row">
+        <div className="fs-step-group">
+          <span className="fs-step-label">VEL MODE</span>
           {[['Descend','0'],['Ascend','1'],['Fixed','2']].map(([lbl, val]) => (
             <button key={val}
-              className={`plugin-step-btn${velMode === Number(val) ? ' active' : ''}`}
+              className={`fs-step-btn${velMode === Number(val) ? ' active' : ''}`}
+              style={velMode === Number(val) ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
               onClick={() => onChange({ ...p, velocity: Number(val) })}
             >{lbl}</button>
           ))}
         </div>
       </div>
-      <div className="plugin-knob-row">
-        <Knob label="GATE"    value={gate}     min={0.05} max={1}    step={0.01} onChange={v => onChange({ ...p, gate: v })} />
-        <Knob label="VEL×"   value={velDecay}  min={0.5}  max={1}    step={0.01} onChange={v => onChange({ ...p, velDecay: v })} />
-        <Knob label="SWING"  value={swing}     min={0}    max={0.49} step={0.01} onChange={v => onChange({ ...p, swing: v })} />
+      <div className="fs-plugin-knobs">
+        <Knob label="GATE"    value={gate}     min={0.05} max={1}    step={0.01} color={C} onChange={v => onChange({ ...p, gate: v })} />
+        <Knob label="VEL×"   value={velDecay}  min={0.5}  max={1}    step={0.01} color="#e9d5ff" onChange={v => onChange({ ...p, velDecay: v })} />
+        <Knob label="SWING"  value={swing}     min={0}    max={0.49} step={0.01} color="#d8b4fe" onChange={v => onChange({ ...p, swing: v })} />
       </div>
-      <div className="plugin-step-row" style={{ marginTop: 2 }}>
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">LATCH</span>
-          <button className={`plugin-step-btn${latch === 1 ? ' active' : ''}`}
+      <div className="fs-step-row" style={{ marginTop: 2 }}>
+        <div className="fs-step-group">
+          <span className="fs-step-label">LATCH</span>
+          <button className={`fs-step-btn${latch === 1 ? ' active' : ''}`}
+            style={latch === 1 ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
             onClick={() => onChange({ ...p, latch: latch === 1 ? 0 : 1 })}
           >{latch === 1 ? 'ON' : 'OFF'}</button>
         </div>
-        <div className="plugin-step-group" style={{ marginLeft: 12 }}>
-          <span className="plugin-step-label">BYPASS</span>
-          <button className={`plugin-step-btn${pn(p.enabled, 1) === 0 ? ' active' : ''}`}
+        <div className="fs-step-group" style={{ marginLeft: 12 }}>
+          <span className="fs-step-label">BYPASS</span>
+          <button className={`fs-step-btn${pn(p.enabled, 1) === 0 ? ' active' : ''}`}
+            style={pn(p.enabled, 1) === 0 ? { background: '#ef444430', color: '#ef4444', borderColor: '#ef444480' } : {}}
             onClick={() => onChange({ ...p, enabled: pn(p.enabled, 1) === 0 ? 1 : 0 })}
-          >{pn(p.enabled, 1) === 0 ? 'ON' : 'OFF'}</button>
+          >{pn(p.enabled, 1) === 0 ? 'BYPASSED' : 'ACTIVE'}</button>
         </div>
       </div>
     </div>
@@ -1569,18 +1673,23 @@ function ChordMemEditor({ plugin, onChange }: PluginEditorProps) {
 
   const matchedPreset = CHORD_PRESETS.find(cp => intervalsToMask(cp.intervals) === curMask)
 
+  const C = '#818cf8'
   return (
-    <div className="plugin-editor-body">
-      {/* Slot selector — 12 keys */}
+    <div className="fs-plugin-editor-col">
       <div style={{ marginBottom: 8 }}>
-        <div className="plugin-step-label" style={{ marginBottom: 4 }}>KEY SLOTS</div>
+        <div className="fs-step-label" style={{ marginBottom: 4 }}>KEY SLOTS</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
           {CM_ROOT_NAMES.map((name, i) => {
             const hasMask = pn(p[`slot${i}`], 0) !== 0
             return (
               <button key={i}
-                className={`plugin-step-btn${selSlot === i ? ' active' : ''}`}
-                style={{ minWidth: 28, background: hasMask ? 'rgba(168,85,247,0.2)' : undefined }}
+                className={`fs-step-btn${selSlot === i ? ' active' : ''}`}
+                style={{
+                  minWidth: 28,
+                  background: selSlot === i ? C + '30' : hasMask ? 'rgba(168,85,247,0.15)' : undefined,
+                  color: selSlot === i ? C : hasMask ? '#c4b5fd' : undefined,
+                  borderColor: selSlot === i ? C + '80' : hasMask ? '#a78bfa44' : undefined,
+                }}
                 onClick={() => setSelSlot(i)}
               >{name}</button>
             )
@@ -1588,60 +1697,58 @@ function ChordMemEditor({ plugin, onChange }: PluginEditorProps) {
         </div>
       </div>
 
-      {/* Chord preset selector */}
       <div style={{ marginBottom: 8 }}>
-        <div className="plugin-step-label" style={{ marginBottom: 4 }}>CHORD PRESET — Slot: {CM_ROOT_NAMES[(selSlot + rootKey) % 12]}</div>
+        <div className="fs-step-label" style={{ marginBottom: 4 }}>PRESET — {CM_ROOT_NAMES[(selSlot + rootKey) % 12]}</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
           {CHORD_PRESETS.map(cp => (
             <button key={cp.name}
-              className={`plugin-step-btn${matchedPreset?.name === cp.name ? ' active' : ''}`}
+              className={`fs-step-btn${matchedPreset?.name === cp.name ? ' active' : ''}`}
+              style={matchedPreset?.name === cp.name ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
               onClick={() => setSlotMask(selSlot, intervalsToMask(cp.intervals))}
             >{cp.name}</button>
           ))}
         </div>
         {curIntervals.length > 0 && (
-          <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>
-            Intervals: {curIntervals.join(', ')} semitones
+          <div style={{ fontSize: 9, color: '#6366f1', marginTop: 4 }}>
+            {curIntervals.join('  ')} st
           </div>
         )}
       </div>
 
-      {/* Root key & voicing */}
-      <div className="plugin-step-row">
-        <div className="plugin-step-group">
-          <span className="plugin-step-label">ROOT</span>
-          <select
-            style={{ fontSize: 10, background: '#1e1e2e', border: '1px solid rgba(255,255,255,0.15)', color: '#e2e8f0', borderRadius: 3, padding: '1px 4px' }}
-            value={rootKey}
+      <div className="fs-step-row">
+        <div className="fs-step-group">
+          <span className="fs-step-label">ROOT</span>
+          <select className="fs-plugin-select" value={rootKey}
             onChange={e => onChange({ ...p, rootKey: Number(e.target.value) })}
           >
             {CM_ROOT_NAMES.map((n, i) => <option key={n} value={i}>{n}</option>)}
           </select>
         </div>
-        <div className="plugin-step-group" style={{ marginLeft: 12 }}>
-          <span className="plugin-step-label">VOICING</span>
+        <div className="fs-step-group" style={{ marginLeft: 12 }}>
+          <span className="fs-step-label">VOICING</span>
           {[['Root','0'],['1st','1'],['2nd','2'],['Sprd','3']].map(([lbl, val]) => (
             <button key={val}
-              className={`plugin-step-btn${voicing === Number(val) ? ' active' : ''}`}
+              className={`fs-step-btn${voicing === Number(val) ? ' active' : ''}`}
+              style={voicing === Number(val) ? { background: C + '30', color: C, borderColor: C + '80' } : {}}
               onClick={() => onChange({ ...p, voicing: Number(val) })}
             >{lbl}</button>
           ))}
         </div>
       </div>
 
-      {/* Clear slot / bypass */}
-      <div className="plugin-step-row" style={{ marginTop: 4 }}>
-        <button className="plugin-step-btn" onClick={() => setSlotMask(selSlot, 0)}>Clear Slot</button>
-        <button className="plugin-step-btn" onClick={() => {
+      <div className="fs-step-row" style={{ marginTop: 4 }}>
+        <button className="fs-step-btn" onClick={() => setSlotMask(selSlot, 0)}>Clear Slot</button>
+        <button className="fs-step-btn" onClick={() => {
           const cleared: Record<string, number | string> = { ...p }
           for (let i = 0; i < 12; i++) cleared[`slot${i}`] = 0
           onChange(cleared)
         }} style={{ marginLeft: 4 }}>Clear All</button>
-        <div className="plugin-step-group" style={{ marginLeft: 12 }}>
-          <span className="plugin-step-label">BYPASS</span>
-          <button className={`plugin-step-btn${pn(p.enabled, 1) === 0 ? ' active' : ''}`}
+        <div className="fs-step-group" style={{ marginLeft: 12 }}>
+          <span className="fs-step-label">BYPASS</span>
+          <button className={`fs-step-btn${pn(p.enabled, 1) === 0 ? ' active' : ''}`}
+            style={pn(p.enabled, 1) === 0 ? { background: '#ef444430', color: '#ef4444', borderColor: '#ef444480' } : {}}
             onClick={() => onChange({ ...p, enabled: pn(p.enabled, 1) === 0 ? 1 : 0 })}
-          >{pn(p.enabled, 1) === 0 ? 'ON' : 'OFF'}</button>
+          >{pn(p.enabled, 1) === 0 ? 'BYPASSED' : 'ACTIVE'}</button>
         </div>
       </div>
     </div>
@@ -1796,30 +1903,91 @@ function PluginSlot({ trackId, plugin, slotIndex }: PluginSlotProps) {
   const color = typeColors[plugin.type] ?? '#6b7280'
 
   return (
-    <div className={`plugin-slot-v2 ${plugin.enabled ? '' : 'plugin-bypassed'}`} style={{ borderColor: expanded ? color + '66' : undefined }}>
-      <div className="plugin-slot-v2-header">
-        <span className="plugin-slot-num" style={{ color }}>{slotIndex + 1}</span>
-        <div
-          className="plugin-power-dot"
-          style={{ background: plugin.enabled ? color : undefined }}
-          onClick={() => togglePlugin(trackId, plugin.id)}
+    <div
+      className={`fs-plugin-slot ${plugin.enabled ? '' : 'fs-plugin-bypassed'} ${expanded ? 'fs-plugin-expanded' : ''}`}
+      style={{
+        '--plugin-color': color,
+        borderColor: expanded ? color + '55' : 'transparent',
+        background: expanded
+          ? `linear-gradient(135deg, rgba(${hexToRgb(color)},0.06) 0%, rgba(10,10,18,0.98) 60%)`
+          : undefined,
+      } as React.CSSProperties}
+    >
+      {/* Colored accent bar on left */}
+      <div className="fs-plugin-accent-bar" style={{ background: `linear-gradient(180deg, ${color}, ${color}44)` }} />
+
+      <div className="fs-plugin-header" onClick={() => setExpanded(e => !e)}>
+        {/* Slot number badge */}
+        <span className="fs-plugin-num" style={{ color, borderColor: color + '44', background: color + '15' }}>
+          {slotIndex + 1}
+        </span>
+
+        {/* Power toggle */}
+        <button
+          className={`fs-plugin-power ${plugin.enabled ? 'fs-plugin-power-on' : ''}`}
+          style={plugin.enabled ? { background: color, boxShadow: `0 0 6px ${color}88` } : {}}
+          onClick={e => { e.stopPropagation(); togglePlugin(trackId, plugin.id) }}
           title={plugin.enabled ? 'Bypass' : 'Enable'}
         />
-        <span className="plugin-slot-name" style={{ color: plugin.enabled ? 'var(--text-p)' : 'var(--text-m)' }}>
+
+        {/* Plugin name */}
+        <span className="fs-plugin-name" style={{ color: plugin.enabled ? '#f0f0f0' : '#4b5563' }}>
           {plugin.name}
         </span>
-        <button className="plugin-expand-btn" onClick={() => setExpanded(e => !e)}>
+
+        {/* Type badge */}
+        <span className="fs-plugin-type-badge" style={{ color, borderColor: color + '44', background: color + '12' }}>
+          {getPluginCategory(plugin.type)}
+        </span>
+
+        <div style={{ flex: 1 }} />
+
+        {/* Expand arrow */}
+        <span className="fs-plugin-arrow" style={{ color: expanded ? color : '#4b5563' }}>
           {expanded ? '▲' : '▼'}
-        </button>
-        <button className="plugin-remove-btn" onClick={() => removePlugin(trackId, plugin.id)} title="Remove">✕</button>
+        </span>
+
+        {/* Remove */}
+        <button
+          className="fs-plugin-remove"
+          onClick={e => { e.stopPropagation(); removePlugin(trackId, plugin.id) }}
+          title="Remove plugin"
+        >✕</button>
       </div>
+
       {expanded && (
-        <div className="plugin-slot-v2-body">
+        <div className="fs-plugin-body">
           {renderEditor()}
         </div>
       )}
     </div>
   )
+}
+
+function hexToRgb(hex: string): string {
+  const h = hex.replace('#', '')
+  const r = parseInt(h.slice(0, 2), 16)
+  const g = parseInt(h.slice(2, 4), 16)
+  const b = parseInt(h.slice(4, 6), 16)
+  return `${r},${g},${b}`
+}
+
+function getPluginCategory(type: string): string {
+  const map: Record<string, string> = {
+    eq: 'EQ', compressor: 'COMP', limiter: 'LIM', reverb: 'VERB',
+    delay: 'DLY', chorus: 'CHR', distortion: 'DIST',
+    saturation: 'SAT', bus_compressor: 'BUS', spacetime: 'SPACE',
+    transient: 'TRANS', expander: 'EXP', exciter: 'EXCIT',
+    vibrato: 'VIB', stereo_width: 'M/S', tape: 'TAPE',
+    sub_enhancer: 'SUB', noise_gate: 'GATE', pitch_correct: 'PITCH',
+    parallel_comp: 'PARA', granular: 'GRAN', vocal_tuner: 'TUNE',
+    parametric_eq8: 'EQ8', multiband_comp: 'MBAND', deesser: 'DESS',
+    arpeggiator: 'ARP', note_repeat: 'RPT', chord_memorizer: 'CHRD',
+    fs_oracle: 'AI', fs_clone: 'AI', fs_architect: 'AI',
+    fs_phantom: 'AI', fs_nerve: 'AI', fs_bpmfinder: 'ANAL',
+    fs_ghost: 'EXP', fs_prophet: 'EXP', fs_void: 'EXP', fs_alchemy: 'EXP',
+  }
+  return map[type] ?? 'FX'
 }
 
 // ── Plugin Rack ───────────────────────────────────────────────────────────────
@@ -2226,15 +2394,15 @@ export function PluginRack({ track }: PluginRackProps) {
 
   return (
     <>
-    <div className="plugin-rack">
-      <div className="plugin-rack-header">
-        <span className="plugin-rack-title">INSERT EFFECTS</span>
+    <div className="fs-plugin-rack">
+      <div className="fs-plugin-rack-header">
+        <span className="fs-plugin-rack-title">INSERT EFFECTS</span>
         <button
-          className="plugin-rack-add-btn"
+          className="fs-plugin-rack-add-btn"
           onClick={() => setShowAdd(s => !s)}
           title="Add Plugin"
         >
-          + ADD
+          {showAdd ? '✕ CLOSE' : '+ ADD'}
         </button>
       </div>
 
@@ -2246,16 +2414,18 @@ export function PluginRack({ track }: PluginRackProps) {
         />
       )}
 
-      <div className="plugin-rack-slots">
+      <div className="fs-plugin-rack-slots">
         {track.plugins.length === 0 && (
-          <div className="plugin-rack-empty">No effects — click + ADD to insert</div>
+          <div className="fs-plugin-rack-empty">
+            <span style={{ fontSize: 18, opacity: 0.3 }}>⊕</span>
+            <span>No effects — click + ADD to insert</span>
+          </div>
         )}
         {track.plugins.map((plugin, i) => (
           <PluginSlot key={plugin.id} trackId={track.id} plugin={plugin} slotIndex={i} />
         ))}
       </div>
     </div>
-    {/* Auth gate modal — rendered outside the rack so it covers the full screen */}
     {modal && (
       <AuthGateModal
         config={modal.config}
