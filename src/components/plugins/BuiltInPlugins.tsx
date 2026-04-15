@@ -58,7 +58,7 @@ interface KnobProps {
   color?: string
 }
 
-function Knob({ label, value, min, max, step = 0.01, unit = '', onChange, size = 44, color = '#a855f7' }: KnobProps) {
+function Knob({ label, value, min, max, step = 0.01, unit = '', onChange, size = 48, color = '#a855f7' }: KnobProps) {
   const norm = Math.max(0, Math.min(1, (value - min) / (max - min)))
   const cx = size / 2, cy = size / 2
   const r = size / 2 - 4
@@ -1907,25 +1907,19 @@ function PluginSlot({ trackId, plugin, slotIndex }: PluginSlotProps) {
       className={`fs-plugin-slot ${plugin.enabled ? '' : 'fs-plugin-bypassed'} ${expanded ? 'fs-plugin-expanded' : ''}`}
       style={{
         '--plugin-color': color,
-        borderColor: expanded ? color + '55' : 'transparent',
+        borderLeftColor: color + 'cc',
+        borderTopColor: expanded ? color + '22' : undefined,
+        borderBottomColor: expanded ? color + '22' : undefined,
         background: expanded
-          ? `linear-gradient(135deg, rgba(${hexToRgb(color)},0.06) 0%, rgba(10,10,18,0.98) 60%)`
-          : undefined,
+          ? `linear-gradient(135deg, rgba(${hexToRgb(color)},0.05) 0%, rgba(8,8,18,0.96) 55%)`
+          : `rgba(8,8,16,0.5)`,
       } as React.CSSProperties}
     >
-      {/* Colored accent bar on left */}
-      <div className="fs-plugin-accent-bar" style={{ background: `linear-gradient(180deg, ${color}, ${color}44)` }} />
-
       <div className="fs-plugin-header" onClick={() => setExpanded(e => !e)}>
-        {/* Slot number badge */}
-        <span className="fs-plugin-num" style={{ color, borderColor: color + '44', background: color + '15' }}>
-          {slotIndex + 1}
-        </span>
-
         {/* Power toggle */}
         <button
           className={`fs-plugin-power ${plugin.enabled ? 'fs-plugin-power-on' : ''}`}
-          style={plugin.enabled ? { background: color, boxShadow: `0 0 6px ${color}88` } : {}}
+          style={plugin.enabled ? { background: color, boxShadow: `0 0 8px ${color}aa, 0 0 3px ${color}` } : {}}
           onClick={e => { e.stopPropagation(); togglePlugin(trackId, plugin.id) }}
           title={plugin.enabled ? 'Bypass' : 'Enable'}
         />
@@ -1936,14 +1930,17 @@ function PluginSlot({ trackId, plugin, slotIndex }: PluginSlotProps) {
         </span>
 
         {/* Type badge */}
-        <span className="fs-plugin-type-badge" style={{ color, borderColor: color + '44', background: color + '12' }}>
+        <span className="fs-plugin-type-badge" style={{ color, borderColor: color + '55', background: color + '18' }}>
           {getPluginCategory(plugin.type)}
         </span>
 
-        <div style={{ flex: 1 }} />
+        {/* Slot number */}
+        <span className="fs-plugin-num" style={{ color: color + 'bb', borderColor: color + '33', background: 'transparent' }}>
+          {slotIndex + 1}
+        </span>
 
         {/* Expand arrow */}
-        <span className="fs-plugin-arrow" style={{ color: expanded ? color : '#4b5563' }}>
+        <span className="fs-plugin-arrow" style={{ color: expanded ? color : 'rgba(75,85,99,0.6)' }}>
           {expanded ? '▲' : '▼'}
         </span>
 
