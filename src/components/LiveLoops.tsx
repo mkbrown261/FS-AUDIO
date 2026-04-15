@@ -144,6 +144,11 @@ export default function LiveLoops({ isOpen, onClose, onPlayClip, onStopClip }: P
   const [bpm, setBpm] = useState(store.bpm)
   const beatTimerRef = useRef<number | null>(null)
   const queueRef = useRef<LaunchClip[]>([])
+  // Stable refs to avoid re-creating beat timer when callbacks change identity
+  const onPlayClipRef = useRef(onPlayClip)
+  const onStopClipRef = useRef(onStopClip)
+  useEffect(() => { onPlayClipRef.current = onPlayClip }, [onPlayClip])
+  useEffect(() => { onStopClipRef.current = onStopClip }, [onStopClip])
 
   const { grid, sceneCount } = buildGrid(store.tracks)
   const nonMaster = store.tracks.filter(t => t.type !== 'master')
@@ -151,8 +156,7 @@ export default function LiveLoops({ isOpen, onClose, onPlayClip, onStopClip }: P
 
   // Process queued clips on next beat
   useEffect(() => {
-    const bpmNow = store.bpm
-    const beatMs = 60000 / bpmNow
+    const beatMs = 60000 / store.bpm
     const timer = window.setInterval(() => {
       if (queueRef.current.length === 0) return
       const toPlay = [...queueRef.current]
@@ -170,11 +174,11 @@ export default function LiveLoops({ isOpen, onClose, onPlayClip, onStopClip }: P
           return next
         })
         setQueuedCells(prev => { const n = new Set(prev); n.delete(key); return n })
-        onPlayClip(cell.trackId, cell.clip!, 0)
+        onPlayClipRef.current(cell.trackId, cell.clip!, 0)
       })
     }, beatMs)
     return () => clearInterval(timer)
-  }, [store.bpm, onPlayClip])
+  }, [store.bpm])
 
   const handleLaunch = useCallback((cell: LaunchClip) => {
     const key = `${cell.trackId}-${cell.sceneIdx}`
@@ -188,8 +192,8 @@ export default function LiveLoops({ isOpen, onClose, onPlayClip, onStopClip }: P
       prev.forEach(k => { if (k.startsWith(trackId + '-')) n.delete(k) })
       return n
     })
-    onStopClip(trackId)
-  }, [onStopClip])
+    onStopClipRef.current(trackId)
+  }, [])
 
   const handleLaunchScene = useCallback((sceneIdx: number) => {
     grid.forEach(row => {
@@ -202,8 +206,8 @@ export default function LiveLoops({ isOpen, onClose, onPlayClip, onStopClip }: P
     setPlayingCells(new Set())
     setQueuedCells(new Set())
     queueRef.current = []
-    nonMaster.forEach(t => onStopClip(t.id))
-  }, [nonMaster, onStopClip])
+    nonMaster.forEach(t => onStopClipRef.current(t.id))
+  }, [nonMaster])
 
   if (!isOpen) return null
 

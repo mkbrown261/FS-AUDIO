@@ -9,10 +9,11 @@ import { useProjectStore, MidiNote, Clip } from '../store/projectStore'
 
 // ── Onset detection using spectral flux ──────────────────────────────────────
 function detectOnsets(samples: Float32Array, sampleRate: number, sensitivity: number): number[] {
+  // sensitivity: 0.05 (detect everything) to 1.0 (detect only very loud onsets)
   const hopSize = 512
   const fftSize = 2048
   const onsets: number[] = []
-  let prevMag = new Float32Array(fftSize / 2)
+  let prevMag: Float32Array = new Float32Array(fftSize / 2)
 
   for (let pos = 0; pos + fftSize < samples.length; pos += hopSize) {
     // Simple rectangular window
@@ -25,8 +26,9 @@ function detectOnsets(samples: Float32Array, sampleRate: number, sensitivity: nu
       const diff = mag[i] - prevMag[i]
       if (diff > 0) flux += diff
     }
-    // Threshold onset
-    const threshold = sensitivity * 10
+    // Threshold onset: sensitivity 0.05→1.0; lower = more sensitive (more onsets)
+    // flux is unbounded sum, so we use (1 - sensitivity) * maxFluxGuess
+    const threshold = (1 - sensitivity) * 5 + 0.1
     if (flux > threshold && (onsets.length === 0 || (pos / sampleRate - onsets[onsets.length-1]) > 0.05)) {
       onsets.push(pos / sampleRate)
     }
@@ -36,9 +38,9 @@ function detectOnsets(samples: Float32Array, sampleRate: number, sensitivity: nu
 }
 
 // Simple DFT magnitude (fast enough for short frames)
-function computeMagnitudeSpectrum(frame: Float32Array<ArrayBuffer>, fftSize: number): Float32Array<ArrayBuffer> {
+function computeMagnitudeSpectrum(frame: Float32Array, fftSize: number): Float32Array {
   const half = fftSize / 2
-  const mag = new Float32Array(half) as Float32Array<ArrayBuffer>
+  const mag = new Float32Array(half)
   // Use a simplified power-of-2 DFT approximation for speed
   for (let k = 0; k < half; k++) {
     let re = 0, im = 0
@@ -51,7 +53,7 @@ function computeMagnitudeSpectrum(frame: Float32Array<ArrayBuffer>, fftSize: num
     }
     mag[k] = Math.sqrt(re*re + im*im)
   }
-  return mag
+  return mag as Float32Array
 }
 
 // ── Pitch detection via autocorrelation (YIN-like) ───────────────────────────
@@ -283,7 +285,7 @@ export default function AudioToMidi({ isOpen, onClose, getAudioBuffer }: Props) 
           {/* Parameters */}
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
             {[
-              { label:'Sensitivity', sub:'Lower = more notes', val:sensitivity, min:0.05, max:1, step:0.05, set:setSensitivity, color:'#22d3ee' },
+              { label:'Sensitivity', sub:'Lower = detect more onsets', val:sensitivity, min:0.05, max:1, step:0.05, set:setSensitivity, color:'#22d3ee' },
               { label:'Min Duration', sub:'Shortest note (sec)', val:minDuration, min:0.02, max:0.5, step:0.01, set:setMinDuration, color:'#10b981' },
             ].map(({ label, sub, val, min, max, step, set, color }) => (
               <div key={label} style={{ background:'#0d0d1a', borderRadius:8, padding:10 }}>

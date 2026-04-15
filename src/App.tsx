@@ -1497,7 +1497,7 @@ export default function App() {
             engine.playClip(clip.audioUrl, trackId, clip, bpm, fromBeat ?? 0, track.volume ?? 1, track.pan ?? 0, Infinity)
           }
         }}
-        onStopClip={_trackId => engine.stopAll()}
+        onStopClip={trackId => engine.stopTrackClips(trackId)}
       />
     </div>
   )

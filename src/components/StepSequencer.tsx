@@ -250,9 +250,9 @@ export default function StepSequencer({ isOpen, onClose, onNoteOn, onNoteOff }: 
             </div>
           </div>
           <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-            <button onClick={() => setPlaying(!playing)} style={{
+            <button onClick={() => playing ? handleStop() : setPlaying(true)} style={{
               padding:'6px 14px', borderRadius:8, border:'none', cursor:'pointer',
-              background: playing ? '#10b981' : '#222', color:'#fff', fontWeight:700, fontSize:12,
+              background: playing ? '#ef4444' : '#10b981', color:'#fff', fontWeight:700, fontSize:12,
             }}>
               {playing ? '⏹ Stop' : '▶ Play'}
             </button>

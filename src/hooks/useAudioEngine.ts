@@ -2122,6 +2122,21 @@ export function useAudioEngine() {
     }
   }, [])
 
+  /** Stop only the audio sources associated with clips on a specific track */
+  const stopTrackClips = useCallback((trackId: string) => {
+    const track = useProjectStore.getState().tracks.find(t => t.id === trackId)
+    const clipIds = new Set<string>((track?.clips ?? []).map(c => c.id))
+    const remaining: typeof scheduledSourcesRef.current = []
+    for (const entry of scheduledSourcesRef.current) {
+      if (clipIds.has(entry.clipId)) {
+        try { entry.source.stop() } catch {}
+      } else {
+        remaining.push(entry)
+      }
+    }
+    scheduledSourcesRef.current = remaining
+  }, [])
+
   // ── Metronome ────────────────────────────────────────────────────────────
   const startMetronome = useCallback((bpm: number, volume: number) => {
     if (metronomeIntervalRef.current !== null) {
@@ -3337,6 +3352,7 @@ export function useAudioEngine() {
     getCtx,
     startPlayback,
     stopAll,
+    stopTrackClips,
     playClip,
     scheduleMidiClip,
     applySoloMute,

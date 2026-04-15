@@ -312,11 +312,11 @@ export default function DrummerPanel({ isOpen, onClose }: Props) {
             </button>
             <button onClick={handleAddToTimeline} style={{
               flex:1, padding:'10px 0', borderRadius:8,
-              outline: `1px solid ${generated ? '#10b981' : '#333'}`,
-              background: generated ? 'linear-gradient(135deg,#065f46,#10b981)' : '#1a1a2e',
+              outline: `1px solid ${generated ? '#10b981' : '#555'}`,
+              background: generated ? 'linear-gradient(135deg,#065f46,#10b981)' : '#1e1e2e',
               border: 'none',
-              color: generated ? '#fff' : '#666',
-              fontWeight:700, fontSize:13, cursor: generated ? 'pointer' : 'default',
+              color: generated ? '#fff' : '#aaa',
+              fontWeight:700, fontSize:13, cursor: 'pointer',
             }}>
               ✚ Add to Timeline
             </button>

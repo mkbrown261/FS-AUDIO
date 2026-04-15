@@ -105,7 +105,9 @@ function MacroKnob({
   const r = 26
   const cx = 32, cy = 32
   const circumference = 2 * Math.PI * r
-  const dashLen = circumference * macro.value
+  // Track arc covers 270° (0.75 of circumference), value arc is proportion of that
+  const trackArc = circumference * 0.75
+  const dashLen = trackArc * macro.value
   const dashOffset = circumference * 0.375
 
   return (
@@ -123,7 +125,7 @@ function MacroKnob({
             strokeDashoffset={dashOffset} strokeLinecap="round" />
           {/* Value arc */}
           <circle cx={cx} cy={cy} r={r} fill="none" stroke={macro.color}
-            strokeWidth={6} strokeDasharray={`${dashLen * 0.75} ${circumference - dashLen * 0.75}`}
+            strokeWidth={6} strokeDasharray={`${dashLen} ${circumference - dashLen}`}
             strokeDashoffset={dashOffset} strokeLinecap="round"
             style={{ filter:`drop-shadow(0 0 4px ${macro.color}88)` }} />
           {/* Pointer */}

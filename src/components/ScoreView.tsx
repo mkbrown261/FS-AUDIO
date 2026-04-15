@@ -9,7 +9,6 @@ import { useProjectStore, MidiNote, Clip } from '../store/projectStore'
 
 // ── Music theory helpers ──────────────────────────────────────────────────────
 const NOTE_NAMES = ['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B']
-const DIATONIC  = [0,2,4,5,7,9,11]  // C major diatonic intervals
 
 function midiToName(midi: number): string {
   return NOTE_NAMES[midi % 12] + Math.floor(midi / 12 - 1)
@@ -17,37 +16,37 @@ function midiToName(midi: number): string {
 
 // Staff position (0 = middle C ledger line = B4 first space above bass)
 // Returns steps from top of treble staff (C4 = step 6 counting from top)
+// Maps chromatic pitch class to diatonic step (0=C,1=D,2=E,3=F,4=G,5=A,6=B) + accidental
+const CHROMATIC_TO_DIATONIC: Array<{ step: number; acc: '#'|'b'|'' }> = [
+  { step: 0, acc: '' },   // C
+  { step: 0, acc: '#' },  // C#
+  { step: 1, acc: '' },   // D
+  { step: 1, acc: '#' },  // D#
+  { step: 2, acc: '' },   // E
+  { step: 3, acc: '' },   // F
+  { step: 3, acc: '#' },  // F#
+  { step: 4, acc: '' },   // G
+  { step: 4, acc: '#' },  // G#
+  { step: 5, acc: '' },   // A
+  { step: 5, acc: '#' },  // A#
+  { step: 6, acc: '' },   // B
+]
+
 function staffPosition(midi: number): { staff: 'treble'|'bass'; line: number; accidental: '#'|'b'|'' } {
   const octave = Math.floor(midi / 12) - 1
   const pitchClass = midi % 12
-  // Find diatonic position
-  let diatonicStep = -1
-  let accidental: '#'|'b'|'' = ''
-  for (let i = 0; i < 7; i++) {
-    if (DIATONIC[i] === pitchClass) { diatonicStep = i; break }
-    if (DIATONIC[i] === pitchClass - 1 && i < 6) {
-      diatonicStep = i + 1  // sharp
-      accidental = '#'
-      break
-    }
-    if (DIATONIC[i] === pitchClass + 1) {
-      diatonicStep = i  // flat
-      accidental = 'b'
-      break
-    }
-  }
-  if (diatonicStep < 0) { diatonicStep = 0; accidental = '#' }
-  // Line from top of treble staff: E5=0, D5=1, C5=2 (middle of staff), B4=3...
-  // Treble staff top line = E5 (midi 76), each step = 1 line/space = 3.5px
-  const trebleTopMidi = 76  // E5
-  // Convert midi to diatonic steps from E5
-  const octSteps = (octave - 4) * 7 + diatonicStep
-  const trebleTopSteps = 4 + 2  // E5 is step 4 in octave 4 (C4=0,D4=1,E4=2,F4=3,G4=4,A4=5,B4=6)
-  const stepsFromTop = (4 * 7 + 4) - (octave * 7 + diatonicStep)
+  const { step: diatonicStep, acc: accidental } = CHROMATIC_TO_DIATONIC[pitchClass]
+
+  // Absolute diatonic position from C0 (each octave = 7 steps)
+  const absDiatonic = octave * 7 + diatonicStep
+
+  // Treble staff: top line is E5 (midi=76). E5 = octave5 * 7 + step(E)=2 = 5*7+2 = 37
+  // line=0 → top line (E5), each half-step = 1 staff unit
+  const E5_diatonic = 5 * 7 + 2  // octave5 is (76/12)floor-1 = 5, pitchClass 4 = E → step 2
+  const stepsFromTop = E5_diatonic - absDiatonic
 
   const staff: 'treble'|'bass' = midi >= 60 ? 'treble' : 'bass'
-  const line = stepsFromTop  // higher = more negative on canvas (above)
-  return { staff, line, accidental }
+  return { staff, line: stepsFromTop, accidental }
 }
 
 // ── Score renderer ─────────────────────────────────────────────────────────────
@@ -95,22 +94,20 @@ function drawNote(
   ctx.strokeStyle = selected ? '#22d3ee' : '#fff'
   ctx.lineWidth = isHalf ? 1.5 : 1
 
-  // Ledger lines
+  // Ledger lines above staff (lineStep < 0 means note is above top line)
   ctx.strokeStyle = '#555'
   if (lineStep < 0) {
-    for (let l = 0; l >= lineStep; l--) {
-      if (l % 2 === 0) {
-        const ly = staffTop + l * STAFF_LINE_GAP
-        ctx.beginPath(); ctx.moveTo(x-10, ly); ctx.lineTo(x+10, ly); ctx.stroke()
-      }
+    // Draw ledger lines from -2 upward to lineStep (even steps = line positions)
+    for (let l = -2; l >= lineStep; l -= 2) {
+      const ly = staffTop + l * STAFF_LINE_GAP
+      ctx.beginPath(); ctx.moveTo(x - 10, ly); ctx.lineTo(x + 10, ly); ctx.stroke()
     }
   }
+  // Ledger lines below staff (lineStep > 8 means below bottom line)
   if (lineStep > 8) {
-    for (let l = 10; l <= lineStep; l++) {
-      if (l % 2 === 0) {
-        const ly = staffTop + l * STAFF_LINE_GAP
-        ctx.beginPath(); ctx.moveTo(x-10, ly); ctx.lineTo(x+10, ly); ctx.stroke()
-      }
+    for (let l = 10; l <= lineStep; l += 2) {
+      const ly = staffTop + l * STAFF_LINE_GAP
+      ctx.beginPath(); ctx.moveTo(x - 10, ly); ctx.lineTo(x + 10, ly); ctx.stroke()
     }
   }
 
