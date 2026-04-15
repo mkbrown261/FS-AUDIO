@@ -28,6 +28,7 @@ import { VocalTunerUI } from './VocalTunerUI'
 import { ParametricEQ8UI } from './ParametricEQ8UI'
 import { MultibandCompressorUI } from './MultibandCompressorUI'
 import { DeEsserUI } from './DeEsserUI'
+import { PluginPresetBrowser } from './PluginPresetBrowser'
 import type { EQBand } from '../../audio/plugins/ParametricEQ8'
 
 // AI plugins that require a Pro (or higher) plan to add.
@@ -1763,8 +1764,9 @@ interface PluginSlotProps {
 }
 
 function PluginSlot({ trackId, plugin, slotIndex }: PluginSlotProps) {
-  const { updatePlugin, togglePlugin, removePlugin } = useProjectStore()
+  const { updatePlugin, togglePlugin, removePlugin, openPluginWindow } = useProjectStore()
   const [expanded, setExpanded] = useState(false)
+  const [showPresets, setShowPresets] = useState(false)
 
   const handleChange = useCallback((params: Record<string, number | string>) => {
     updatePlugin(trackId, plugin.id, params)
@@ -1915,7 +1917,7 @@ function PluginSlot({ trackId, plugin, slotIndex }: PluginSlotProps) {
           : `rgba(8,8,16,0.5)`,
       } as React.CSSProperties}
     >
-      <div className="fs-plugin-header" onClick={() => setExpanded(e => !e)}>
+      <div className="fs-plugin-header" onClick={() => setExpanded(e => !e)} onDoubleClick={(e) => { e.stopPropagation(); openPluginWindow(plugin.id) }} title="Click to expand • Double-click to pop out in window">
         {/* Power toggle */}
         <button
           className={`fs-plugin-power ${plugin.enabled ? 'fs-plugin-power-on' : ''}`}
@@ -1939,6 +1941,16 @@ function PluginSlot({ trackId, plugin, slotIndex }: PluginSlotProps) {
           {slotIndex + 1}
         </span>
 
+        {/* Pop out button */}
+        <button
+          className="fs-plugin-remove"
+          onClick={e => { e.stopPropagation(); openPluginWindow(plugin.id) }}
+          title="Pop out in floating window (double-click header)"
+          style={{ color: '#4b5563', fontSize: 10 }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = color }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#4b5563' }}
+        >⊞</button>
+
         {/* Expand arrow */}
         <span className="fs-plugin-arrow" style={{ color: expanded ? color : 'rgba(75,85,99,0.6)' }}>
           {expanded ? '▲' : '▼'}
@@ -1954,6 +1966,25 @@ function PluginSlot({ trackId, plugin, slotIndex }: PluginSlotProps) {
 
       {expanded && (
         <div className="fs-plugin-body">
+          {/* Preset browser bar */}
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '4px 10px 8px',
+            borderBottom: `1px solid rgba(255,255,255,0.04)`,
+            marginBottom: 2,
+          }}
+            onClick={e => e.stopPropagation()}
+          >
+            <span style={{ fontSize: 9, color: '#374151', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+              {plugin.name}
+            </span>
+            <PluginPresetBrowser
+              pluginType={plugin.type}
+              currentParams={plugin.params}
+              onLoadPreset={(params) => handleChange(params)}
+              color={color}
+            />
+          </div>
           {renderEditor()}
         </div>
       )}

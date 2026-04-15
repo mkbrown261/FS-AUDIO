@@ -310,6 +310,17 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showToast, engine])
 
+  // ── Autosave every 30 seconds when there are unsaved changes ────────────
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const st = useProjectStore.getState()
+      if (st.isDirty && st.name) {
+        st.autoSave()
+      }
+    }, 30_000)
+    return () => clearInterval(interval)
+  }, [])
+
   // ── Panel widths (resizable) ──────────────────────────────────────────────
   const [inspectorWidth, setInspectorWidth] = useState(240)
   const [tracklistWidth, setTracklistWidth] = useState(220)
@@ -1331,6 +1342,7 @@ export default function App() {
         onOpenSmartControls={() => setShowSmartControls(!showSmartControls)}
         onOpenScoreView={() => setShowScoreView(true)}
         onOpenLiveLoops={() => setShowLiveLoops(true)}
+        showToast={showToast}
       />
 
       <div className="main-area">

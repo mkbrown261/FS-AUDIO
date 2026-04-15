@@ -1,6 +1,7 @@
 import React, { useCallback, useRef, useState } from 'react'
 import { useProjectStore, EditTool } from '../store/projectStore'
 import { CustomSelect } from './CustomSelect'
+import { ProjectManager } from './ProjectManager'
 
 interface ToolbarProps {
   onPlay: () => void
@@ -20,6 +21,7 @@ interface ToolbarProps {
   onOpenSmartControls?: () => void
   onOpenScoreView?: () => void
   onOpenLiveLoops?: () => void
+  showToast?: (msg: string, kind?: 'info' | 'ok' | 'warn' | 'error') => void
 }
 
 const KEYS = [
@@ -142,7 +144,7 @@ function secToTime(sec: number): string {
   return `${m}:${String(s).padStart(2,'0')}.${String(ms).padStart(3,'0')}`
 }
 
-export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport, onOpenAudioPrefs, onImportMidi, onExportMidi, onOpenDrummer, onOpenStepSeq, onOpenAudioToMidi, onOpenCompEditor, onOpenSmartControls, onOpenScoreView, onOpenLiveLoops }: ToolbarProps) {
+export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport, onOpenAudioPrefs, onImportMidi, onExportMidi, onOpenDrummer, onOpenStepSeq, onOpenAudioToMidi, onOpenCompEditor, onOpenSmartControls, onOpenScoreView, onOpenLiveLoops, showToast }: ToolbarProps) {
   const {
     bpm, setBpm, key, setKey,
     isPlaying, isRecording, isLooping, metronomeEnabled, metronomeVolume, setMetronomeVolume,
@@ -150,12 +152,13 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport
     toggleLoop, toggleMetronome, showClawbot, setShowClawbot,
     setZoom, zoom, countIn, snapEnabled, snapValue,
     setSnapEnabled, setSnapValue, inspectorOpen, setInspectorOpen,
-    tracks, activeTool, setActiveTool,
+    tracks, activeTool, setActiveTool, isDirty, name, undo, redo, undoStack, redoStack,
     showGlobalTracks, setShowGlobalTracks,
     punchEnabled, setPunchEnabled, punchIn, setPunchIn, punchOut, setPunchOut,
     cycleRecordEnabled, setCycleRecordEnabled,
   } = useProjectStore()
 
+  const [showProjectManager, setShowProjectManager] = useState(false)
   const bpmRef = useRef<HTMLInputElement>(null)
   const currentBeat = currentTime * (bpm / 60)
 
@@ -195,6 +198,13 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport
   const anyArmed = tracks.some(t => t.armed)
 
   return (
+    <>
+    {showProjectManager && (
+      <ProjectManager
+        onClose={() => setShowProjectManager(false)}
+        showToast={showToast}
+      />
+    )}
     <div className="toolbar">
       {/* Brand */}
       <div className="toolbar-brand">
@@ -204,6 +214,39 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport
         />
         <span className="brand-name">FLOWSTATE</span>
       </div>
+
+      {/* Project save/dirty indicator */}
+      <button
+        className="tbt toolbar-project-btn"
+        onClick={() => setShowProjectManager(true)}
+        title={`Project: ${name}${isDirty ? ' (unsaved changes)' : ''} — Click to open Project Manager`}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 4,
+          padding: '2px 7px', fontSize: 10, maxWidth: 130,
+          borderColor: isDirty ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.08)',
+          color: isDirty ? '#f59e0b' : '#6b7280',
+        }}
+      >
+        <span style={{ fontSize: 11 }}>💾</span>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 80, fontWeight: 600 }}>{name || 'Untitled'}</span>
+        {isDirty && <span style={{ fontSize: 9, color: '#f59e0b' }}>●</span>}
+      </button>
+
+      {/* Undo / Redo */}
+      <button
+        className="tbt"
+        onClick={undo}
+        disabled={undoStack.length === 0}
+        title={`Undo (⌘Z) — ${undoStack.length} steps`}
+        style={{ opacity: undoStack.length === 0 ? 0.3 : 1, fontSize: 11 }}
+      >↩</button>
+      <button
+        className="tbt"
+        onClick={redo}
+        disabled={redoStack.length === 0}
+        title={`Redo (⌘⇧Z) — ${redoStack.length} steps`}
+        style={{ opacity: redoStack.length === 0 ? 0.3 : 1, fontSize: 11 }}
+      >↪</button>
 
       <div className="toolbar-sep" />
 
@@ -546,5 +589,6 @@ export function Toolbar({ onPlay, onPause, onStop, onToStart, onRecord, onExport
         />
       </button>
     </div>
+    </>
   )
 }

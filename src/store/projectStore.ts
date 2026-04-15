@@ -425,6 +425,12 @@ interface Actions {
   saveProject: () => void | Promise<void>
   saveProjectAs: () => void | Promise<void>
   loadProject: () => void | Promise<void>
+  exportProjectJSON: () => void         // Download project as .fsap JSON file
+  importProjectJSON: (file: File) => Promise<void>  // Load project from .fsap JSON file
+  autoSave: () => void                  // Silent autosave to localStorage
+  getSavedProjectNames: () => string[]  // List saved project names from localStorage
+  loadProjectByName: (name: string) => void // Load specific saved project
+  deleteProjectByName: (name: string) => void // Delete saved project
   // Internal helpers (used by save/load and App.tsx)
   _buildSnapshot: () => Record<string, unknown>
   _applySnapshot: (data: Record<string, unknown>) => void
@@ -525,6 +531,7 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
 
   // ── Track actions ──────────────────────────────────────────────────────────
   addTrack: (type) => {
+    get().saveSnapshot()
     const st = get()
     const nonMaster = st.tracks.filter(t => t.type !== 'master')
     const master = st.tracks.find(t => t.type === 'master')
@@ -538,11 +545,14 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
     set({ tracks: [...nonMaster, newTrack, ...(master ? [master] : [])], isDirty: true })
   },
 
-  removeTrack: (id) => set(st => ({
-    tracks: st.tracks.filter(t => t.id !== id),
-    selectedTrackId: st.selectedTrackId === id ? null : st.selectedTrackId,
-    isDirty: true,
-  })),
+  removeTrack: (id) => {
+    get().saveSnapshot()
+    set(st => ({
+      tracks: st.tracks.filter(t => t.id !== id),
+      selectedTrackId: st.selectedTrackId === id ? null : st.selectedTrackId,
+      isDirty: true,
+    }))
+  },
 
   updateTrack: (id, patch) => set(st => ({
     tracks: st.tracks.map(t => t.id === id ? { ...t, ...patch } : t),
@@ -550,6 +560,7 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
   })),
 
   duplicateTrack: (id) => {
+    get().saveSnapshot()
     const st = get()
     const track = st.tracks.find(t => t.id === id)
     if (!track) return
@@ -561,6 +572,7 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
   },
 
   moveTrack: (fromIdx, toIdx) => {
+    get().saveSnapshot()
     const tracks = [...get().tracks]
     const [moved] = tracks.splice(fromIdx, 1)
     tracks.splice(toIdx, 0, moved)
@@ -568,16 +580,22 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
   },
 
   // ── Clip actions ───────────────────────────────────────────────────────────
-  addClip: (clip) => set(st => ({
-    tracks: st.tracks.map(t => t.id === clip.trackId ? { ...t, clips: [...t.clips, clip] } : t),
-    isDirty: true,
-  })),
+  addClip: (clip) => {
+    get().saveSnapshot()
+    set(st => ({
+      tracks: st.tracks.map(t => t.id === clip.trackId ? { ...t, clips: [...t.clips, clip] } : t),
+      isDirty: true,
+    }))
+  },
 
-  removeClip: (id) => set(st => ({
-    tracks: st.tracks.map(t => ({ ...t, clips: t.clips.filter(c => c.id !== id) })),
-    selectedClipIds: st.selectedClipIds.filter(i => i !== id),
-    isDirty: true,
-  })),
+  removeClip: (id) => {
+    get().saveSnapshot()
+    set(st => ({
+      tracks: st.tracks.map(t => ({ ...t, clips: t.clips.filter(c => c.id !== id) })),
+      selectedClipIds: st.selectedClipIds.filter(i => i !== id),
+      isDirty: true,
+    }))
+  },
 
   updateClip: (id, patch) => set(st => ({
     tracks: st.tracks.map(t => ({
@@ -603,23 +621,28 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
     isDirty: true,
   })),
 
-  moveClip: (id, startBeat, newTrackId) => set(st => {
-    let clip: Clip | null = null
-    const tracks = st.tracks.map(t => {
-      const c = t.clips.find(c => c.id === id)
-      if (c) { clip = c; return { ...t, clips: t.clips.filter(c => c.id !== id) } }
-      return t
+  moveClip: (id, startBeat, newTrackId) => {
+    get().saveSnapshot()
+    set(st => {
+      let clip: Clip | null = null
+      const tracks = st.tracks.map(t => {
+        const c = t.clips.find(c => c.id === id)
+        if (c) { clip = c; return { ...t, clips: t.clips.filter(c => c.id !== id) } }
+        return t
+      })
+      if (!clip) return { tracks: st.tracks }
+      const theClip: Clip = clip
+      const finalClip: Clip = { ...theClip, startBeat, trackId: newTrackId }
+      return {
+        tracks: tracks.map(t => t.id === newTrackId ? { ...t, clips: [...t.clips, finalClip] } : t),
+        isDirty: true,
+      }
     })
-    if (!clip) return { tracks: st.tracks }
-    const theClip: Clip = clip
-    const finalClip: Clip = { ...theClip, startBeat, trackId: newTrackId }
-    return {
-      tracks: tracks.map(t => t.id === newTrackId ? { ...t, clips: [...t.clips, finalClip] } : t),
-      isDirty: true,
-    }
-  }),
+  },
 
-  splitClipAtBeat: (clipId, beat) => set(st => {
+  splitClipAtBeat: (clipId, beat) => {
+    get().saveSnapshot()
+    return set(st => {
     console.log('[splitClipAtBeat] Starting split. clipId:', clipId, 'beat:', beat)
     let updated = st.tracks
     for (const track of st.tracks) {
@@ -660,17 +683,20 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
       break
     }
     return { tracks: updated, isDirty: true }
-  }),
+  }) },
 
-  duplicateClip: (id) => set(st => {
-    const tracks = st.tracks.map(t => {
-      const clip = t.clips.find(c => c.id === id)
-      if (!clip) return t
-      const copy: Clip = { ...clip, id: `clip-${Date.now()}`, startBeat: clip.startBeat + clip.durationBeats }
-      return { ...t, clips: [...t.clips, copy] }
+  duplicateClip: (id) => {
+    get().saveSnapshot()
+    set(st => {
+      const tracks = st.tracks.map(t => {
+        const clip = t.clips.find(c => c.id === id)
+        if (!clip) return t
+        const copy: Clip = { ...clip, id: `clip-${Date.now()}`, startBeat: clip.startBeat + clip.durationBeats }
+        return { ...t, clips: [...t.clips, copy] }
+      })
+      return { tracks, isDirty: true }
     })
-    return { tracks, isDirty: true }
-  }),
+  },
 
   // ── Fade actions ───────────────────────────────────────────────────────────
   setClipFadeIn: (clipId, fadeBeats) => set(st => ({
@@ -920,15 +946,21 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
   })),
 
   // ── Plugin actions ─────────────────────────────────────────────────────────
-  addPlugin: (trackId, plugin) => set(st => ({
-    tracks: st.tracks.map(t => t.id === trackId ? { ...t, plugins: [...t.plugins, plugin] } : t),
-    isDirty: true,
-  })),
+  addPlugin: (trackId, plugin) => {
+    get().saveSnapshot()
+    set(st => ({
+      tracks: st.tracks.map(t => t.id === trackId ? { ...t, plugins: [...t.plugins, plugin] } : t),
+      isDirty: true,
+    }))
+  },
 
-  removePlugin: (trackId, pluginId) => set(st => ({
-    tracks: st.tracks.map(t => t.id === trackId ? { ...t, plugins: t.plugins.filter(p => p.id !== pluginId) } : t),
-    isDirty: true,
-  })),
+  removePlugin: (trackId, pluginId) => {
+    get().saveSnapshot()
+    set(st => ({
+      tracks: st.tracks.map(t => t.id === trackId ? { ...t, plugins: t.plugins.filter(p => p.id !== pluginId) } : t),
+      isDirty: true,
+    }))
+  },
 
   updatePlugin: (trackId, pluginId, params) => set(st => ({
     tracks: st.tracks.map(t => t.id === trackId
@@ -1383,4 +1415,77 @@ export const useProjectStore = create<ProjectState & Actions>((set, get) => ({
     sigChanges: st.sigChanges.filter(s => s.id !== id),
     isDirty: true,
   })),
+
+  // ── Export project as downloadable JSON file ──────────────────────────────
+  exportProjectJSON: () => {
+    const snapshot = (get() as any)._buildSnapshot()
+    const projectName = (snapshot.name as string) || 'project'
+    const safeName = projectName.replace(/[^a-zA-Z0-9_\- ]/g, '_').trim() || 'project'
+    const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = `${safeName}.fsap`; a.click()
+    URL.revokeObjectURL(url)
+  },
+
+  // ── Import project from a .fsap JSON file ────────────────────────────────
+  importProjectJSON: async (file: File) => {
+    try {
+      const text = await file.text()
+      const data = JSON.parse(text)
+      if (!data._version) throw new Error('Not a valid Flowstate Audio project file.')
+      ;(get() as any)._applySnapshot(data)
+      console.info('[FS-AUDIO] Project imported from file:', file.name)
+    } catch (err) {
+      alert('Failed to import project: ' + (err as Error).message)
+      console.error('[FS-AUDIO] Import error:', err)
+    }
+  },
+
+  // ── Silent autosave to localStorage ──────────────────────────────────────
+  autoSave: () => {
+    const st = get()
+    if (!st.isDirty) return
+    const snapshot = (st as any)._buildSnapshot()
+    const key = `fs-audio-project-${snapshot.name}`
+    try {
+      localStorage.setItem(key, JSON.stringify(snapshot))
+      localStorage.setItem('fs-audio-last-project', key)
+      localStorage.setItem('fs-audio-autosave-time', Date.now().toString())
+      set({ isDirty: false })
+    } catch (_) {
+      // localStorage quota exceeded — silently ignore
+    }
+  },
+
+  // ── List all saved project names in localStorage ──────────────────────────
+  getSavedProjectNames: () => {
+    const names: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (k && k.startsWith('fs-audio-project-')) {
+        names.push(k.replace('fs-audio-project-', ''))
+      }
+    }
+    return names.sort()
+  },
+
+  // ── Load specific saved project by name ──────────────────────────────────
+  loadProjectByName: (name: string) => {
+    const key = `fs-audio-project-${name}`
+    try {
+      const raw = localStorage.getItem(key)
+      if (!raw) { alert(`Project "${name}" not found.`); return }
+      ;(get() as any)._applySnapshot(JSON.parse(raw))
+      console.info(`[FS-AUDIO] Loaded project: ${name}`)
+    } catch (err) {
+      alert('Failed to load project — data may be corrupted.')
+      console.error('[FS-AUDIO] Load error:', err)
+    }
+  },
+
+  // ── Delete saved project by name ─────────────────────────────────────────
+  deleteProjectByName: (name: string) => {
+    localStorage.removeItem(`fs-audio-project-${name}`)
+  },
 }))

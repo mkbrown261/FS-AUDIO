@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useProjectStore } from '../store/projectStore'
 import { ExportOptions, ExportProgress, LUFS_TARGETS } from '../hooks/useExport'
 import { ClawReleaseModal, isClawReleaseModalDismissed } from './ClawReleaseModal'
+import { downloadMidiFile } from '../utils/midiFile'
 
 interface ExportModalProps {
   isOpen: boolean
@@ -24,6 +25,43 @@ const LUFS_PRESETS = [
 
 export function ExportModal({ isOpen, onClose, onBounce, progress }: ExportModalProps) {
   const { name, loopStart, loopEnd, bpm, bitDepth: projectBD, sampleRate: projectSR, isLooping, tracks } = useProjectStore()
+  const [midiExportStatus, setMidiExportStatus] = useState<'idle' | 'done' | 'empty'>('idle')
+
+  const handleExportMidi = useCallback(() => {
+    const midiTracks = tracks.filter(t => t.type === 'midi' || t.clips.some(c => c.type === 'midi' && c.midiNotes && c.midiNotes.length > 0))
+    if (midiTracks.length === 0) {
+      setMidiExportStatus('empty')
+      return
+    }
+
+    // Collect all MIDI notes from all MIDI clips (with generated ids for export)
+    const allNotes = []
+    for (const track of midiTracks) {
+      for (const clip of track.clips) {
+        if (clip.type === 'midi' && clip.midiNotes) {
+          for (const note of clip.midiNotes) {
+            allNotes.push({
+              id: note.id,
+              pitch: note.pitch,
+              velocity: note.velocity,
+              startBeat: clip.startBeat + note.startBeat,
+              durationBeats: note.durationBeats,
+            })
+          }
+        }
+      }
+    }
+
+    if (allNotes.length === 0) {
+      setMidiExportStatus('empty')
+      return
+    }
+
+    const safeName = (name || 'project').replace(/[^a-z0-9_\- ]/gi, '_')
+    downloadMidiFile(allNotes as any, bpm, `${safeName}_midi.mid`)
+    setMidiExportStatus('done')
+    setTimeout(() => setMidiExportStatus('idle'), 3000)
+  }, [tracks, name, bpm])
 
   // ── ClawFlow Release popup ──────────────────────────────────────────────
   // Fires once after a successful bounce. Shows the Claw Release wizard.
@@ -292,6 +330,50 @@ export function ExportModal({ isOpen, onClose, onBounce, progress }: ExportModal
               />
               <span className="export-ext">.{format}</span>
             </div>
+          </div>
+
+          {/* MIDI Export */}
+          <div className="export-section">
+            <div className="export-section-label" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              MIDI Export
+              <span style={{ fontSize: 9, color: 'var(--text-s)', fontWeight: 400 }}>All MIDI clips → .mid file</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <button
+                onClick={handleExportMidi}
+                style={{
+                  padding: '7px 14px',
+                  background: 'rgba(59,130,246,0.15)',
+                  border: '1px solid rgba(59,130,246,0.35)',
+                  borderRadius: 6,
+                  color: '#60a5fa',
+                  fontSize: 11,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  letterSpacing: '0.4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  transition: 'all 0.15s',
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(59,130,246,0.25)' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(59,130,246,0.15)' }}
+              >
+                <span>🎹</span> EXPORT MIDI (.MID)
+              </button>
+              {midiExportStatus === 'done' && (
+                <span style={{ fontSize: 11, color: '#10b981', fontWeight: 600 }}>✓ MIDI exported!</span>
+              )}
+              {midiExportStatus === 'empty' && (
+                <span style={{ fontSize: 11, color: '#f59e0b', fontWeight: 600 }}>⚠ No MIDI notes found</span>
+              )}
+            </div>
+            {tracks.filter(t => t.clips.some(c => c.type === 'midi' && c.midiNotes?.length)).length > 0 && (
+              <div style={{ fontSize: 10, color: 'var(--text-s)', marginTop: 6 }}>
+                {tracks.filter(t => t.clips.some(c => c.type === 'midi' && c.midiNotes?.length)).length} MIDI track(s) •{' '}
+                {tracks.reduce((acc, t) => acc + t.clips.filter(c => c.type === 'midi').reduce((a, c) => a + (c.midiNotes?.length ?? 0), 0), 0)} total notes
+              </div>
+            )}
           </div>
 
           {/* Progress */}
