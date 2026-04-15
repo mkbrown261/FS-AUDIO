@@ -184,7 +184,7 @@ export default function StepSequencer({ isOpen, onClose, onNoteOn, onNoteOff }: 
       id: `seq-clip-${Date.now()}`,
       trackId: target.id,
       name: `Seq (${numSteps} steps)`,
-      type: 'midi',
+      type: 'midi' as const,
       startBeat,
       durationBeats: numSteps * stepBeats,
       gain: 1,
@@ -192,7 +192,11 @@ export default function StepSequencer({ isOpen, onClose, onNoteOn, onNoteOff }: 
       color: '#a855f7',
       fadeIn: 0,
       fadeOut: 0,
-      looping: false,
+      fadeInCurve: 'linear' as const,
+      fadeOutCurve: 'linear' as const,
+      looped: false,
+      muted: false,
+      aiGenerated: false,
     })
     onClose()
   }, [lanes, numSteps, bpmMult, swing, store, onClose])

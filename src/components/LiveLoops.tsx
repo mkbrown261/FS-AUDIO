@@ -113,15 +113,15 @@ function ClipCell({ cell, onLaunch, onStop }: {
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             maxWidth: 90,
           }}>
-            {cell.clip.name}
+            {cell.clip?.name}
           </div>
           {/* Type badge */}
           <div style={{
             fontSize: 7, padding: '1px 4px', borderRadius: 3,
-            background: cell.clip.type === 'midi' ? '#001a33' : '#1a1a00',
-            color: cell.clip.type === 'midi' ? '#22d3ee' : '#eab308',
+            background: cell.clip?.type === 'midi' ? '#001a33' : '#1a1a00',
+            color: cell.clip?.type === 'midi' ? '#22d3ee' : '#eab308',
           }}>
-            {cell.clip.type.toUpperCase()}
+            {cell.clip?.type?.toUpperCase()}
           </div>
           {/* Playing progress bar */}
           {cell.isPlaying && (

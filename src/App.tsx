@@ -987,7 +987,8 @@ export default function App() {
 
         // ── Duplicate ────────────────────────────────────────────────────
         case 'KeyD':
-          if (meta && !inPianoRoll) {
+          if (meta && e.shiftKey) { e.preventDefault(); setShowDrummer(true) }  // Cmd+Shift+D = Drummer
+          else if (meta && !inPianoRoll) {
             e.preventDefault()
             const ids = useProjectStore.getState().selectedClipIds
             if (ids.length > 0) { store.saveSnapshot(); store.duplicateClip(ids[0]) }
@@ -1122,6 +1123,7 @@ export default function App() {
         // ── Loop ─────────────────────────────────────────────────────────
         case 'KeyL':
           if (!meta) store.toggleLoop()
+          else { e.preventDefault(); setShowLiveLoops(true) }  // Cmd+L = Live Loops
           break
 
         // ── Metronome ────────────────────────────────────────────────────
@@ -1129,6 +1131,7 @@ export default function App() {
           // Only toggle metronome if musical typing is CLOSED
           // (K is used for C5 note in musical typing mode)
           if (!meta && !showMusicalTyping) store.toggleMetronome()
+          else if (meta) { e.preventDefault(); setShowSmartControls(v => !v) }  // Cmd+K = Smart Controls
           break
 
         // ── Inspector ────────────────────────────────────────────────────
@@ -1136,9 +1139,10 @@ export default function App() {
           if (!meta) store.setInspectorOpen(!store.inspectorOpen)
           break
 
-        // ── Tracklist collapse ───────────────────────────────────────────
+        // ── Tracklist collapse / Comp Editor ─────────────────────────────
         case 'KeyT':
           if (!meta) setTracklistWidth(w => w > 40 ? 40 : 220)
+          else { e.preventDefault(); setShowCompEditor(true) }  // Cmd+T = Comp Editor
           break
 
         // ── Clawbot panel ────────────────────────────────────────────────
@@ -1252,21 +1256,9 @@ export default function App() {
           if (meta) { e.preventDefault(); setShowExport(true) }
           break
 
-        // ── New Feature Shortcuts ─────────────────────────────────────────
-        case 'KeyD':
-          if (meta && e.shiftKey) { e.preventDefault(); setShowDrummer(true) }
-          break
-        case 'KeyT':
-          if (meta) { e.preventDefault(); setShowCompEditor(true) }
-          break
-        case 'KeyK':
-          if (meta) { e.preventDefault(); setShowSmartControls(v => !v) }
-          break
+        // ── Score View ───────────────────────────────────────────────────
         case 'Slash':
           if (meta) { e.preventDefault(); setShowScoreView(true) }
-          break
-        case 'KeyL':
-          if (meta) { e.preventDefault(); setShowLiveLoops(true) }
           break
 
         // ── Audio Preferences ─────────────────────────────────────────────

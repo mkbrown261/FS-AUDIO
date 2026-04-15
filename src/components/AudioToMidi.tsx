@@ -36,9 +36,9 @@ function detectOnsets(samples: Float32Array, sampleRate: number, sensitivity: nu
 }
 
 // Simple DFT magnitude (fast enough for short frames)
-function computeMagnitudeSpectrum(frame: Float32Array, fftSize: number): Float32Array {
+function computeMagnitudeSpectrum(frame: Float32Array<ArrayBuffer>, fftSize: number): Float32Array<ArrayBuffer> {
   const half = fftSize / 2
-  const mag = new Float32Array(half)
+  const mag = new Float32Array(half) as Float32Array<ArrayBuffer>
   // Use a simplified power-of-2 DFT approximation for speed
   for (let k = 0; k < half; k++) {
     let re = 0, im = 0
@@ -210,7 +210,7 @@ export default function AudioToMidi({ isOpen, onClose, getAudioBuffer }: Props) 
       id: `a2m-clip-${Date.now()}`,
       trackId: newTrack.id,
       name: 'Audio→MIDI',
-      type: 'midi',
+      type: 'midi' as const,
       startBeat: 0,
       durationBeats,
       gain: 1,
@@ -218,7 +218,11 @@ export default function AudioToMidi({ isOpen, onClose, getAudioBuffer }: Props) 
       color: '#22d3ee',
       fadeIn: 0,
       fadeOut: 0,
-      looping: false,
+      fadeInCurve: 'linear' as const,
+      fadeOutCurve: 'linear' as const,
+      looped: false,
+      muted: false,
+      aiGenerated: false,
     })
     onClose()
   }, [result, store, onClose])
